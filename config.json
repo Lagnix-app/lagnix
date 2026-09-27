@@ -5,5 +5,22 @@
         "width": 1100,
         "height": 700
     },
-    "last_tab": "monitor"
+    "last_tab": "cleanup",
+    "temp_threshold_c": 85,
+    "network_test_history": [
+        {
+            "date": "27.09 20:48",
+            "avg": 17.330809523809524,
+            "jitter": 4.566446601941748,
+            "loss": 2.7777777777777777,
+            "label": "Погано"
+        },
+        {
+            "date": "27.09 20:34",
+            "avg": 19.44474107142857,
+            "jitter": 8.902345454545454,
+            "loss": 0.0,
+            "label": "Добре"
+        }
+    ]
 }
