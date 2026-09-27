@@ -13,7 +13,7 @@ import customtkinter as ctk
 
 from core import installed_programs as programs_core
 from core.cleanup import format_size
-from ui.widgets.cleaner_bot import CleanerBotAnimation
+from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 
 COLUMN_LABELS = {
     "name": "Назва",
@@ -79,13 +79,13 @@ class ProgramsTab(ctk.CTkFrame):
         self._tooltip_row = None
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(4, weight=1)
+        self.grid_rowconfigure(3, weight=1)
 
         self._name_font = tkfont.Font(family="Segoe UI", size=11)
+        self._uninstall_dialog = None
 
         self._build_header()
         self._build_controls()
-        self._build_cleaner_bot()
         self._build_table()
         self._build_footer()
 
@@ -113,16 +113,11 @@ class ProgramsTab(ctk.CTkFrame):
         self.refresh_button = ctk.CTkButton(controls, text="Оновити", width=90, command=self._load)
         self.refresh_button.pack(side="left")
 
-    def _build_cleaner_bot(self):
-        self.cleaner_bot = CleanerBotAnimation(self)
-        self.cleaner_bot.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="ew")
-        self.cleaner_bot.hide()
-
     def _build_table(self):
         style_name = _configure_dark_treeview_style()
 
         container = ctk.CTkFrame(self, fg_color="transparent")
-        container.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="nsew")
+        container.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="nsew")
         container.grid_columnconfigure(0, weight=1)
         container.grid_rowconfigure(0, weight=1)
 
@@ -161,7 +156,7 @@ class ProgramsTab(ctk.CTkFrame):
 
     def _build_footer(self):
         self.total_label = ctk.CTkLabel(self, text="", text_color="gray")
-        self.total_label.grid(row=5, column=0, padx=20, pady=(0, 16), sticky="w")
+        self.total_label.grid(row=4, column=0, padx=20, pady=(0, 16), sticky="w")
 
     # -------------------------------------------------------------- load
 
@@ -378,7 +373,11 @@ class ProgramsTab(ctk.CTkFrame):
             return
 
         key, name = program["key"], program["name"]
-        self.cleaner_bot.start(f"Видаляю {name}…")
+        self._uninstall_dialog = CleanerBotDialog(
+            self.winfo_toplevel(), title="Видалення програми", show_freed_counter=False
+        )
+        self._uninstall_dialog.start(f"Видаляю {name}…")
+        self._uninstall_dialog.set_indeterminate(True)
 
         def watch():
             while process.poll() is None:
@@ -406,10 +405,12 @@ class ProgramsTab(ctk.CTkFrame):
             return
 
         still_present = any(p["key"] == key for p in programs)
-        if still_present:
-            self.cleaner_bot.finish("Видалення скасовано або не завершено", success=False)
-        else:
-            self.cleaner_bot.finish(f"Готово! {name} видалено", success=True)
+        if self._uninstall_dialog is not None:
+            if still_present:
+                self._uninstall_dialog.finish("Видалення скасовано або не завершено", success=False)
+            else:
+                self._uninstall_dialog.finish(f"Готово! {name} видалено", success=True)
+            self._uninstall_dialog = None
 
         self.all_programs = programs
         self._by_key = {p["key"]: p for p in programs}

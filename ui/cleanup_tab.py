@@ -9,7 +9,7 @@ from core import admin as admin_core
 from core import cleanup as cleanup_core
 from core import large_files as large_files_core
 from ui.admin_status import ElevateButton
-from ui.widgets.cleaner_bot import CleanerBotAnimation
+from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 
 
 class CleanupItemRow(ctk.CTkFrame):
@@ -122,8 +122,9 @@ class CleanupTab(ctk.CTkFrame):
             text_color="gray",
         ).pack(padx=6, pady=(0, 14), anchor="w")
 
+        self._clean_dialog = None
+
         self._build_categories()
-        self._build_cleaner_bot()
         self._build_summary_bar()
         self._build_large_files_section()
 
@@ -160,13 +161,6 @@ class CleanupTab(ctk.CTkFrame):
 
     def _on_item_toggle(self, _row: CleanupItemRow):
         self._update_summary()
-
-    # -------------------------------------------------------- cleaner bot
-
-    def _build_cleaner_bot(self):
-        self.cleaner_bot = CleanerBotAnimation(self.scroll)
-        self.cleaner_bot.pack(fill="x", padx=6, pady=(0, 14))
-        self.cleaner_bot.hide()
 
     # ------------------------------------------------------------ summary
 
@@ -249,16 +243,28 @@ class CleanupTab(ctk.CTkFrame):
         self._clean_total_count = len(keys)
         self._clean_done_count = 0
         self._clean_freed_so_far = 0
-        self.cleaner_bot.start("Прибираю…")
+        self._clean_key_labels = {row.target["key"]: row.target["label"] for row in selected_rows}
+
+        self._clean_dialog = CleanerBotDialog(self.winfo_toplevel(), title="Очищення")
+        self._clean_dialog.start(f"Очищаю: {self._clean_key_labels[keys[0]]}…")
 
         def worker():
+            def on_item_start(key):
+                self.after(0, self._on_clean_item_start, key)
+
             def progress(key, result):
                 self.after(0, self._on_clean_progress, key, result)
 
-            summary = cleanup_core.clean_many(keys, progress_cb=progress)
+            summary = cleanup_core.clean_many(keys, progress_cb=progress, start_cb=on_item_start)
             self.after(0, self._on_clean_done, summary)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _on_clean_item_start(self, key):
+        if not self.winfo_exists() or self._clean_dialog is None:
+            return
+        label = self._clean_key_labels.get(key, key)
+        self._clean_dialog.set_status(f"Очищаю: {label}…")
 
     def _on_clean_progress(self, key, result):
         if not self.winfo_exists():
@@ -269,15 +275,19 @@ class CleanupTab(ctk.CTkFrame):
 
         self._clean_done_count += 1
         self._clean_freed_so_far += result.get("freed_bytes", 0)
-        freed_text = cleanup_core.format_size(self._clean_freed_so_far)
-        progress_fraction = self._clean_done_count / self._clean_total_count
-        self.cleaner_bot.update(f"Прибираю… звільнено {freed_text}", progress_fraction)
+        if self._clean_dialog is not None:
+            freed_text = cleanup_core.format_size(self._clean_freed_so_far)
+            progress_fraction = self._clean_done_count / self._clean_total_count
+            self._clean_dialog.set_progress(progress_fraction, freed_text)
 
     def _on_clean_done(self, summary: dict):
         if not self.winfo_exists():
             return
         freed_text = cleanup_core.format_size(summary["freed_bytes"])
-        self.cleaner_bot.finish(f"Готово! Звільнено {freed_text}")
+        text = f"Готово! Звільнено {freed_text}, пропущено {summary['skipped_count']} файлів"
+        if self._clean_dialog is not None:
+            self._clean_dialog.finish(text, success=True)
+            self._clean_dialog = None
         self._scan_all()
 
     # ------------------------------------------------------- large files

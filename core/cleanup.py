@@ -446,12 +446,14 @@ def clean_target(key: str, running_processes: set[str] | None = None) -> dict:
     return result
 
 
-def clean_many(keys: list[str], progress_cb=None) -> dict:
+def clean_many(keys: list[str], progress_cb=None, start_cb=None) -> dict:
     running = get_running_process_name_set()
     total_freed = total_deleted = total_skipped = 0
     results = {}
 
     for key in keys:
+        if start_cb:
+            start_cb(key)
         result = clean_target(key, running_processes=running)
         results[key] = result
         total_freed += result["freed_bytes"]
