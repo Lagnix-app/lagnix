@@ -12,6 +12,7 @@ import os
 import tempfile
 import winreg
 
+from core.admin import is_admin
 from core.game_mode import get_running_process_name_set
 
 WINDOWS_TEMP_PATH = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "Temp")
@@ -216,13 +217,6 @@ def _find_target(key: str) -> dict | None:
         if target["key"] == key:
             return target
     return None
-
-
-def is_admin() -> bool:
-    try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except (AttributeError, OSError):
-        return False
 
 
 def _query_recycle_bin() -> dict | None:

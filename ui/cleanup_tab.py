@@ -5,8 +5,10 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
+from core import admin as admin_core
 from core import cleanup as cleanup_core
 from core import large_files as large_files_core
+from ui.admin_status import ElevateButton
 
 
 class CleanupItemRow(ctk.CTkFrame):
@@ -17,6 +19,8 @@ class CleanupItemRow(ctk.CTkFrame):
         self.target = target
         self.scan_result = None
         self._on_toggle = on_toggle
+
+        self.elevate_button = None
 
         self.var = ctk.BooleanVar(value=False)
         self.checkbox = ctk.CTkCheckBox(
@@ -63,6 +67,14 @@ class CleanupItemRow(ctk.CTkFrame):
         self.checkbox.configure(state="normal" if cleanable else "disabled")
         if not cleanable:
             self.var.set(False)
+
+        needs_elevation = (result["admin_blocked"] or result["access_denied"]) and not admin_core.is_admin()
+        if needs_elevation and self.elevate_button is None:
+            self.elevate_button = ElevateButton(self)
+            self.elevate_button.pack(anchor="w", padx=(28, 0), pady=(4, 0))
+        elif not needs_elevation and self.elevate_button is not None:
+            self.elevate_button.destroy()
+            self.elevate_button = None
 
     def is_selected(self) -> bool:
         return bool(self.scan_result) and self.var.get()

@@ -12,6 +12,7 @@ from ui.autostart_tab import AutostartTab
 from ui.registry_tweaks_tab import RegistryTweaksTab
 from ui.system_tab import SystemTab
 from ui.settings_tab import SettingsTab
+from ui.admin_status import AdminStatusPanel
 
 TABS = (
     ("monitor", "Монітор", MonitorTab),
@@ -56,7 +57,8 @@ class MainWindow(ctk.CTk):
     def _build_sidebar(self):
         sidebar = ctk.CTkFrame(self, width=220, corner_radius=0)
         sidebar.grid(row=0, column=0, sticky="nswe")
-        sidebar.grid_rowconfigure(len(TABS) + 1, weight=1)
+        spacer_row = len(TABS) + 1
+        sidebar.grid_rowconfigure(spacer_row, weight=1)
 
         logo_label = ctk.CTkLabel(
             sidebar,
@@ -77,6 +79,9 @@ class MainWindow(ctk.CTk):
             )
             button.grid(row=index, column=0, padx=10, pady=4, sticky="ew")
             self.nav_buttons[key] = button
+
+        admin_panel = AdminStatusPanel(sidebar)
+        admin_panel.grid(row=spacer_row + 1, column=0, padx=14, pady=(6, 16), sticky="ew")
 
     def _build_content_area(self):
         self.content_area = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
