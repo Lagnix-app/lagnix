@@ -9,6 +9,7 @@ from core import admin as admin_core
 from core import cleanup as cleanup_core
 from core import large_files as large_files_core
 from ui.admin_status import ElevateButton
+from ui.widgets.cleaner_bot import CleanerBotAnimation
 
 
 class CleanupItemRow(ctk.CTkFrame):
@@ -122,6 +123,7 @@ class CleanupTab(ctk.CTkFrame):
         ).pack(padx=6, pady=(0, 14), anchor="w")
 
         self._build_categories()
+        self._build_cleaner_bot()
         self._build_summary_bar()
         self._build_large_files_section()
 
@@ -158,6 +160,13 @@ class CleanupTab(ctk.CTkFrame):
 
     def _on_item_toggle(self, _row: CleanupItemRow):
         self._update_summary()
+
+    # -------------------------------------------------------- cleaner bot
+
+    def _build_cleaner_bot(self):
+        self.cleaner_bot = CleanerBotAnimation(self.scroll)
+        self.cleaner_bot.pack(fill="x", padx=6, pady=(0, 14))
+        self.cleaner_bot.hide()
 
     # ------------------------------------------------------------ summary
 
@@ -237,6 +246,11 @@ class CleanupTab(ctk.CTkFrame):
         for row in selected_rows:
             row.set_busy()
 
+        self._clean_total_count = len(keys)
+        self._clean_done_count = 0
+        self._clean_freed_so_far = 0
+        self.cleaner_bot.start("Прибираю…")
+
         def worker():
             def progress(key, result):
                 self.after(0, self._on_clean_progress, key, result)
@@ -253,17 +267,17 @@ class CleanupTab(ctk.CTkFrame):
         if row:
             row.show_clean_result(result)
 
+        self._clean_done_count += 1
+        self._clean_freed_so_far += result.get("freed_bytes", 0)
+        freed_text = cleanup_core.format_size(self._clean_freed_so_far)
+        progress_fraction = self._clean_done_count / self._clean_total_count
+        self.cleaner_bot.update(f"Прибираю… звільнено {freed_text}", progress_fraction)
+
     def _on_clean_done(self, summary: dict):
         if not self.winfo_exists():
             return
         freed_text = cleanup_core.format_size(summary["freed_bytes"])
-        messagebox.showinfo(
-            "Очищення завершено",
-            f"Звільнено {freed_text}.\n"
-            f"Видалено об'єктів: {summary['deleted_count']}\n"
-            f"Пропущено: {summary['skipped_count']}",
-            parent=self,
-        )
+        self.cleaner_bot.finish(f"Готово! Звільнено {freed_text}")
         self._scan_all()
 
     # ------------------------------------------------------- large files

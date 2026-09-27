@@ -4,6 +4,7 @@
 
 import os
 import threading
+import time
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, ttk
@@ -12,6 +13,7 @@ import customtkinter as ctk
 
 from core import installed_programs as programs_core
 from core.cleanup import format_size
+from ui.widgets.cleaner_bot import CleanerBotAnimation
 
 COLUMN_LABELS = {
     "name": "Назва",
@@ -77,12 +79,13 @@ class ProgramsTab(ctk.CTkFrame):
         self._tooltip_row = None
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1)
+        self.grid_rowconfigure(4, weight=1)
 
         self._name_font = tkfont.Font(family="Segoe UI", size=11)
 
         self._build_header()
         self._build_controls()
+        self._build_cleaner_bot()
         self._build_table()
         self._build_footer()
 
@@ -110,11 +113,16 @@ class ProgramsTab(ctk.CTkFrame):
         self.refresh_button = ctk.CTkButton(controls, text="Оновити", width=90, command=self._load)
         self.refresh_button.pack(side="left")
 
+    def _build_cleaner_bot(self):
+        self.cleaner_bot = CleanerBotAnimation(self)
+        self.cleaner_bot.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.cleaner_bot.hide()
+
     def _build_table(self):
         style_name = _configure_dark_treeview_style()
 
         container = ctk.CTkFrame(self, fg_color="transparent")
-        container.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="nsew")
+        container.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="nsew")
         container.grid_columnconfigure(0, weight=1)
         container.grid_rowconfigure(0, weight=1)
 
@@ -153,7 +161,7 @@ class ProgramsTab(ctk.CTkFrame):
 
     def _build_footer(self):
         self.total_label = ctk.CTkLabel(self, text="", text_color="gray")
-        self.total_label.grid(row=4, column=0, padx=20, pady=(0, 16), sticky="w")
+        self.total_label.grid(row=5, column=0, padx=20, pady=(0, 16), sticky="w")
 
     # -------------------------------------------------------------- load
 
@@ -364,16 +372,49 @@ class ProgramsTab(ctk.CTkFrame):
         if not confirmed:
             return
 
-        ok, error = programs_core.uninstall_program(program["uninstall_string"])
-        if not ok:
+        process, error = programs_core.uninstall_program(program["uninstall_string"])
+        if process is None:
             messagebox.showerror("Помилка", f"Не вдалося запустити видалення:\n{error}", parent=self)
             return
 
-        messagebox.showinfo(
-            "Видалення розпочато",
-            "Дотримуйтесь інструкцій майстра видалення. Після завершення натисніть «Оновити».",
-            parent=self,
-        )
+        key, name = program["key"], program["name"]
+        self.cleaner_bot.start(f"Видаляю {name}…")
+
+        def watch():
+            while process.poll() is None:
+                if not self.winfo_exists():
+                    return
+                time.sleep(0.4)
+            if self.winfo_exists():
+                self.after(0, self._on_uninstall_process_done, key, name)
+
+        threading.Thread(target=watch, daemon=True).start()
+
+    def _on_uninstall_process_done(self, key: str, name: str):
+        if not self.winfo_exists():
+            return
+
+        def worker():
+            programs = programs_core.list_installed_programs()
+            if self.winfo_exists():
+                self.after(0, self._on_uninstall_checked, key, name, programs)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_uninstall_checked(self, key: str, name: str, programs: list[dict]):
+        if not self.winfo_exists():
+            return
+
+        still_present = any(p["key"] == key for p in programs)
+        if still_present:
+            self.cleaner_bot.finish("Видалення скасовано або не завершено", success=False)
+        else:
+            self.cleaner_bot.finish(f"Готово! {name} видалено", success=True)
+
+        self.all_programs = programs
+        self._by_key = {p["key"]: p for p in programs}
+        self._refresh_list()
+        self._start_size_computation()
 
     def _open_install_folder(self, row_id: str):
         program = self._displayed.get(row_id)

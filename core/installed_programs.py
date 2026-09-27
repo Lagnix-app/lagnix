@@ -272,13 +272,17 @@ def compute_folder_size(path: str) -> int:
     return total
 
 
-def uninstall_program(uninstall_string: str) -> tuple[bool, str]:
-    """Запускає офіційний UninstallString програми як є, без модифікацій."""
+def uninstall_program(uninstall_string: str) -> tuple[subprocess.Popen | None, str]:
+    """Запускає офіційний UninstallString програми як є, без модифікацій.
+
+    Повертає об'єкт процесу, щоб виклик міг у фоні дочекатись завершення
+    деінсталятора (process.poll()), або None з описом помилки.
+    """
     if not uninstall_string:
-        return False, "Немає команди видалення"
+        return None, "Немає команди видалення"
 
     try:
-        subprocess.Popen(uninstall_string, shell=True, creationflags=_NO_WINDOW)
-        return True, ""
+        process = subprocess.Popen(uninstall_string, shell=True, creationflags=_NO_WINDOW)
+        return process, ""
     except OSError as exc:
-        return False, str(exc)
+        return None, str(exc)
