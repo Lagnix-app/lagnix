@@ -141,7 +141,7 @@ class NetworkTab(ctk.CTkFrame):
         controls.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
 
         self.custom_entry = ctk.CTkEntry(
-            controls, placeholder_text="Власна адреса (напр. ya.ru)", width=260
+            controls, placeholder_text="Власна адреса (напр. google.com)", width=260
         )
         self.custom_entry.pack(side="left", padx=(0, 10))
 
