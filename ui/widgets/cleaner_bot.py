@@ -40,6 +40,7 @@ class CleanerBotAnimation(ctk.CTkFrame):
         self._canvas_h = height
         self._elapsed = 0.0
         self._state = "hidden"  # hidden | running | finishing | shrug
+        self._tool = "broom"  # broom | scan
         self._after_id = None
         self._hide_after_id = None
         self._particles: list[dict] = []
@@ -64,11 +65,16 @@ class CleanerBotAnimation(ctk.CTkFrame):
 
     # ------------------------------------------------------------ public
 
-    def start(self, text: str) -> None:
-        """Показує анімацію й переходить у стан «прибирання»."""
+    def start(self, text: str, tool: str = "broom") -> None:
+        """Показує анімацію й переходить у стан «прибирання».
+
+        tool="scan" перемикає робота в «режим вимірювання»: замітку заміняє
+        антена з пульсуючими хвилями сигналу (для мережевих тестів).
+        """
         self._capture_geometry()
         self._reappear()
         self._state = "running"
+        self._tool = tool
         self._elapsed = 0.0
         self._particles.clear()
         self._spawn_timers = {"dust": 0.0, "file": 0.0, "spark": 0.0}
@@ -209,25 +215,26 @@ class CleanerBotAnimation(ctk.CTkFrame):
         w = max(self._canvas_w, 60)
         h = max(self._canvas_h, 60)
 
-        self._spawn_timers["dust"] -= dt
-        if self._spawn_timers["dust"] <= 0 and self._count("dust") < 5:
-            x, y = self._random_spot(w, h, 48)
-            self._particles.append({
-                "kind": "dust", "x": x, "y": y, "life": 0.0,
-                "max_life": random.uniform(0.8, 1.3), "size": random.uniform(3, 6),
-                "color": "#5a6472",
-            })
-            self._spawn_timers["dust"] = random.uniform(0.4, 0.9)
+        if self._tool == "broom":
+            self._spawn_timers["dust"] -= dt
+            if self._spawn_timers["dust"] <= 0 and self._count("dust") < 5:
+                x, y = self._random_spot(w, h, 48)
+                self._particles.append({
+                    "kind": "dust", "x": x, "y": y, "life": 0.0,
+                    "max_life": random.uniform(0.8, 1.3), "size": random.uniform(3, 6),
+                    "color": "#5a6472",
+                })
+                self._spawn_timers["dust"] = random.uniform(0.4, 0.9)
 
-        self._spawn_timers["file"] -= dt
-        if self._spawn_timers["file"] <= 0 and self._count("file") < 3:
-            x, y = self._random_spot(w, h, 54)
-            self._particles.append({
-                "kind": "file", "x": x, "y": y, "life": 0.0,
-                "max_life": random.uniform(1.2, 1.8), "size": random.uniform(9, 13),
-                "color": random.choice(_FILE_COLORS),
-            })
-            self._spawn_timers["file"] = random.uniform(1.0, 1.9)
+            self._spawn_timers["file"] -= dt
+            if self._spawn_timers["file"] <= 0 and self._count("file") < 3:
+                x, y = self._random_spot(w, h, 54)
+                self._particles.append({
+                    "kind": "file", "x": x, "y": y, "life": 0.0,
+                    "max_life": random.uniform(1.2, 1.8), "size": random.uniform(9, 13),
+                    "color": random.choice(_FILE_COLORS),
+                })
+                self._spawn_timers["file"] = random.uniform(1.0, 1.9)
 
         self._spawn_timers["spark"] -= dt
         if self._spawn_timers["spark"] <= 0 and self._count("spark") < 6:
@@ -381,7 +388,7 @@ class CleanerBotAnimation(ctk.CTkFrame):
         c.create_oval(cx - light_r, cy - radius - 12 - light_r, cx + light_r, cy - radius - 12 + light_r,
                       fill=light_color, outline="")
 
-        self._draw_arms_and_broom(c, cx, cy, radius, state, t)
+        self._draw_arms_and_tool(c, cx, cy, radius, state, t)
 
         # екран-обличчя
         panel_w, panel_h = 30, 20
@@ -403,8 +410,8 @@ class CleanerBotAnimation(ctk.CTkFrame):
             c.create_arc(cx - 6, py + 1, cx + 6, py + 8, start=200, extent=140,
                         style="arc", outline=_EYE_COLOR, width=2)
 
-    def _draw_arms_and_broom(self, c: tk.Canvas, cx: float, cy: float, radius: float,
-                              state: str, t: float) -> None:
+    def _draw_arms_and_tool(self, c: tk.Canvas, cx: float, cy: float, radius: float,
+                             state: str, t: float) -> None:
         if state == "shrug":
             for side in (-1, 1):
                 sx, sy = cx + side * (radius - 6), cy + 6
@@ -416,8 +423,13 @@ class CleanerBotAnimation(ctk.CTkFrame):
         lx, ly = cx - (radius - 6), cy + 6
         c.create_line(lx, ly, lx - 9, ly + 10, fill=_BODY_DARK, width=4, capstyle="round")
 
-        # права рука тримає мітлу, що замітає
         rx, ry = cx + (radius - 6), cy + 6
+
+        if self._tool == "scan":
+            self._draw_antenna(c, rx, ry, state, t)
+            return
+
+        # права рука тримає мітлу, що замітає
         if state == "running":
             angle = math.radians(45 + math.sin(t * 5.0) * 28)
         else:
@@ -444,3 +456,27 @@ class CleanerBotAnimation(ctk.CTkFrame):
             deg = math.degrees(angle)
             c.create_arc(tip_x - 13, tip_y - 13, tip_x + 13, tip_y + 13,
                         start=deg - 35, extent=25, style="arc", outline="#4a5568")
+
+    def _draw_antenna(self, c: tk.Canvas, rx: float, ry: float, state: str, t: float) -> None:
+        """Права рука тримає антену з пульсуючими хвилями сигналу («режим вимірювання»)."""
+        angle = math.radians(80 + math.sin(t * 1.6) * 6)
+
+        hand_x = rx + math.cos(angle) * 20
+        hand_y = ry - math.sin(angle) * 20
+        c.create_line(rx, ry, hand_x, hand_y, fill=_BODY_DARK, width=4, capstyle="round")
+
+        tip_x = rx + math.cos(angle) * 34
+        tip_y = ry - math.sin(angle) * 34
+        c.create_line(hand_x, hand_y, tip_x, tip_y, fill="#8a94a6", width=3, capstyle="round")
+        c.create_oval(tip_x - 5, tip_y - 5, tip_x + 5, tip_y + 5, fill=_ACCENT_GREEN, outline="")
+
+        if state != "running":
+            return
+
+        for i in range(3):
+            phase = ((t * 1.3) + i / 3) % 1.0
+            r = 6 + phase * 22
+            if phase >= 0.92:
+                continue
+            c.create_arc(tip_x - r, tip_y - r, tip_x + r, tip_y + r,
+                        start=25, extent=130, style="arc", outline=_ACCENT_GREEN)

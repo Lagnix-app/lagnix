@@ -8,6 +8,8 @@ import threading
 from collections import deque
 from statistics import mean
 
+from core.settings import load_settings, save_settings
+
 try:
     from icmplib import ping as _icmp_ping
     from icmplib import ICMPLibError, SocketPermissionError
@@ -28,6 +30,11 @@ _TIME_RE = re.compile(
 DEFAULT_INTERVAL_SEC = 1.0
 DEFAULT_TIMEOUT_MS = 1000
 HISTORY_SIZE = 60
+
+TEST_DURATION_SEC = 30
+TEST_INTERVAL_SEC = 0.5
+TEST_HISTORY_KEY = "network_test_history"
+TEST_HISTORY_MAX = 10
 
 # icmplib недоступний (не встановлений або немає прав) — вимикаємо на весь
 # процес після першої невдачі, щоб не намагатись на кожному пінгу.
@@ -139,6 +146,10 @@ class PingWorker:
     def stop(self) -> None:
         self._stop_event.set()
 
+    @property
+    def history(self) -> list:
+        return list(self._history)
+
     def _run(self) -> None:
         while not self._stop_event.is_set():
             latency = ping_once(self.host, self._timeout_ms)
@@ -151,3 +162,123 @@ class PingWorker:
             self._on_update(self.host, latency, stats)
 
             self._stop_event.wait(self._interval)
+
+
+# ------------------------------------------------------------- тест мережі
+
+def aggregate_stats(histories: list) -> dict:
+    """Об'єднує історії пінгу кількох хостів у підсумкову статистику тесту:
+    середній/мін/макс пінг, джитер і % втрат по всіх хостах разом.
+    """
+    total = sum(len(h) for h in histories)
+    successes = [v for h in histories for v in h if v is not None]
+
+    if not successes:
+        return {
+            "avg": None, "min": None, "max": None,
+            "jitter": None, "loss_percent": 100.0 if total else 0.0,
+        }
+
+    diffs = []
+    for h in histories:
+        values = [v for v in h if v is not None]
+        diffs.extend(abs(values[i] - values[i - 1]) for i in range(1, len(values)))
+
+    return {
+        "avg": mean(successes),
+        "min": min(successes),
+        "max": max(successes),
+        "jitter": mean(diffs) if diffs else 0.0,
+        "loss_percent": (total - len(successes)) / total * 100 if total else 0.0,
+    }
+
+
+RATING_LABELS = ("Відмінно", "Добре", "Задовільно", "Погано")
+RATING_COLORS = ("#2fa572", "#d4b106", "#e0a52f", "#e05252")
+RATING_COLOR_BY_LABEL = dict(zip(RATING_LABELS, RATING_COLORS))
+
+
+def _ping_level(avg: float | None) -> int:
+    if avg is None:
+        return 3
+    if avg < 30:
+        return 0
+    if avg < 60:
+        return 1
+    if avg < 100:
+        return 2
+    return 3
+
+
+def _jitter_level(jitter: float | None) -> int:
+    if jitter is None:
+        return 3
+    if jitter < 5:
+        return 0
+    if jitter <= 15:
+        return 1
+    return 3
+
+
+def _loss_level(loss_percent: float) -> int:
+    if loss_percent <= 0:
+        return 0
+    if loss_percent < 1:
+        return 1
+    if loss_percent <= 2:
+        return 2
+    return 3
+
+
+def rate_test(stats: dict) -> dict:
+    """Оцінює якість мережі для онлайн-ігор за підсумковою статистикою тесту:
+    рівень (0=відмінно..3=погано) — найгірший з пінгу/джитеру/втрат, і 2-3
+    короткі висновки простими словами.
+    """
+    ping_level = _ping_level(stats["avg"])
+    jitter_level = _jitter_level(stats["jitter"])
+    loss_level = _loss_level(stats["loss_percent"])
+    level = max(ping_level, jitter_level, loss_level)
+
+    notes = []
+    if ping_level == 0:
+        notes.append("Пінг чудовий — для онлайн-ігор ідеально.")
+    elif ping_level == 1:
+        notes.append("Пінг цілком прийнятний для більшості онлайн-ігор.")
+    elif ping_level == 2:
+        notes.append("Пінг трохи високий — у швидких іграх можуть відчуватись затримки.")
+    else:
+        notes.append("Пінг дуже високий — у динамічних іграх це відчуватиметься як лаги.")
+
+    if jitter_level == 1:
+        notes.append("Є невеликі стрибки пінгу — зрідка можливі короткі лаги.")
+    elif jitter_level == 3:
+        notes.append("Є стрибки пінгу — можливі лаги, спробуй кабель замість Wi-Fi.")
+
+    if loss_level in (1, 2):
+        notes.append("Трохи втрачаються пакети — стеж за з'єднанням у важливих матчах.")
+    elif loss_level == 3:
+        notes.append("Втрачаються пакети — перевір роутер або зверніться до провайдера.")
+
+    return {
+        "level": level,
+        "label": RATING_LABELS[level],
+        "color": RATING_COLORS[level],
+        "notes": notes[:3],
+    }
+
+
+def load_test_history() -> list:
+    settings = load_settings()
+    return list(settings.get(TEST_HISTORY_KEY, []))
+
+
+def save_test_result(entry: dict) -> list:
+    """Додає результат тесту на початок історії та зберігає останні TEST_HISTORY_MAX."""
+    settings = load_settings()
+    history = list(settings.get(TEST_HISTORY_KEY, []))
+    history.insert(0, entry)
+    history = history[:TEST_HISTORY_MAX]
+    settings[TEST_HISTORY_KEY] = history
+    save_settings(settings)
+    return history
