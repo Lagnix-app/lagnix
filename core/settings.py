@@ -12,7 +12,8 @@ DEFAULT_SETTINGS = {
         "width": 1100,
         "height": 700
     },
-    "last_tab": "monitor"
+    "last_tab": "monitor",
+    "temp_threshold_c": 85
 }
 
 
