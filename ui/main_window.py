@@ -7,6 +7,7 @@ from ui.monitor_tab import MonitorTab
 from ui.game_mode_tab import GameModeTab
 from ui.network_tab import NetworkTab
 from ui.cleanup_tab import CleanupTab
+from ui.programs_tab import ProgramsTab
 from ui.autostart_tab import AutostartTab
 from ui.registry_tweaks_tab import RegistryTweaksTab
 from ui.system_tab import SystemTab
@@ -17,6 +18,7 @@ TABS = (
     ("game_mode", "Ігровий режим", GameModeTab),
     ("network", "Мережа", NetworkTab),
     ("cleanup", "Очищення", CleanupTab),
+    ("programs", "Програми", ProgramsTab),
     ("autostart", "Автозапуск", AutostartTab),
     ("registry_tweaks", "Твіки реєстру", RegistryTweaksTab),
     ("system", "Система", SystemTab),
