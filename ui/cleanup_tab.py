@@ -60,6 +60,9 @@ class CleanupCard(ctk.CTkFrame):
         if not result["exists"]:
             self.status_label.configure(text="Папка недоступна", text_color="gray")
             self.clean_button.configure(state="disabled")
+        elif result["access_denied"]:
+            self.status_label.configure(text="Потрібні права адміністратора", text_color="#e0a52f")
+            self.clean_button.configure(state="disabled")
         elif result["file_count"] == 0:
             self.status_label.configure(text="Немає файлів для очищення", text_color="gray")
             self.clean_button.configure(state="disabled")
@@ -72,15 +75,12 @@ class CleanupCard(ctk.CTkFrame):
             self.clean_button.configure(state="normal")
 
     def show_clean_result(self, result: dict) -> None:
-        self.scan_button.configure(state="normal")
-        self.clean_button.configure(state="disabled")
-
         freed_text = cleanup_core.format_size(result["freed_bytes"])
-        message = f"Звільнено {freed_text} · видалено {result['deleted_count']} файлів"
-        if result["skipped_count"]:
-            message += f", пропущено {result['skipped_count']} (зайняті)"
+        message = (
+            f"Звільнено {freed_text} · видалено {result['deleted_count']}, "
+            f"пропущено {result['skipped_count']} (зайняті)"
+        )
         self.result_label.configure(text=message, text_color="#2fa572")
-        self.status_label.configure(text="Немає файлів для очищення", text_color="gray")
 
 
 class CleanupTab(ctk.CTkFrame):
@@ -155,3 +155,4 @@ class CleanupTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         card.show_clean_result(result)
+        self._scan(card)

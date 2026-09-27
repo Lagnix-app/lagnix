@@ -11,14 +11,19 @@ WINDOWS_TEMP_PATH = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "T
 
 
 def get_targets() -> list[dict]:
-    """Список цілей очищення: user-temp завжди, Windows\\Temp — лише якщо є доступ на читання."""
+    """Список цілей очищення: user-temp завжди, Windows\\Temp — якщо папка існує.
+
+    Windows\\Temp показується навіть без прав адміністратора — реальну
+    доступність визначає scan_target() (os.access() на цю папку ненадійний:
+    часто повертає True, хоча вміст усе одно недоступний для не-адмінів).
+    """
     targets = [{
         "key": "user_temp",
         "label": "Тимчасові файли користувача (%TEMP%)",
         "path": os.path.abspath(tempfile.gettempdir()),
     }]
 
-    if os.path.isdir(WINDOWS_TEMP_PATH) and os.access(WINDOWS_TEMP_PATH, os.R_OK):
+    if os.path.isdir(WINDOWS_TEMP_PATH):
         targets.append({
             "key": "windows_temp",
             "label": f"Тимчасові файли Windows ({WINDOWS_TEMP_PATH})",
@@ -36,14 +41,32 @@ def _target_path(key: str) -> str | None:
 
 
 def scan_target(key: str) -> dict:
-    """Рахує сумарний розмір і кількість файлів цілі. Недоступні файли просто пропускаються."""
+    """Рахує сумарний розмір і кількість файлів цілі.
+
+    Розрізняє «папка справді порожня» від «немає прав на її вміст»
+    (access_denied=True) — окремі недоступні файли/підпапки просто
+    пропускаються і на access_denied не впливають, якщо щось інше знайдено.
+    """
     path = _target_path(key)
     if path is None:
-        return {"key": key, "path": None, "exists": False, "size_bytes": 0, "file_count": 0}
+        return {"key": key, "path": None, "exists": False, "access_denied": False,
+                 "size_bytes": 0, "file_count": 0}
+
+    try:
+        os.listdir(path)
+    except OSError:
+        return {"key": key, "path": path, "exists": True, "access_denied": True,
+                 "size_bytes": 0, "file_count": 0}
 
     total_size = 0
     file_count = 0
-    for root, _dirs, files in os.walk(path, onerror=lambda e: None):
+    denied_dirs = 0
+
+    def _on_error(_exc):
+        nonlocal denied_dirs
+        denied_dirs += 1
+
+    for root, _dirs, files in os.walk(path, onerror=_on_error):
         for name in files:
             try:
                 total_size += os.path.getsize(os.path.join(root, name))
@@ -51,7 +74,10 @@ def scan_target(key: str) -> dict:
             except OSError:
                 continue
 
-    return {"key": key, "path": path, "exists": True, "size_bytes": total_size, "file_count": file_count}
+    access_denied = file_count == 0 and denied_dirs > 0
+
+    return {"key": key, "path": path, "exists": True, "access_denied": access_denied,
+             "size_bytes": total_size, "file_count": file_count}
 
 
 def clean_target(key: str) -> dict:
