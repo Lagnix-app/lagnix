@@ -11,33 +11,56 @@ from core import large_files as large_files_core
 from ui.admin_status import ElevateButton
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 
+RECOMMENDED_CATEGORIES = {
+    cleanup_core.CAT_TEMP,
+    cleanup_core.CAT_BROWSERS,
+    cleanup_core.CAT_APPS,
+    cleanup_core.CAT_THUMBNAILS,
+}
+
 
 class CleanupItemRow(ctk.CTkFrame):
-    """Один рядок цілі очищення: чекбокс, розмір, статус/примітка."""
+    """Один рядок цілі очищення: чекбокс, розмір, статус/примітка, кнопка «Очистити»."""
 
-    def __init__(self, master, target: dict, on_toggle):
+    def __init__(self, master, target: dict, on_toggle, on_clean_one):
         super().__init__(master, fg_color="transparent")
         self.target = target
         self.scan_result = None
+        self._cleanable = False
         self._on_toggle = on_toggle
+        self._on_clean_one = on_clean_one
 
         self.elevate_button = None
 
+        self.grid_columnconfigure(0, weight=1)
+
+        text_frame = ctk.CTkFrame(self, fg_color="transparent")
+        text_frame.grid(row=0, column=0, sticky="w")
+        self._text_frame = text_frame
+
         self.var = ctk.BooleanVar(value=False)
         self.checkbox = ctk.CTkCheckBox(
-            self, text=target["label"], variable=self.var, state="disabled",
+            text_frame, text=target["label"], variable=self.var, state="disabled",
             command=lambda: self._on_toggle(self),
         )
         self.checkbox.pack(anchor="w")
 
-        self.status_label = ctk.CTkLabel(self, text="Сканування...", text_color="gray", font=ctk.CTkFont(size=11))
+        self.status_label = ctk.CTkLabel(
+            text_frame, text="Сканування...", text_color="gray", font=ctk.CTkFont(size=11)
+        )
         self.status_label.pack(anchor="w", padx=(28, 0))
 
         if target.get("note"):
             ctk.CTkLabel(
-                self, text=target["note"], text_color="#e0a52f", font=ctk.CTkFont(size=10),
+                text_frame, text=target["note"], text_color="#e0a52f", font=ctk.CTkFont(size=10),
                 wraplength=320, justify="left",
             ).pack(anchor="w", padx=(28, 0))
+
+        self.clean_one_button = ctk.CTkButton(
+            self, text="Очистити", width=88, height=26, font=ctk.CTkFont(size=11),
+            state="disabled", command=lambda: self._on_clean_one(self),
+        )
+        self.clean_one_button.grid(row=0, column=1, padx=(8, 0), sticky="e")
 
     def apply_scan(self, result: dict) -> None:
         self.scan_result = result
@@ -48,6 +71,7 @@ class CleanupItemRow(ctk.CTkFrame):
             and not result["process_running"]
             and result["file_count"] > 0
         )
+        self._cleanable = cleanable
 
         if not result["exists"]:
             text, color = "Не знайдено", "gray"
@@ -66,12 +90,13 @@ class CleanupItemRow(ctk.CTkFrame):
 
         self.status_label.configure(text=text, text_color=color)
         self.checkbox.configure(state="normal" if cleanable else "disabled")
+        self.clean_one_button.configure(state="normal" if cleanable else "disabled")
         if not cleanable:
             self.var.set(False)
 
         needs_elevation = (result["admin_blocked"] or result["access_denied"]) and not admin_core.is_admin()
         if needs_elevation and self.elevate_button is None:
-            self.elevate_button = ElevateButton(self)
+            self.elevate_button = ElevateButton(self._text_frame)
             self.elevate_button.pack(anchor="w", padx=(28, 0), pady=(4, 0))
         elif not needs_elevation and self.elevate_button is not None:
             self.elevate_button.destroy()
@@ -80,11 +105,18 @@ class CleanupItemRow(ctk.CTkFrame):
     def is_selected(self) -> bool:
         return bool(self.scan_result) and self.var.get()
 
+    def is_cleanable(self) -> bool:
+        return self._cleanable
+
     def size_bytes(self) -> int:
         return self.scan_result["size_bytes"] if self.scan_result else 0
 
-    def set_busy(self) -> None:
+    def lock_controls(self) -> None:
         self.checkbox.configure(state="disabled")
+        self.clean_one_button.configure(state="disabled")
+
+    def set_busy(self) -> None:
+        self.lock_controls()
         self.status_label.configure(text="Очищення...", text_color="gray")
 
     def show_clean_result(self, result: dict) -> None:
@@ -109,6 +141,7 @@ class CleanupTab(ctk.CTkFrame):
         self._large_file_rows = []
         self._large_files_scanning = False
         self._large_files_stop_event = threading.Event()
+        self._cleaning_in_progress = False
 
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.scroll.grid(row=0, column=0, sticky="nsew")
@@ -124,13 +157,42 @@ class CleanupTab(ctk.CTkFrame):
 
         self._clean_dialog = None
 
+        self._build_top_actions()
         self._build_categories()
-        self._build_summary_bar()
         self._build_large_files_section()
+        self._build_summary_bar()
 
         self.bind("<Destroy>", self._on_destroy)
 
         self._scan_all()
+
+    # ----------------------------------------------------------- top actions
+
+    def _build_top_actions(self):
+        bar = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        bar.pack(fill="x", padx=6, pady=(0, 10))
+
+        self.select_recommended_button = ctk.CTkButton(
+            bar, text="Вибрати рекомендоване", width=200, command=self._select_recommended
+        )
+        self.select_recommended_button.pack(side="left")
+
+        self.select_none_button = ctk.CTkButton(
+            bar, text="Зняти все", width=110, fg_color="transparent", border_width=1,
+            command=self._select_none,
+        )
+        self.select_none_button.pack(side="left", padx=(8, 0))
+
+    def _select_recommended(self):
+        for row in self.rows.values():
+            in_recommended = row.target["category"] in RECOMMENDED_CATEGORIES
+            row.var.set(in_recommended and row.is_cleanable())
+        self._update_summary()
+
+    def _select_none(self):
+        for row in self.rows.values():
+            row.var.set(False)
+        self._update_summary()
 
     # --------------------------------------------------------- categories
 
@@ -153,7 +215,7 @@ class CleanupTab(ctk.CTkFrame):
             )
 
             for target in by_category[category]:
-                row = CleanupItemRow(frame, target, self._on_item_toggle)
+                row = CleanupItemRow(frame, target, self._on_item_toggle, self._clean_one)
                 row.pack(fill="x", padx=14, pady=4, anchor="w")
                 self.rows[target["key"]] = row
 
@@ -165,8 +227,9 @@ class CleanupTab(ctk.CTkFrame):
     # ------------------------------------------------------------ summary
 
     def _build_summary_bar(self):
-        bar = ctk.CTkFrame(self.scroll, corner_radius=10)
-        bar.pack(fill="x", padx=6, pady=(4, 14))
+        # Поза self.scroll і закріплена в окремому рядку grid, щоб завжди лишатись видимою.
+        bar = ctk.CTkFrame(self, corner_radius=10)
+        bar.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 10))
 
         self.summary_label = ctk.CTkLabel(
             bar, text="Можна звільнити: 0 Б", font=ctk.CTkFont(size=15, weight="bold")
@@ -186,14 +249,17 @@ class CleanupTab(ctk.CTkFrame):
         selected = [row for row in self.rows.values() if row.is_selected()]
         total = sum(row.size_bytes() for row in selected)
         self.summary_label.configure(text=f"Можна звільнити: {cleanup_core.format_size(total)}")
-        self.clean_button.configure(state="normal" if selected else "disabled")
+        if not self._cleaning_in_progress:
+            self.clean_button.configure(state="normal" if selected else "disabled")
 
     # -------------------------------------------------------------- scan
 
     def _scan_all(self):
         self.rescan_button.configure(state="disabled")
+        self.select_recommended_button.configure(state="disabled")
+        self.select_none_button.configure(state="disabled")
         for row in self.rows.values():
-            row.checkbox.configure(state="disabled")
+            row.lock_controls()
             row.status_label.configure(text="Сканування...", text_color="gray")
 
         keys = list(self.rows.keys())
@@ -219,10 +285,14 @@ class CleanupTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         self.rescan_button.configure(state="normal")
+        self.select_recommended_button.configure(state="normal")
+        self.select_none_button.configure(state="normal")
 
     # ------------------------------------------------------------- clean
 
     def _clean_selected(self):
+        if self._cleaning_in_progress:
+            return
         selected_rows = [row for row in self.rows.values() if row.is_selected()]
         if not selected_rows:
             return
@@ -235,15 +305,39 @@ class CleanupTab(ctk.CTkFrame):
         if not messagebox.askyesno("Підтвердження", message, parent=self):
             return
 
+        self._start_clean([row.target["key"] for row in selected_rows])
+
+    def _clean_one(self, row: CleanupItemRow):
+        if self._cleaning_in_progress or not row.is_cleanable():
+            return
+
+        size_text = cleanup_core.format_size(row.size_bytes())
+        message = f"Очистити «{row.target['label']}» ({size_text})?"
+        if row.target["key"] == "recycle_bin":
+            message += "\n\nУвага: очищення кошика видаляє файли остаточно."
+
+        if not messagebox.askyesno("Підтвердження", message, parent=self):
+            return
+
+        self._start_clean([row.target["key"]])
+
+    def _start_clean(self, keys: list[str]):
+        self._cleaning_in_progress = True
         self.clean_button.configure(state="disabled")
-        keys = [row.target["key"] for row in selected_rows]
-        for row in selected_rows:
+        self.rescan_button.configure(state="disabled")
+        self.select_recommended_button.configure(state="disabled")
+        self.select_none_button.configure(state="disabled")
+
+        active_rows = [self.rows[key] for key in keys if key in self.rows]
+        for row in self.rows.values():
+            row.lock_controls()
+        for row in active_rows:
             row.set_busy()
 
         self._clean_total_count = len(keys)
         self._clean_done_count = 0
         self._clean_freed_so_far = 0
-        self._clean_key_labels = {row.target["key"]: row.target["label"] for row in selected_rows}
+        self._clean_key_labels = {row.target["key"]: row.target["label"] for row in active_rows}
 
         self._clean_dialog = CleanerBotDialog(self.winfo_toplevel(), title="Очищення")
         self._clean_dialog.start(f"Очищаю: {self._clean_key_labels[keys[0]]}…")
@@ -288,6 +382,7 @@ class CleanupTab(ctk.CTkFrame):
         if self._clean_dialog is not None:
             self._clean_dialog.finish(text, success=True)
             self._clean_dialog = None
+        self._cleaning_in_progress = False
         self._scan_all()
 
     # ------------------------------------------------------- large files
