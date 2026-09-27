@@ -68,6 +68,7 @@ class ProgramsTab(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
 
         self.all_programs: list[dict] = []
+        self._by_key: dict[str, dict] = {}
         self._displayed: dict[str, dict] = {}
         self._sort_key = "size"
         self._sort_reverse = True
@@ -171,7 +172,60 @@ class ProgramsTab(ctk.CTkFrame):
             return
         self.refresh_button.configure(state="normal")
         self.all_programs = programs
+        self._by_key = {p["key"]: p for p in programs}
         self._refresh_list()
+        self._start_size_computation()
+
+    def _start_size_computation(self):
+        """Для програм без EstimatedSize і без даних Steam рахує розмір теки
+        встановлення у фоновому потоці (послідовно, щоб не навантажувати диск
+        паралельними обходами), показуючи "рахую..." доки триває підрахунок.
+        """
+        pending = [
+            p for p in self.all_programs
+            if p["size_bytes"] == 0 and p.get("size_source") is None and p.get("install_folder")
+        ]
+        if not pending:
+            return
+
+        to_compute = []
+        for program in pending:
+            cached = programs_core.cached_folder_size(program["install_folder"])
+            if cached is not None:
+                program["size_bytes"] = cached
+                program["size_source"] = "folder"
+            else:
+                program["size_source"] = "computing"
+                to_compute.append(program)
+
+        self._refresh_list()
+        if not to_compute:
+            return
+
+        def worker():
+            for program in to_compute:
+                if not self.winfo_exists():
+                    return
+                size = programs_core.compute_folder_size(program["install_folder"])
+                self.after(0, self._on_size_computed, program["key"], size)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_size_computed(self, key: str, size_bytes: int):
+        if not self.winfo_exists():
+            return
+        program = self._by_key.get(key)
+        if not program:
+            return
+        program["size_bytes"] = size_bytes
+        program["size_source"] = "folder"
+        self._apply_row_update(key)
+
+    def _apply_row_update(self, key: str):
+        program = self._displayed.get(key)
+        if program is not None:
+            self.tree.item(key, values=self._row_values(program))
+        self._update_total_label()
 
     # -------------------------------------------------------------- sort
 
@@ -232,7 +286,17 @@ class ProgramsTab(ctk.CTkFrame):
     def _row_values(self, program: dict) -> tuple:
         name_display = self._truncate(program["name"], self._name_max_px)
         publisher = program.get("publisher") or "—"
-        size_text = format_size(program["size_bytes"]) if program["size_bytes"] else "—"
+
+        source = program.get("size_source")
+        if source == "computing":
+            size_text = "рахую…"
+        elif program["size_bytes"]:
+            size_text = format_size(program["size_bytes"])
+            if source in ("folder", "steam"):
+                size_text = f"~{size_text}"
+        else:
+            size_text = "—"
+
         date_obj = program.get("install_date")
         date_text = date_obj.strftime("%Y-%m-%d") if date_obj else "—"
         return (name_display, publisher, size_text, date_text, "Видалити")
@@ -249,9 +313,7 @@ class ProgramsTab(ctk.CTkFrame):
         self.tree.delete(*self.tree.get_children())
         self._displayed = {}
 
-        total_size = 0
         for i, program in enumerate(filtered):
-            total_size += program["size_bytes"]
             row_tag = "evenrow" if i % 2 == 0 else "oddrow"
             iid = program["key"]
             self.tree.insert("", "end", iid=iid, values=self._row_values(program), tags=(row_tag,))
@@ -259,8 +321,14 @@ class ProgramsTab(ctk.CTkFrame):
 
         self._update_headers()
         self.status_label.configure(text=f"Знайдено програм: {len(filtered)}")
+        self._update_total_label()
+
+    def _update_total_label(self):
+        total_size = sum(p["size_bytes"] for p in self._displayed.values())
+        approx = any(p.get("size_source") in ("folder", "steam") for p in self._displayed.values())
+        prefix = "~" if approx else ""
         self.total_label.configure(
-            text=f"Загальний розмір: {format_size(total_size)} ({len(filtered)} програм у списку)"
+            text=f"Загальний розмір: {prefix}{format_size(total_size)} ({len(self._displayed)} програм у списку)"
         )
 
     # ----------------------------------------------------------- actions
