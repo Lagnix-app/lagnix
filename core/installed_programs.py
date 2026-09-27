@@ -4,8 +4,10 @@
 (записаний її інсталятором) — файли програми ніколи не видаляються вручну.
 """
 
+import os
 import subprocess
 import winreg
+from datetime import datetime
 
 _UNINSTALL_ROOTS = (
     (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "HKLM"),
@@ -24,10 +26,32 @@ def _read_value(key, name, default=None):
         return default
 
 
-def _format_install_date(raw) -> str | None:
+def _parse_install_date(raw):
+    """InstallDate у реєстрі — рядок YYYYMMDD, але буває пошкодженим (напр. Discord
+    пише невалідні дні/місяці). datetime.strptime сам відхилить таке — повертаємо None.
+    """
     if not raw or not isinstance(raw, str) or len(raw) != 8 or not raw.isdigit():
         return None
-    return f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
+    try:
+        return datetime.strptime(raw, "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
+def _guess_install_folder(entry_key, uninstall_string: str) -> str | None:
+    location = _read_value(entry_key, "InstallLocation")
+    if location and os.path.isdir(location):
+        return location
+
+    stripped = uninstall_string.strip()
+    if stripped.startswith('"'):
+        end = stripped.find('"', 1)
+        exe_path = stripped[1:end] if end != -1 else stripped[1:]
+    else:
+        exe_path = stripped.split(" ")[0]
+
+    folder = os.path.dirname(exe_path)
+    return folder if folder and os.path.isdir(folder) else None
 
 
 def list_installed_programs() -> list[dict]:
@@ -76,8 +100,9 @@ def list_installed_programs() -> list[dict]:
                             "publisher": str(_read_value(entry_key, "Publisher", "") or ""),
                             "version": str(_read_value(entry_key, "DisplayVersion", "") or ""),
                             "size_bytes": size_bytes,
-                            "install_date": _format_install_date(_read_value(entry_key, "InstallDate")),
+                            "install_date": _parse_install_date(_read_value(entry_key, "InstallDate")),
                             "uninstall_string": str(uninstall_string),
+                            "install_folder": _guess_install_folder(entry_key, str(uninstall_string)),
                         })
                 except OSError:
                     continue

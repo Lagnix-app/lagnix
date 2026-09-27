@@ -1,55 +1,66 @@
-"""Вкладка «Програми» — встановлені програми з реєстру, пошук, сортування, видалення."""
+"""Вкладка «Програми» — таблиця встановлених програм із реєстру: пошук,
+сортування по колонках, видалення, відкриття папки встановлення.
+"""
 
+import os
 import threading
-from tkinter import messagebox
+import tkinter as tk
+import tkinter.font as tkfont
+from tkinter import messagebox, ttk
 
 import customtkinter as ctk
 
 from core import installed_programs as programs_core
 from core.cleanup import format_size
 
-SORT_OPTIONS = {
-    "За розміром": lambda p: -p["size_bytes"],
-    "За назвою": lambda p: p["name"].lower(),
-    "За датою встановлення": lambda p: p["install_date"] or "",
+COLUMN_LABELS = {
+    "name": "Назва",
+    "publisher": "Видавець",
+    "size": "Розмір",
+    "date": "Дата встановлення",
 }
+COLUMN_WIDTHS = {"name": 360, "publisher": 180, "size": 100, "date": 130, "action": 100}
+NAME_PADDING_PX = 24
 
 
-class ProgramRow(ctk.CTkFrame):
-    def __init__(self, master, program: dict, on_uninstall):
-        super().__init__(master, corner_radius=8)
-        self.program = program
-        self._on_uninstall = on_uninstall
+def _configure_dark_treeview_style() -> str:
+    """Налаштовує ttk.Style під темну тему PulseFPS; повертає ім'я стилю таблиці."""
+    style = ttk.Style()
+    style.theme_use("clam")
 
-        self.grid_columnconfigure(0, weight=3)
-        self.grid_columnconfigure(1, weight=2)
-        self.grid_columnconfigure(2, weight=1)
-        self.grid_columnconfigure(3, weight=1)
-        self.grid_columnconfigure(4, weight=0)
+    style.configure(
+        "Programs.Treeview",
+        background="#242424",
+        fieldbackground="#242424",
+        foreground="#dce4ee",
+        rowheight=30,
+        borderwidth=0,
+        font=("Segoe UI", 11),
+    )
+    style.map(
+        "Programs.Treeview",
+        background=[("selected", "#1f5c8b")],
+        foreground=[("selected", "#ffffff")],
+    )
+    style.configure(
+        "Programs.Treeview.Heading",
+        background="#1a1a1a",
+        foreground="#a0a0a0",
+        relief="flat",
+        font=("Segoe UI", 10, "bold"),
+    )
+    style.map("Programs.Treeview.Heading", background=[("active", "#333333")])
+    style.layout("Programs.Treeview", style.layout("Treeview"))
 
-        name_text = program["name"]
-        if program.get("version"):
-            name_text += f" ({program['version']})"
-
-        ctk.CTkLabel(self, text=name_text, anchor="w").grid(row=0, column=0, padx=(10, 4), pady=8, sticky="w")
-        ctk.CTkLabel(self, text=program.get("publisher") or "—", text_color="gray", anchor="w").grid(
-            row=0, column=1, padx=4, pady=8, sticky="w"
-        )
-
-        size_text = format_size(program["size_bytes"]) if program["size_bytes"] else "—"
-        ctk.CTkLabel(self, text=size_text, anchor="w").grid(row=0, column=2, padx=4, pady=8, sticky="w")
-        ctk.CTkLabel(self, text=program.get("install_date") or "—", anchor="w").grid(
-            row=0, column=3, padx=4, pady=8, sticky="w"
-        )
-
-        self.uninstall_button = ctk.CTkButton(
-            self, text="Видалити", width=100, fg_color="#8b2c2c", hover_color="#a83a3a",
-            command=self._uninstall,
-        )
-        self.uninstall_button.grid(row=0, column=4, padx=(4, 10), pady=8)
-
-    def _uninstall(self):
-        self._on_uninstall(self)
+    style.configure(
+        "Programs.Vertical.TScrollbar",
+        background="#333333",
+        troughcolor="#1a1a1a",
+        bordercolor="#1a1a1a",
+        arrowcolor="#dce4ee",
+        relief="flat",
+    )
+    return "Programs.Treeview"
 
 
 class ProgramsTab(ctk.CTkFrame):
@@ -57,15 +68,24 @@ class ProgramsTab(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
 
         self.all_programs: list[dict] = []
-        self.rows: list[ProgramRow] = []
+        self._displayed: dict[str, dict] = {}
+        self._sort_key = "size"
+        self._sort_reverse = True
+
+        self._tooltip_window = None
+        self._tooltip_row = None
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(4, weight=1)
+        self.grid_rowconfigure(3, weight=1)
+
+        self._name_font = tkfont.Font(family="Segoe UI", size=11)
 
         self._build_header()
         self._build_controls()
-        self._build_list_header()
-        self._build_list()
+        self._build_table()
+        self._build_footer()
+
+        self.bind("<Destroy>", self._on_destroy)
 
         self._load()
 
@@ -86,34 +106,53 @@ class ProgramsTab(ctk.CTkFrame):
         self.search_entry.pack(side="left", padx=(0, 10))
         self.search_entry.bind("<KeyRelease>", lambda _e: self._refresh_list())
 
-        self.sort_var = ctk.StringVar(value="За розміром")
-        sort_menu = ctk.CTkOptionMenu(
-            controls, variable=self.sort_var, values=list(SORT_OPTIONS.keys()),
-            command=lambda _v: self._refresh_list(),
-        )
-        sort_menu.pack(side="left", padx=(0, 10))
-
         self.refresh_button = ctk.CTkButton(controls, text="Оновити", width=90, command=self._load)
         self.refresh_button.pack(side="left")
 
-    def _build_list_header(self):
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.grid(row=3, column=0, padx=20, pady=(0, 4), sticky="ew")
-        header.grid_columnconfigure(0, weight=3)
-        header.grid_columnconfigure(1, weight=2)
-        header.grid_columnconfigure(2, weight=1)
-        header.grid_columnconfigure(3, weight=1)
-        header.grid_columnconfigure(4, weight=0)
+    def _build_table(self):
+        style_name = _configure_dark_treeview_style()
 
-        for i, text in enumerate(("Назва", "Видавець", "Розмір", "Дата встановлення", "")):
-            ctk.CTkLabel(header, text=text, text_color="gray", font=ctk.CTkFont(size=11, weight="bold")).grid(
-                row=0, column=i, padx=(10 if i == 0 else 4, 4), sticky="w"
+        container = ctk.CTkFrame(self, fg_color="transparent")
+        container.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="nsew")
+        container.grid_columnconfigure(0, weight=1)
+        container.grid_rowconfigure(0, weight=1)
+
+        columns = ("name", "publisher", "size", "date", "action")
+        self.tree = ttk.Treeview(
+            container, columns=columns, show="headings", style=style_name, selectmode="browse"
+        )
+
+        for col in ("name", "publisher", "size", "date"):
+            anchor = "w" if col in ("name", "publisher") else "center" if col == "date" else "e"
+            self.tree.heading(col, text=COLUMN_LABELS[col], command=lambda c=col: self._on_header_click(c))
+            self.tree.column(
+                col, width=COLUMN_WIDTHS[col], anchor=anchor, stretch=(col == "name")
             )
 
-    def _build_list(self):
-        self.list_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.list_frame.grid(row=4, column=0, padx=20, pady=(0, 20), sticky="nsew")
-        self.list_frame.grid_columnconfigure(0, weight=1)
+        self.tree.heading("action", text="")
+        self.tree.column("action", width=COLUMN_WIDTHS["action"], anchor="center", stretch=False)
+
+        self.tree.tag_configure("evenrow", background="#242424")
+        self.tree.tag_configure("oddrow", background="#2a2a2a")
+
+        scrollbar = ttk.Scrollbar(
+            container, orient="vertical", command=self.tree.yview, style="Programs.Vertical.TScrollbar"
+        )
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        self.tree.bind("<Button-1>", self._on_tree_click)
+        self.tree.bind("<Double-1>", self._on_tree_double_click)
+        self.tree.bind("<Motion>", self._on_tree_motion)
+        self.tree.bind("<Leave>", self._hide_tooltip)
+
+        self._name_max_px = COLUMN_WIDTHS["name"] - NAME_PADDING_PX
+
+    def _build_footer(self):
+        self.total_label = ctk.CTkLabel(self, text="", text_color="gray")
+        self.total_label.grid(row=4, column=0, padx=20, pady=(0, 16), sticky="w")
 
     # -------------------------------------------------------------- load
 
@@ -132,32 +171,123 @@ class ProgramsTab(ctk.CTkFrame):
             return
         self.refresh_button.configure(state="normal")
         self.all_programs = programs
-        self.status_label.configure(text=f"Знайдено програм: {len(programs)}")
         self._refresh_list()
 
-    def _refresh_list(self):
-        for row in self.rows:
-            row.destroy()
-        self.rows = []
+    # -------------------------------------------------------------- sort
 
+    def _on_header_click(self, col: str):
+        if self._sort_key == col:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_key = col
+            self._sort_reverse = False
+        self._refresh_list()
+
+    def _sort_field(self, col: str, program: dict):
+        if col == "name":
+            return False, program["name"].lower()
+        if col == "publisher":
+            publisher = program.get("publisher") or ""
+            return not publisher, publisher.lower()
+        if col == "size":
+            return not program["size_bytes"], program["size_bytes"]
+        if col == "date":
+            date_obj = program.get("install_date")
+            return date_obj is None, date_obj
+        return False, ""
+
+    def _sorted_programs(self, programs: list[dict]) -> list[dict]:
+        col = self._sort_key
+        if not col:
+            return programs
+
+        non_empty = [p for p in programs if not self._sort_field(col, p)[0]]
+        empty = [p for p in programs if self._sort_field(col, p)[0]]
+        non_empty.sort(key=lambda p: self._sort_field(col, p)[1], reverse=self._sort_reverse)
+        return non_empty + empty
+
+    def _update_headers(self):
+        for col, label in COLUMN_LABELS.items():
+            text = label
+            if self._sort_key == col:
+                text += " ▼" if self._sort_reverse else " ▲"
+            self.tree.heading(col, text=text)
+
+    # ------------------------------------------------------------ render
+
+    def _truncate(self, text: str, max_px: int) -> str:
+        if self._name_font.measure(text) <= max_px:
+            return text
+
+        ellipsis = "…"
+        lo, hi = 0, len(text)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if self._name_font.measure(text[:mid] + ellipsis) <= max_px:
+                lo = mid
+            else:
+                hi = mid - 1
+        return text[:lo] + ellipsis
+
+    def _row_values(self, program: dict) -> tuple:
+        name_display = self._truncate(program["name"], self._name_max_px)
+        publisher = program.get("publisher") or "—"
+        size_text = format_size(program["size_bytes"]) if program["size_bytes"] else "—"
+        date_obj = program.get("install_date")
+        date_text = date_obj.strftime("%Y-%m-%d") if date_obj else "—"
+        return (name_display, publisher, size_text, date_text, "Видалити")
+
+    def _refresh_list(self):
         query = self.search_entry.get().strip().lower()
         filtered = [
             p for p in self.all_programs
             if not query or query in p["name"].lower() or query in (p.get("publisher") or "").lower()
         ]
+        filtered = self._sorted_programs(filtered)
 
-        key_func = SORT_OPTIONS.get(self.sort_var.get(), SORT_OPTIONS["За розміром"])
-        filtered.sort(key=key_func)
+        self._hide_tooltip()
+        self.tree.delete(*self.tree.get_children())
+        self._displayed = {}
 
-        for program in filtered:
-            row = ProgramRow(self.list_frame, program, self._uninstall)
-            row.pack(fill="x", pady=3)
-            self.rows.append(row)
+        total_size = 0
+        for i, program in enumerate(filtered):
+            total_size += program["size_bytes"]
+            row_tag = "evenrow" if i % 2 == 0 else "oddrow"
+            iid = program["key"]
+            self.tree.insert("", "end", iid=iid, values=self._row_values(program), tags=(row_tag,))
+            self._displayed[iid] = program
 
-    # -------------------------------------------------------- uninstall
+        self._update_headers()
+        self.status_label.configure(text=f"Знайдено програм: {len(filtered)}")
+        self.total_label.configure(
+            text=f"Загальний розмір: {format_size(total_size)} ({len(filtered)} програм у списку)"
+        )
 
-    def _uninstall(self, row: ProgramRow):
-        program = row.program
+    # ----------------------------------------------------------- actions
+
+    def _on_tree_click(self, event):
+        if self.tree.identify("region", event.x, event.y) != "cell":
+            return
+        row_id = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        if not row_id or col_id != "#5":
+            return
+        self._uninstall(row_id)
+
+    def _on_tree_double_click(self, event):
+        if self.tree.identify("region", event.x, event.y) != "cell":
+            return
+        row_id = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        if not row_id or col_id == "#5":
+            return
+        self._open_install_folder(row_id)
+
+    def _uninstall(self, row_id: str):
+        program = self._displayed.get(row_id)
+        if not program:
+            return
+
         confirmed = messagebox.askyesno(
             "Підтвердження",
             f"Видалити «{program['name']}»?\n\nЗапуститься офіційний майстер видалення програми.",
@@ -176,3 +306,72 @@ class ProgramsTab(ctk.CTkFrame):
             "Дотримуйтесь інструкцій майстра видалення. Після завершення натисніть «Оновити».",
             parent=self,
         )
+
+    def _open_install_folder(self, row_id: str):
+        program = self._displayed.get(row_id)
+        if not program:
+            return
+
+        folder = program.get("install_folder")
+        if not folder:
+            messagebox.showinfo(
+                "Розташування невідоме",
+                f"Не вдалося визначити папку встановлення для «{program['name']}».",
+                parent=self,
+            )
+            return
+
+        try:
+            os.startfile(folder)
+        except OSError as exc:
+            messagebox.showerror("Помилка", f"Не вдалося відкрити папку:\n{exc}", parent=self)
+
+    # ---------------------------------------------------------- tooltip
+
+    def _on_tree_motion(self, event):
+        if self.tree.identify("region", event.x, event.y) != "cell":
+            self._hide_tooltip()
+            return
+
+        row_id = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        if col_id != "#1" or not row_id:
+            self._hide_tooltip()
+            return
+
+        if self.tree.set(row_id, "name").find("…") == -1:
+            self._hide_tooltip()
+            return
+
+        if self._tooltip_row == row_id:
+            return
+
+        program = self._displayed.get(row_id)
+        if not program:
+            self._hide_tooltip()
+            return
+
+        self._show_tooltip(program["name"], event.x_root, event.y_root)
+        self._tooltip_row = row_id
+
+    def _show_tooltip(self, text: str, x_root: int, y_root: int):
+        self._hide_tooltip()
+        tip = tk.Toplevel(self)
+        tip.wm_overrideredirect(True)
+        tip.wm_geometry(f"+{x_root + 12}+{y_root + 18}")
+        label = tk.Label(
+            tip, text=text, background="#1a1a1a", foreground="#dce4ee",
+            font=("Segoe UI", 10), padx=8, pady=4, relief="solid", borderwidth=1,
+        )
+        label.pack()
+        self._tooltip_window = tip
+
+    def _hide_tooltip(self, _event=None):
+        if self._tooltip_window is not None:
+            self._tooltip_window.destroy()
+            self._tooltip_window = None
+        self._tooltip_row = None
+
+    def _on_destroy(self, event):
+        if event.widget is self:
+            self._hide_tooltip()
