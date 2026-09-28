@@ -8,10 +8,13 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from core import monitor as monitor_core
+from core.logging_setup import get_logger
 from core.system_processes import is_protected
 
 UPDATE_INTERVAL_SEC = 1.0
 GRAPH_POINTS = 60
+
+_logger = get_logger(__name__)
 
 
 class MiniGraph(ctk.CTkFrame):
@@ -95,8 +98,7 @@ class ProcessRow(ctk.CTkFrame):
         self.name_label.configure(text="—")
         self.value_label.configure(text="")
         self.status_label.grid_remove()
-        self.kill_button.configure(state="disabled")
-        self.kill_button.grid(row=0, column=2, sticky="e")
+        self.kill_button.grid_remove()
 
     def _handle_click(self) -> None:
         if self.pid is not None:
@@ -200,11 +202,16 @@ class MonitorTab(ctk.CTkFrame):
     # -------------------------------------------------------------- worker
 
     def _worker_loop(self):
-        monitor_core.prime()
+        try:
+            monitor_core.prime()
+        except Exception:
+            _logger.exception("Не вдалося ініціалізувати збір даних монітора (prime)")
+
         while not self._stop_event.is_set():
             try:
                 data = monitor_core.collect_snapshot()
             except Exception as exc:
+                _logger.exception("Помилка збору даних монітора")
                 data = {"error": str(exc)}
 
             if self._stop_event.is_set():
@@ -220,7 +227,11 @@ class MonitorTab(ctk.CTkFrame):
     # --------------------------------------------------------------- apply
 
     def _apply_snapshot(self, data: dict):
-        if not self.winfo_exists() or "error" in data:
+        if not self.winfo_exists():
+            return
+
+        if "error" in data:
+            self.warning_label.configure(text=f" ⚠ Помилка збору даних монітора: {data['error']}")
             return
 
         threshold = data["temp_threshold"]
