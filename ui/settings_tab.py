@@ -59,6 +59,11 @@ class SettingsTab(ctk.CTkFrame):
         self._volume_slider.pack(fill="x", pady=(6, 0))
         self._volume_slider.bind("<ButtonRelease-1>", self._on_volume_release, add="+")
 
+        self._test_button = ctk.CTkButton(
+            card, text="Тест звуку", width=140, command=self._on_test_sound,
+        )
+        self._test_button.pack(padx=theme.PAD_M, pady=(0, theme.PAD_M), anchor="w")
+
         self._update_volume_state()
 
     def _on_toggle_sounds(self) -> None:
@@ -79,3 +84,18 @@ class SettingsTab(ctk.CTkFrame):
     def _on_volume_release(self, _event) -> None:
         if self._sound_var.get():
             sounds.play_click()
+
+    def _on_test_sound(self) -> None:
+        """Програє всі 4 звуки по черзі (з паузами, щоб було чутно кожен
+        окремо) — незалежно від перемикача, щоб можна було "прослухати"
+        звуки перед тим, як їх вмикати."""
+        self._test_button.configure(state="disabled", text="Відтворення...")
+        sequence = (sounds.play_hover, sounds.play_click, sounds.play_success, sounds.play_error)
+        delay = 0
+        for play_fn in sequence:
+            self.after(delay, lambda fn=play_fn: fn(force=True))
+            delay += 450
+        self.after(delay + 200, self._on_test_sound_done)
+
+    def _on_test_sound_done(self) -> None:
+        self._test_button.configure(state="normal", text="Тест звуку")

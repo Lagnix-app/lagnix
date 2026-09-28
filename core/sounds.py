@@ -1,19 +1,30 @@
 """Короткі синтезовані звуки інтерфейсу PulseFPS (наведення, клік, успіх,
-помилка) — генеруються процедурно у WAV (жодних сторонніх файлів) і
-відтворюються асинхронно через winsound, щоб не гальмувати інтерфейс.
+помилка) — генеруються процедурно у WAV (жодних сторонніх аудіофайлів) і
+відтворюються через pygame.mixer.
+
+Чому не winsound: `winsound.PlaySound(..., SND_MEMORY | SND_ASYNC)`
+кидає `RuntimeError: Cannot play asynchronously from memory` — ця
+комбінація прапорів у Python узагалі не підтримується (winsound не може
+гарантувати, що буфер у пам'яті переживе асинхронне відтворення). А
+`SND_ASYNC` без `SND_MEMORY` (з файлу) грає лише ОДИН звук одночасно:
+наступний виклик обриває попередній. pygame.mixer грає кожен Sound на
+окремому каналі мікшера — кілька звуків накладаються, жоден не обривається,
+і має нормальну гучність через Sound.set_volume() (яку сама WAV-генерація
+далі не чіпає — гучність повністю в runtime, повзунок діє миттєво).
 
 Гучність керується вимикачем "Звуки" й повзунком у вкладці «Налаштування»
 (config.json: sounds_enabled/sounds_volume) — set_enabled()/set_volume()
-одразу застосовують зміну до наступного відтворення.
+одразу застосовують зміну до вже завантажених звуків і до наступного
+відтворення. Усі помилки (немає аудіопристрою, зіпсований WAV тощо)
+пишуться в logs.txt через core.logging_setup, а не проковтуються мовчки.
 """
 
-import io
 import math
 import os
 import struct
-import threading
 import wave
 
+from core.logging_setup import get_logger
 from core.settings import load_settings, update_setting
 
 ASSETS_SOUNDS_DIR = os.path.join(
@@ -21,19 +32,25 @@ ASSETS_SOUNDS_DIR = os.path.join(
 )
 
 _SAMPLE_RATE = 44100
+SOUND_NAMES = ("hover", "click", "success", "error")
+
+_logger = get_logger(__name__)
 
 try:
-    import winsound
-    _HAS_WINSOUND = True
+    import pygame
+    _HAS_PYGAME = True
 except ImportError:
-    _HAS_WINSOUND = False
+    pygame = None
+    _HAS_PYGAME = False
+    _logger.error("pygame недоступний — звуки інтерфейсу вимкнені (pip install pygame-ce)")
 
 _settings = load_settings()
 _enabled = bool(_settings.get("sounds_enabled", True))
 _volume = float(_settings.get("sounds_volume", 0.35))
 
-_CACHE: dict[str, tuple[wave._wave_params, bytes]] = {}
-_LOCK = threading.Lock()
+_mixer_ready = False
+_mixer_failed = False
+_sounds: dict = {}
 
 
 # ------------------------------------------------------------- синтез WAV
@@ -46,7 +63,7 @@ def _envelope(i: int, n: int, attack: int, release: int) -> float:
     return 1.0
 
 
-def _tone(freq: float, duration_s: float, volume: float = 1.0, attack_s: float = 0.006, release_s: float = 0.02) -> list:
+def _tone(freq: float, duration_s: float, volume: float = 1.0, attack_s: float = 0.004, release_s: float = 0.015) -> list:
     n = int(_SAMPLE_RATE * duration_s)
     attack = int(_SAMPLE_RATE * attack_s)
     release = int(_SAMPLE_RATE * release_s)
@@ -59,15 +76,6 @@ def _tone(freq: float, duration_s: float, volume: float = 1.0, attack_s: float =
     return samples
 
 
-def _mix(*sample_lists) -> list:
-    length = max(len(s) for s in sample_lists)
-    out = [0.0] * length
-    for samples in sample_lists:
-        for i, v in enumerate(samples):
-            out[i] += v
-    return out
-
-
 def _concat(*sample_lists) -> list:
     out = []
     for samples in sample_lists:
@@ -76,8 +84,11 @@ def _concat(*sample_lists) -> list:
 
 
 def _write_wav(path: str, samples: list) -> None:
+    # нормалізація до сталого рівня гучності (~0.85 від максимуму), щоб усі
+    # 4 звуки були приблизно однаково чутні — реальна гучність далі
+    # регулюється в рантаймі через Sound.set_volume(), не тут.
     peak = max((abs(v) for v in samples), default=1.0) or 1.0
-    scale = 0.92 / peak if peak > 0.92 else 1.0
+    scale = 0.85 / peak
     frames = struct.pack(
         f"<{len(samples)}h",
         *(max(-32768, min(32767, int(v * scale * 32767))) for v in samples),
@@ -92,41 +103,77 @@ def _write_wav(path: str, samples: list) -> None:
 def _generate_all() -> None:
     os.makedirs(ASSETS_SOUNDS_DIR, exist_ok=True)
 
-    # тихий короткий "тік" наведення на пункт меню
-    hover = _tone(1500, 0.02, volume=0.5, attack_s=0.002, release_s=0.012)
+    # тихий короткий "тік" наведення на пункт меню (~45 мс)
+    hover = _tone(1500, 0.045, volume=0.6, attack_s=0.003, release_s=0.02)
     _write_wav(os.path.join(ASSETS_SOUNDS_DIR, "hover.wav"), hover)
 
-    # клік — короткий двотоновий "клац"
+    # клік — короткий двотоновий "клац" (~48 мс)
     click = _concat(
-        _tone(720, 0.018, volume=0.8, attack_s=0.001, release_s=0.01),
-        _tone(480, 0.03, volume=0.6, attack_s=0.001, release_s=0.02),
+        _tone(720, 0.02, volume=0.9, attack_s=0.001, release_s=0.01),
+        _tone(480, 0.028, volume=0.7, attack_s=0.001, release_s=0.016),
     )
     _write_wav(os.path.join(ASSETS_SOUNDS_DIR, "click.wav"), click)
 
-    # успіх — висхідний дзвіночок
+    # успіх — три висхідні короткі ноти (~115 мс)
     success = _concat(
-        _tone(660, 0.09, volume=0.7),
-        _tone(880, 0.09, volume=0.7),
-        _tone(1175, 0.14, volume=0.6, release_s=0.08),
+        _tone(660, 0.035, volume=0.85, attack_s=0.003, release_s=0.014),
+        _tone(880, 0.035, volume=0.85, attack_s=0.003, release_s=0.014),
+        _tone(1175, 0.045, volume=0.8, attack_s=0.003, release_s=0.02),
     )
     _write_wav(os.path.join(ASSETS_SOUNDS_DIR, "success.wav"), success)
 
-    # помилка/попередження — низхідний приглушений сигнал
+    # помилка/попередження — дві низхідні приглушені ноти (~125 мс)
     error = _concat(
-        _tone(380, 0.09, volume=0.7),
-        _tone(300, 0.16, volume=0.65, release_s=0.09),
+        _tone(380, 0.055, volume=0.85, attack_s=0.003, release_s=0.018),
+        _tone(300, 0.07, volume=0.8, attack_s=0.003, release_s=0.026),
     )
     _write_wav(os.path.join(ASSETS_SOUNDS_DIR, "error.wav"), error)
 
 
 def ensure_sounds_exist() -> None:
-    names = ("hover.wav", "click.wav", "success.wav", "error.wav")
+    names = tuple(f"{n}.wav" for n in SOUND_NAMES)
     if all(os.path.exists(os.path.join(ASSETS_SOUNDS_DIR, n)) for n in names):
         return
-    _generate_all()
+    try:
+        _generate_all()
+    except Exception:
+        _logger.exception("Не вдалося згенерувати звукові файли в %s", ASSETS_SOUNDS_DIR)
 
 
 # --------------------------------------------------------------- відтворення
+
+def _ensure_mixer() -> bool:
+    global _mixer_ready, _mixer_failed
+    if _mixer_ready:
+        return True
+    if _mixer_failed or not _HAS_PYGAME:
+        return False
+    try:
+        pygame.mixer.init(frequency=_SAMPLE_RATE, size=-16, channels=2)
+        _mixer_ready = True
+    except Exception:
+        _mixer_failed = True
+        _logger.exception("Не вдалося ініціалізувати аудіомікшер pygame.mixer")
+    return _mixer_ready
+
+
+def _get_sound(name: str):
+    cached = _sounds.get(name)
+    if cached is not None:
+        return cached
+    if not _ensure_mixer():
+        return None
+    ensure_sounds_exist()
+    path = os.path.join(ASSETS_SOUNDS_DIR, f"{name}.wav")
+    try:
+        snd = pygame.mixer.Sound(path)
+        snd.set_volume(_volume)
+    except Exception:
+        _logger.exception("Не вдалося завантажити звук %s", path)
+        return None
+    _sounds[name] = snd
+    return snd
+
 
 def set_enabled(enabled: bool) -> None:
     global _enabled
@@ -142,61 +189,43 @@ def set_volume(volume: float) -> None:
     global _volume
     _volume = max(0.0, min(1.0, volume))
     update_setting("sounds_volume", _volume)
+    for snd in _sounds.values():
+        try:
+            snd.set_volume(_volume)
+        except Exception:
+            _logger.exception("Не вдалося застосувати гучність до вже завантаженого звуку")
 
 
 def get_volume() -> float:
     return _volume
 
 
-def _scale_pcm16(frames: bytes, volume: float) -> bytes:
-    count = len(frames) // 2
-    samples = struct.unpack(f"<{count}h", frames[: count * 2])
-    scaled = (max(-32768, min(32767, int(s * volume))) for s in samples)
-    return struct.pack(f"<{count}h", *scaled)
-
-
-def _load(name: str):
-    cached = _CACHE.get(name)
-    if cached is not None:
-        return cached
-    ensure_sounds_exist()
-    path = os.path.join(ASSETS_SOUNDS_DIR, f"{name}.wav")
-    with wave.open(path, "rb") as wf:
-        params = wf.getparams()
-        frames = wf.readframes(wf.getnframes())
-    _CACHE[name] = (params, frames)
-    return _CACHE[name]
-
-
-def _play(name: str) -> None:
-    if not _enabled or not _HAS_WINSOUND or _volume <= 0.0:
+def _play(name: str, force: bool = False) -> None:
+    if not force and not _enabled:
+        return
+    if _volume <= 0.0:
+        return
+    snd = _get_sound(name)
+    if snd is None:
         return
     try:
-        with _LOCK:
-            params, frames = _load(name)
-        scaled = _scale_pcm16(frames, _volume)
-        buf = io.BytesIO()
-        with wave.open(buf, "wb") as wf:
-            wf.setnchannels(params.nchannels)
-            wf.setsampwidth(params.sampwidth)
-            wf.setframerate(params.framerate)
-            wf.writeframes(scaled)
-        winsound.PlaySound(buf.getvalue(), winsound.SND_MEMORY | winsound.SND_ASYNC)
+        snd.set_volume(_volume)
+        snd.play()
     except Exception:
-        pass  # звук — приємний бонус, а не критична функціональність
+        _logger.exception("Не вдалося відтворити звук %s", name)
 
 
-def play_hover() -> None:
-    _play("hover")
+def play_hover(force: bool = False) -> None:
+    _play("hover", force=force)
 
 
-def play_click() -> None:
-    _play("click")
+def play_click(force: bool = False) -> None:
+    _play("click", force=force)
 
 
-def play_success() -> None:
-    _play("success")
+def play_success(force: bool = False) -> None:
+    _play("success", force=force)
 
 
-def play_error() -> None:
-    _play("error")
+def play_error(force: bool = False) -> None:
+    _play("error", force=force)
