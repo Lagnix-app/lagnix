@@ -5,9 +5,16 @@
         "width": 1100,
         "height": 700
     },
-    "last_tab": "cleanup",
+    "last_tab": "registry_tweaks",
     "temp_threshold_c": 85,
     "network_test_history": [
+        {
+            "date": "28.09 14:35",
+            "avg": 15.007194915254237,
+            "jitter": 0.34705172413793106,
+            "loss": 0.0,
+            "label": "Відмінно"
+        },
         {
             "date": "27.09 21:37",
             "avg": 17.79119642857143,
