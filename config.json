@@ -7,6 +7,9 @@
     },
     "last_tab": "registry_tweaks",
     "temp_threshold_c": 85,
+    "sounds_enabled": true,
+    "sounds_volume": 0.25,
+    "sounds_hover_volume": 0.125,
     "network_test_history": [
         {
             "date": "28.09 14:35",

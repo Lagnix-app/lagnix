@@ -12,16 +12,24 @@
 і має нормальну гучність через Sound.set_volume() (яку сама WAV-генерація
 далі не чіпає — гучність повністю в runtime, повзунок діє миттєво).
 
-Гучність керується вимикачем "Звуки" й повзунком у вкладці «Налаштування»
-(config.json: sounds_enabled/sounds_volume) — set_enabled()/set_volume()
-одразу застосовують зміну до вже завантажених звуків і до наступного
-відтворення. Усі помилки (немає аудіопристрою, зіпсований WAV тощо)
-пишуться в logs.txt через core.logging_setup, а не проковтуються мовчки.
+Гучність — дві незалежні: "Загальна гучність" (клік/успіх/помилка) і
+тихіший "Звук наведення" (типово ~½ від загальної), обидві керуються з
+вкладки «Налаштування» (config.json: sounds_volume/sounds_hover_volume).
+Наведення на пункт меню грає один з кількох варіантів звуку (щоб не
+набридало) і не частіше ніж раз на 80 мс — цього досить, щоб не сипати
+звуками, коли курсор проходить між внутрішніми під-віджетами однієї й
+тієї самої кнопки (там миттєво йде Leave/Enter-Leave/Enter, набагато
+швидше за 80 мс).
+
+Усі помилки (немає аудіопристрою, зіпсований WAV тощо) пишуться в
+logs.txt через core.logging_setup, а не проковтуються мовчки.
 """
 
 import math
 import os
+import random
 import struct
+import time
 import wave
 
 from core.logging_setup import get_logger
@@ -32,7 +40,11 @@ ASSETS_SOUNDS_DIR = os.path.join(
 )
 
 _SAMPLE_RATE = 44100
-SOUND_NAMES = ("hover", "click", "success", "error")
+
+HOVER_VARIANTS = ("hover_1", "hover_2", "hover_3")
+SOUND_NAMES = HOVER_VARIANTS + ("click", "success", "error")
+
+_HOVER_MIN_INTERVAL_S = 0.08
 
 _logger = get_logger(__name__)
 
@@ -46,32 +58,55 @@ except ImportError:
 
 _settings = load_settings()
 _enabled = bool(_settings.get("sounds_enabled", True))
-_volume = float(_settings.get("sounds_volume", 0.35))
+_volume = float(_settings.get("sounds_volume", 0.25))
+_hover_volume = float(_settings.get("sounds_hover_volume", 0.125))
 
 _mixer_ready = False
 _mixer_failed = False
 _sounds: dict = {}
+_last_hover_at = 0.0
 
 
 # ------------------------------------------------------------- синтез WAV
 
-def _envelope(i: int, n: int, attack: int, release: int) -> float:
-    if i < attack:
-        return i / max(attack, 1)
-    if i > n - release:
-        return max(0.0, (n - i) / max(release, 1))
-    return 1.0
+def _fade_envelope(i: int, n: int, attack: int, decay_k: float) -> float:
+    """М'яка атака (лінійна) + експоненційне затухання до кінця ноти —
+    без "різких клацань" на межах, які дає лінійний release."""
+    frac = i / max(n - 1, 1)
+    attack_env = min(1.0, i / max(attack, 1))
+    decay_env = math.exp(-decay_k * frac)
+    return attack_env * decay_env
 
 
-def _tone(freq: float, duration_s: float, volume: float = 1.0, attack_s: float = 0.004, release_s: float = 0.015) -> list:
+def _tone(freq: float, duration_s: float, volume: float = 1.0, attack_s: float = 0.006, decay_k: float = 4.0) -> list:
     n = int(_SAMPLE_RATE * duration_s)
     attack = int(_SAMPLE_RATE * attack_s)
-    release = int(_SAMPLE_RATE * release_s)
     samples = []
     for i in range(n):
         t = i / _SAMPLE_RATE
-        env = _envelope(i, n, attack, release)
+        env = _fade_envelope(i, n, attack, decay_k)
         value = math.sin(2 * math.pi * freq * t) * env * volume
+        samples.append(value)
+    return samples
+
+
+def _chirp(freq_start: float, freq_end: float, duration_s: float, volume: float = 1.0,
+           attack_s: float = 0.0025, decay_k: float = 5.5, harmonic_ratio: float = 0.28) -> list:
+    """Синусоїда зі спадною частотою (freq_start -> freq_end) — "сатисфайний"
+    м'який тік/пуп замість монотонного піску. Фаза інтегрується правильно
+    (не просто freq*t), інакше при зміні частоти лізуть биття/тріски.
+    Додає другу гармоніку (harmonic_ratio) для дерев'яного, не "пластикового"
+    тембру."""
+    n = int(_SAMPLE_RATE * duration_s)
+    attack = int(_SAMPLE_RATE * attack_s)
+    samples = []
+    for i in range(n):
+        t = i / _SAMPLE_RATE
+        frac = i / max(n - 1, 1)
+        env = _fade_envelope(i, n, attack, decay_k)
+        phase = 2 * math.pi * (freq_start * t + (freq_end - freq_start) * (t * t) / (2 * duration_s))
+        value = math.sin(phase) * env * volume
+        value += math.sin(2 * phase) * env * volume * harmonic_ratio
         samples.append(value)
     return samples
 
@@ -83,9 +118,24 @@ def _concat(*sample_lists) -> list:
     return out
 
 
+def _mix(*layers_with_offset: tuple) -> list:
+    """Змішує кілька фрагментів (samples, offset_s), даючи їм лунати внахлест
+    — для акорду успіху (ноти "накладаються", а не грають строго по черзі)."""
+    total_len = 0
+    for samples, offset_s in layers_with_offset:
+        offset = int(_SAMPLE_RATE * offset_s)
+        total_len = max(total_len, offset + len(samples))
+    out = [0.0] * total_len
+    for samples, offset_s in layers_with_offset:
+        offset = int(_SAMPLE_RATE * offset_s)
+        for i, v in enumerate(samples):
+            out[offset + i] += v
+    return out
+
+
 def _write_wav(path: str, samples: list) -> None:
     # нормалізація до сталого рівня гучності (~0.85 від максимуму), щоб усі
-    # 4 звуки були приблизно однаково чутні — реальна гучність далі
+    # звуки були приблизно однаково чутні — реальна гучність далі
     # регулюється в рантаймі через Sound.set_volume(), не тут.
     peak = max((abs(v) for v in samples), default=1.0) or 1.0
     scale = 0.85 / peak
@@ -103,29 +153,37 @@ def _write_wav(path: str, samples: list) -> None:
 def _generate_all() -> None:
     os.makedirs(ASSETS_SOUNDS_DIR, exist_ok=True)
 
-    # тихий короткий "тік" наведення на пункт меню (~45 мс)
-    hover = _tone(1500, 0.045, volume=0.6, attack_s=0.003, release_s=0.02)
-    _write_wav(os.path.join(ASSETS_SOUNDS_DIR, "hover.wav"), hover)
+    # наведення — 3 м'які варіанти "пуп"/дерев'яний тік (~35-45 мс):
+    # синусоїда, що швидко спадає по частоті, з м'якою атакою й
+    # експоненційним затуханням + ледь помітна друга гармоніка.
+    hover_specs = (
+        (1600, 950, 0.038),
+        (1400, 850, 0.045),
+        (1250, 780, 0.035),
+    )
+    for (freq_start, freq_end, dur), name in zip(hover_specs, HOVER_VARIANTS):
+        variant = _chirp(freq_start, freq_end, dur, volume=0.9, attack_s=0.0025, decay_k=5.5, harmonic_ratio=0.28)
+        _write_wav(os.path.join(ASSETS_SOUNDS_DIR, f"{name}.wav"), variant)
 
-    # клік — короткий двотоновий "клац" (~48 мс)
-    click = _concat(
-        _tone(720, 0.02, volume=0.9, attack_s=0.001, release_s=0.01),
-        _tone(480, 0.028, volume=0.7, attack_s=0.001, release_s=0.016),
+    # клік — нижчий, щільніший "тук" (~60 мс): основний тон + сабовий "гуп"
+    click = _mix(
+        (_tone(360, 0.06, volume=0.9, attack_s=0.002, decay_k=6.0), 0.0),
+        (_tone(150, 0.05, volume=0.55, attack_s=0.002, decay_k=7.0), 0.0),
     )
     _write_wav(os.path.join(ASSETS_SOUNDS_DIR, "click.wav"), click)
 
-    # успіх — три висхідні короткі ноти (~115 мс)
-    success = _concat(
-        _tone(660, 0.035, volume=0.85, attack_s=0.003, release_s=0.014),
-        _tone(880, 0.035, volume=0.85, attack_s=0.003, release_s=0.014),
-        _tone(1175, 0.045, volume=0.8, attack_s=0.003, release_s=0.02),
+    # успіх — м'який висхідний акорд із 3 нот (~250 мс), ноти накладаються
+    success = _mix(
+        (_tone(523.25, 0.14, volume=0.75, attack_s=0.01, decay_k=3.4), 0.0),     # C5
+        (_tone(659.25, 0.14, volume=0.75, attack_s=0.01, decay_k=3.4), 0.05),    # E5
+        (_tone(783.99, 0.15, volume=0.75, attack_s=0.012, decay_k=3.0), 0.10),   # G5
     )
     _write_wav(os.path.join(ASSETS_SOUNDS_DIR, "success.wav"), success)
 
-    # помилка/попередження — дві низхідні приглушені ноти (~125 мс)
-    error = _concat(
-        _tone(380, 0.055, volume=0.85, attack_s=0.003, release_s=0.018),
-        _tone(300, 0.07, volume=0.8, attack_s=0.003, release_s=0.026),
+    # помилка — низький м'який двотон, без різкості (~220 мс)
+    error = _mix(
+        (_tone(220, 0.13, volume=0.8, attack_s=0.012, decay_k=3.0), 0.0),
+        (_tone(174.6, 0.16, volume=0.75, attack_s=0.014, decay_k=2.6), 0.08),
     )
     _write_wav(os.path.join(ASSETS_SOUNDS_DIR, "error.wav"), error)
 
@@ -141,6 +199,14 @@ def ensure_sounds_exist() -> None:
 
 
 # --------------------------------------------------------------- відтворення
+
+def _is_hover(name: str) -> bool:
+    return name in HOVER_VARIANTS
+
+
+def _volume_for(name: str) -> float:
+    return _hover_volume if _is_hover(name) else _volume
+
 
 def _ensure_mixer() -> bool:
     global _mixer_ready, _mixer_failed
@@ -167,7 +233,7 @@ def _get_sound(name: str):
     path = os.path.join(ASSETS_SOUNDS_DIR, f"{name}.wav")
     try:
         snd = pygame.mixer.Sound(path)
-        snd.set_volume(_volume)
+        snd.set_volume(_volume_for(name))
     except Exception:
         _logger.exception("Не вдалося завантажити звук %s", path)
         return None
@@ -189,34 +255,58 @@ def set_volume(volume: float) -> None:
     global _volume
     _volume = max(0.0, min(1.0, volume))
     update_setting("sounds_volume", _volume)
-    for snd in _sounds.values():
+    for name, snd in _sounds.items():
+        if _is_hover(name):
+            continue
         try:
             snd.set_volume(_volume)
         except Exception:
-            _logger.exception("Не вдалося застосувати гучність до вже завантаженого звуку")
+            _logger.exception("Не вдалося застосувати гучність до вже завантаженого звуку %s", name)
 
 
 def get_volume() -> float:
     return _volume
 
 
+def set_hover_volume(volume: float) -> None:
+    global _hover_volume
+    _hover_volume = max(0.0, min(1.0, volume))
+    update_setting("sounds_hover_volume", _hover_volume)
+    for name, snd in _sounds.items():
+        if not _is_hover(name):
+            continue
+        try:
+            snd.set_volume(_hover_volume)
+        except Exception:
+            _logger.exception("Не вдалося застосувати гучність наведення до вже завантаженого звуку %s", name)
+
+
+def get_hover_volume() -> float:
+    return _hover_volume
+
+
 def _play(name: str, force: bool = False) -> None:
     if not force and not _enabled:
         return
-    if _volume <= 0.0:
+    if _volume_for(name) <= 0.0:
         return
     snd = _get_sound(name)
     if snd is None:
         return
     try:
-        snd.set_volume(_volume)
+        snd.set_volume(_volume_for(name))
         snd.play()
     except Exception:
         _logger.exception("Не вдалося відтворити звук %s", name)
 
 
 def play_hover(force: bool = False) -> None:
-    _play("hover", force=force)
+    global _last_hover_at
+    now = time.monotonic()
+    if not force and (now - _last_hover_at) < _HOVER_MIN_INTERVAL_S:
+        return
+    _last_hover_at = now
+    _play(random.choice(HOVER_VARIANTS), force=force)
 
 
 def play_click(force: bool = False) -> None:

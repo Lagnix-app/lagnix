@@ -40,24 +40,13 @@ class SettingsTab(ctk.CTkFrame):
         )
         self._switch.pack(anchor="w")
 
-        volume_row = ctk.CTkFrame(card, fg_color="transparent")
-        volume_row.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
-
-        header = ctk.CTkFrame(volume_row, fg_color="transparent")
-        header.pack(fill="x")
-        ctk.CTkLabel(header, text="Гучність", font=theme.font_body()).pack(side="left")
-        self._volume_value_label = ctk.CTkLabel(
-            header, text=f"{round(sounds.get_volume() * 100)}%", text_color=theme.TEXT_DIM,
+        self._volume_slider, self._volume_value_label = self._build_volume_row(
+            card, "Загальна гучність", sounds.get_volume(), self._on_volume_change, self._on_volume_release,
         )
-        self._volume_value_label.pack(side="right")
-
-        self._volume_slider = ctk.CTkSlider(
-            volume_row, from_=0, to=1, number_of_steps=20,
-            command=self._on_volume_change,
+        self._hover_volume_slider, self._hover_volume_value_label = self._build_volume_row(
+            card, "Звук наведення", sounds.get_hover_volume(),
+            self._on_hover_volume_change, self._on_hover_volume_release,
         )
-        self._volume_slider.set(sounds.get_volume())
-        self._volume_slider.pack(fill="x", pady=(6, 0))
-        self._volume_slider.bind("<ButtonRelease-1>", self._on_volume_release, add="+")
 
         self._test_button = ctk.CTkButton(
             card, text="Тест звуку", width=140, command=self._on_test_sound,
@@ -65,6 +54,22 @@ class SettingsTab(ctk.CTkFrame):
         self._test_button.pack(padx=theme.PAD_M, pady=(0, theme.PAD_M), anchor="w")
 
         self._update_volume_state()
+
+    def _build_volume_row(self, card, label_text: str, initial: float, on_change, on_release):
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
+
+        header = ctk.CTkFrame(row, fg_color="transparent")
+        header.pack(fill="x")
+        ctk.CTkLabel(header, text=label_text, font=theme.font_body()).pack(side="left")
+        value_label = ctk.CTkLabel(header, text=f"{round(initial * 100)}%", text_color=theme.TEXT_DIM)
+        value_label.pack(side="right")
+
+        slider = ctk.CTkSlider(row, from_=0, to=1, number_of_steps=20, command=on_change)
+        slider.set(initial)
+        slider.pack(fill="x", pady=(6, 0))
+        slider.bind("<ButtonRelease-1>", on_release, add="+")
+        return slider, value_label
 
     def _on_toggle_sounds(self) -> None:
         enabled = self._sound_var.get()
@@ -76,6 +81,7 @@ class SettingsTab(ctk.CTkFrame):
     def _update_volume_state(self) -> None:
         state = "normal" if self._sound_var.get() else "disabled"
         self._volume_slider.configure(state=state)
+        self._hover_volume_slider.configure(state=state)
 
     def _on_volume_change(self, value: float) -> None:
         sounds.set_volume(value)
@@ -85,16 +91,27 @@ class SettingsTab(ctk.CTkFrame):
         if self._sound_var.get():
             sounds.play_click()
 
+    def _on_hover_volume_change(self, value: float) -> None:
+        sounds.set_hover_volume(value)
+        self._hover_volume_value_label.configure(text=f"{round(value * 100)}%")
+
+    def _on_hover_volume_release(self, _event) -> None:
+        if self._sound_var.get():
+            sounds.play_hover(force=True)
+
     def _on_test_sound(self) -> None:
-        """Програє всі 4 звуки по черзі (з паузами, щоб було чутно кожен
+        """Програє всі звуки по черзі (з паузами, щоб було чутно кожен
         окремо) — незалежно від перемикача, щоб можна було "прослухати"
         звуки перед тим, як їх вмикати."""
         self._test_button.configure(state="disabled", text="Відтворення...")
-        sequence = (sounds.play_hover, sounds.play_click, sounds.play_success, sounds.play_error)
+        sequence = (
+            sounds.play_hover, sounds.play_hover,
+            sounds.play_click, sounds.play_success, sounds.play_error,
+        )
         delay = 0
         for play_fn in sequence:
             self.after(delay, lambda fn=play_fn: fn(force=True))
-            delay += 450
+            delay += 400
         self.after(delay + 200, self._on_test_sound_done)
 
     def _on_test_sound_done(self) -> None:

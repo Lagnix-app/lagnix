@@ -15,7 +15,8 @@ DEFAULT_SETTINGS = {
     "last_tab": "monitor",
     "temp_threshold_c": 85,
     "sounds_enabled": True,
-    "sounds_volume": 0.35
+    "sounds_volume": 0.25,
+    "sounds_hover_volume": 0.125
 }
 
 
