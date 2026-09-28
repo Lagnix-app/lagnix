@@ -124,6 +124,10 @@ class MainWindow(ctk.CTk):
                 frame, lambda v, f=frame: f.place_configure(y=round(v))
             )
 
+    def select_tab(self, key: str) -> None:
+        """Публічна навігація для кнопок з інших вкладок (напр. підказки, звіт)."""
+        self._select_tab(key)
+
     def _select_tab(self, key: str):
         if key == self._current_tab:
             return
