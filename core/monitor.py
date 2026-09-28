@@ -1,8 +1,10 @@
-"""Збір системних метрик (CPU, RAM, GPU, температури, процеси) для вкладки «Монітор»."""
+"""Збір системних метрик (CPU, RAM, GPU, температури, диск, мережа, процеси)
+для вкладки «Монітор»."""
 
 import os
 import shutil
 import subprocess
+import time
 
 import psutil
 
@@ -20,18 +22,39 @@ _NVIDIA_SMI = shutil.which("nvidia-smi")
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _LOGICAL_CPU_COUNT = psutil.cpu_count(logical=True) or 1
 
+# Попередні лічильники диска/мережі — для обчислення швидкості (байт/с) як
+# різниці між двома знімками; заповнюються в prime() і оновлюються на кожному
+# collect_snapshot(). Без цього стану можна лише знати сумарний трафік з
+# моменту завантаження ОС, а не поточну швидкість.
+_prev_disk_io = None
+_prev_net_io = None
+_prev_io_time = None
+
 
 def prime() -> None:
     """Ініціалізує лічильники psutil, щоб перше реальне вимірювання було коректним."""
+    global _prev_disk_io, _prev_net_io, _prev_io_time
     psutil.cpu_percent(interval=None)
     for proc in psutil.process_iter(["cpu_percent"]):
         pass
+    _prev_disk_io = psutil.disk_io_counters()
+    _prev_net_io = psutil.net_io_counters()
+    _prev_io_time = time.perf_counter()
 
 
 def get_cpu_ram_usage() -> dict:
     mem = psutil.virtual_memory()
+    freq = None
+    try:
+        cpu_freq = psutil.cpu_freq()
+        if cpu_freq is not None and cpu_freq.current:
+            freq = cpu_freq.current / 1000.0
+    except (AttributeError, NotImplementedError, OSError):
+        freq = None
+
     return {
         "cpu_percent": psutil.cpu_percent(interval=None),
+        "cpu_freq_ghz": freq,
         "ram_percent": mem.percent,
         "ram_used_gb": mem.used / (1024 ** 3),
         "ram_total_gb": mem.total / (1024 ** 3),
@@ -47,7 +70,7 @@ def get_gpu_info() -> dict | None:
         raw = subprocess.check_output(
             [
                 _NVIDIA_SMI,
-                "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
+                "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
                 "--format=csv,noheader,nounits",
             ],
             stderr=subprocess.STDOUT,
@@ -61,15 +84,16 @@ def get_gpu_info() -> dict | None:
         return None
 
     parts = [p.strip() for p in raw.splitlines()[0].split(",")]
-    if len(parts) < 4:
+    if len(parts) < 5:
         return None
 
     try:
         return {
-            "load_percent": float(parts[0]),
-            "mem_used_mb": float(parts[1]),
-            "mem_total_mb": float(parts[2]),
-            "temperature_c": float(parts[3]),
+            "name": parts[0],
+            "load_percent": float(parts[1]),
+            "mem_used_mb": float(parts[2]),
+            "mem_total_mb": float(parts[3]),
+            "temperature_c": float(parts[4]),
         }
     except ValueError:
         return None
@@ -103,15 +127,57 @@ def get_cpu_temperature() -> float | None:
     return None
 
 
-def get_top_processes(limit: int = 10):
-    """Повертає (топ за CPU, топ за RAM) — списки словників pid/name/cpu_percent/memory_percent.
+def get_io_rates() -> dict:
+    """Швидкість диска й мережі (МБ/с) з моменту попереднього виклику."""
+    global _prev_disk_io, _prev_net_io, _prev_io_time
 
-    Виключає процеси ядра ОС (System, System Idle Process) та власний процес PulseFPS.
-    Відсоток CPU нормалізується на кількість логічних ядер, щоб максимум був 100%.
+    now = time.perf_counter()
+    disk = psutil.disk_io_counters()
+    net = psutil.net_io_counters()
+
+    dt = now - _prev_io_time if _prev_io_time else None
+    if not dt or dt <= 0 or _prev_disk_io is None or _prev_net_io is None:
+        rates = {"disk_read_mb_s": 0.0, "disk_write_mb_s": 0.0, "net_down_mb_s": 0.0, "net_up_mb_s": 0.0}
+    else:
+        mb = 1024 ** 2
+        rates = {
+            "disk_read_mb_s": max(0.0, (disk.read_bytes - _prev_disk_io.read_bytes) / dt / mb),
+            "disk_write_mb_s": max(0.0, (disk.write_bytes - _prev_disk_io.write_bytes) / dt / mb),
+            "net_down_mb_s": max(0.0, (net.bytes_recv - _prev_net_io.bytes_recv) / dt / mb),
+            "net_up_mb_s": max(0.0, (net.bytes_sent - _prev_net_io.bytes_sent) / dt / mb),
+        }
+
+    _prev_disk_io = disk
+    _prev_net_io = net
+    _prev_io_time = now
+    return rates
+
+
+def get_uptime_text() -> str:
+    seconds = max(0.0, time.time() - psutil.boot_time())
+    total_minutes = int(seconds // 60)
+    days, rem_minutes = divmod(total_minutes, 24 * 60)
+    hours, minutes = divmod(rem_minutes, 60)
+
+    if days > 0:
+        return f"{days} дн {hours} год"
+    if hours > 0:
+        return f"{hours} год {minutes} хв"
+    return f"{minutes} хв"
+
+
+def get_top_processes(limit: int = 12):
+    """Повертає об'єднаний список процесів (топ за CPU + топ за RAM, без
+    дублів) — кожен запис містить обидві метрики, тож UI може перемикати
+    сортування "за CPU / за RAM" без повторного опитування psutil.
+
+    Виключає процеси ядра ОС (System, System Idle Process) та власний процес
+    PulseFPS. Відсоток CPU нормалізується на кількість логічних ядер, щоб
+    максимум був 100%.
     """
     current_pid = os.getpid()
     procs = []
-    for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent"]):
+    for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "memory_info"]):
         try:
             info = proc.info
             pid = info["pid"]
@@ -119,18 +185,23 @@ def get_top_processes(limit: int = 10):
             if pid == current_pid or is_hidden(name):
                 continue
 
+            mem_info = info["memory_info"]
             procs.append({
                 "pid": pid,
                 "name": name,
                 "cpu_percent": (info["cpu_percent"] or 0.0) / _LOGICAL_CPU_COUNT,
                 "memory_percent": info["memory_percent"] or 0.0,
+                "memory_mb": (mem_info.rss / (1024 ** 2)) if mem_info else 0.0,
             })
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
     top_cpu = sorted(procs, key=lambda p: p["cpu_percent"], reverse=True)[:limit]
     top_ram = sorted(procs, key=lambda p: p["memory_percent"], reverse=True)[:limit]
-    return top_cpu, top_ram
+
+    merged = {p["pid"]: p for p in top_ram}
+    merged.update({p["pid"]: p for p in top_cpu})
+    return list(merged.values())
 
 
 def terminate_process(pid: int) -> tuple[bool, str]:
@@ -156,16 +227,18 @@ def collect_snapshot() -> dict:
     threshold = settings.get("temp_threshold_c", DEFAULT_TEMP_THRESHOLD_C)
 
     usage = get_cpu_ram_usage()
-    top_cpu, top_ram = get_top_processes()
+    io_rates = get_io_rates()
 
     return {
         "cpu_percent": usage["cpu_percent"],
+        "cpu_freq_ghz": usage["cpu_freq_ghz"],
         "ram_percent": usage["ram_percent"],
         "ram_used_gb": usage["ram_used_gb"],
         "ram_total_gb": usage["ram_total_gb"],
         "gpu": get_gpu_info(),
         "cpu_temp": get_cpu_temperature(),
         "temp_threshold": threshold,
-        "top_cpu": top_cpu,
-        "top_ram": top_ram,
+        "uptime_text": get_uptime_text(),
+        "processes": get_top_processes(),
+        **io_rates,
     }

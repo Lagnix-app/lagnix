@@ -36,6 +36,13 @@ class GameModeTab(ctk.CTkFrame):
 
         self.bind("<Destroy>", self._on_destroy)
 
+        # Через after(0, ...), а не напряму: вкладки створюються ще до
+        # MainWindow.mainloop(), і потік міг би викликати self.after() ще
+        # до реального старту mainloop (Python 3.13+ кидає на це непіймане
+        # RuntimeError, і потік мовчки гине).
+        self.after(0, self._start_watcher)
+
+    def _start_watcher(self):
         self._watcher = threading.Thread(target=self._watch_games_loop, daemon=True)
         self._watcher.start()
 

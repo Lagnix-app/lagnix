@@ -116,7 +116,11 @@ class SystemTab(ctk.CTkFrame):
 
         self.bind("<Destroy>", self._on_destroy)
 
-        self._load_snapshot()
+        # Через after(0, ...), а не напряму: вкладки створюються ще до
+        # MainWindow.mainloop(), і фоновий потік міг би викликати
+        # self.after() ще до реального старту mainloop (Python 3.13+
+        # кидає на це непіймане RuntimeError, і потік мовчки гине).
+        self.after(0, self._load_snapshot)
 
     # ------------------------------------------------------------------ UI
 
