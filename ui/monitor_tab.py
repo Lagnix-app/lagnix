@@ -71,7 +71,7 @@ class ProcessRow(ctk.CTkFrame):
 
         self.kill_button = ctk.CTkButton(
             self, text="Завершити", width=90,
-            fg_color="#8b2c2c", hover_color="#a83a3a",
+            fg_color="#a8283f", hover_color="#ff5c7a",
             command=self._handle_click, state="disabled",
         )
         self.kill_button.grid(row=0, column=2, sticky="e")
@@ -137,11 +137,11 @@ class MonitorTab(ctk.CTkFrame):
 
         (self.cpu_card, self.cpu_value_label,
          self.cpu_graph, self.cpu_extra_label) = self._make_usage_card(
-            cards_frame, "CPU", 0, color="#3b8ed0"
+            cards_frame, "CPU", 0, color="#4fc3ff"
         )
         (self.ram_card, self.ram_value_label,
          self.ram_graph, self.ram_extra_label) = self._make_usage_card(
-            cards_frame, "RAM", 1, color="#2fa572"
+            cards_frame, "RAM", 1, color="#2ee59d"
         )
         (self.gpu_card, self.gpu_value_label,
          self.gpu_graph, self.gpu_extra_label) = self._make_usage_card(
@@ -169,7 +169,7 @@ class MonitorTab(ctk.CTkFrame):
 
     def _build_warning_banner(self):
         self.warning_label = ctk.CTkLabel(
-            self, text="", text_color="#e05252",
+            self, text="", text_color="#ff5c7a",
             font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
         )
         self.warning_label.grid(row=2, column=0, padx=20, pady=(0, 6), sticky="ew")

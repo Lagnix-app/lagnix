@@ -97,7 +97,7 @@ class PingCard(ctk.CTkFrame):
 
     def apply(self, latency: float | None, stats: dict) -> None:
         if latency is None:
-            self.value_label.configure(text="таймаут", text_color="#e05252")
+            self.value_label.configure(text="таймаут", text_color="#ff5c7a")
         else:
             self.value_label.configure(text=f"{latency:.0f} мс", text_color=("gray10", "gray90"))
         self.graph.push(latency)
@@ -106,7 +106,7 @@ class PingCard(ctk.CTkFrame):
         jitter = f"{stats['jitter']:.0f} мс" if stats["jitter"] is not None else "—"
         loss = stats["loss_percent"]
         loss_text = f"{loss:.0f}%"
-        loss_color = "#e05252" if loss > 0 else "gray"
+        loss_color = "#ff5c7a" if loss > 0 else "gray"
 
         self.stats_label.configure(
             text=f"Середній: {avg}  ·  Джитер: {jitter}  ·  Втрати: {loss_text}",
@@ -258,10 +258,10 @@ class NetworkTab(ctk.CTkFrame):
         self.live_cards_frame = ctk.CTkFrame(self.test_frame, fg_color="transparent")
         self.live_cards_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
-        self.test_google_card = PingCard(self.live_cards_frame, "Google DNS (8.8.8.8)", color="#3b8ed0")
+        self.test_google_card = PingCard(self.live_cards_frame, "Google DNS (8.8.8.8)", color="#4fc3ff")
         self.test_google_card.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
-        self.test_cloudflare_card = PingCard(self.live_cards_frame, "Cloudflare (1.1.1.1)", color="#2fa572")
+        self.test_cloudflare_card = PingCard(self.live_cards_frame, "Cloudflare (1.1.1.1)", color="#2ee59d")
         self.test_cloudflare_card.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
 
         self.test_custom_card = PingCard(self.live_cards_frame, "Власна адреса", color="#c77dff")
@@ -463,7 +463,7 @@ class NetworkTab(ctk.CTkFrame):
 
         self.live_stop_button = ctk.CTkButton(
             controls, text="Стоп", width=90, state="disabled",
-            fg_color="#8b2c2c", hover_color="#a83a3a", command=self._stop_live,
+            fg_color="#a8283f", hover_color="#ff5c7a", command=self._stop_live,
         )
         self.live_stop_button.pack(side="left")
 
@@ -472,10 +472,10 @@ class NetworkTab(ctk.CTkFrame):
         cards_frame.grid_columnconfigure((0, 1, 2), weight=1)
         cards_frame.grid_rowconfigure(0, weight=1)
 
-        self.live_google_card = PingCard(cards_frame, "Google DNS (8.8.8.8)", color="#3b8ed0")
+        self.live_google_card = PingCard(cards_frame, "Google DNS (8.8.8.8)", color="#4fc3ff")
         self.live_google_card.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
-        self.live_cloudflare_card = PingCard(cards_frame, "Cloudflare (1.1.1.1)", color="#2fa572")
+        self.live_cloudflare_card = PingCard(cards_frame, "Cloudflare (1.1.1.1)", color="#2ee59d")
         self.live_cloudflare_card.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
 
         self.live_custom_card = PingCard(cards_frame, "Власна адреса", color="#c77dff")

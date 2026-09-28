@@ -194,7 +194,7 @@ def aggregate_stats(histories: list) -> dict:
 
 
 RATING_LABELS = ("Відмінно", "Добре", "Задовільно", "Погано")
-RATING_COLORS = ("#2fa572", "#d4b106", "#e0a52f", "#e05252")
+RATING_COLORS = ("#2ee59d", "#d4b106", "#e0a52f", "#ff5c7a")
 RATING_COLOR_BY_LABEL = dict(zip(RATING_LABELS, RATING_COLORS))
 
 

@@ -43,7 +43,7 @@ class AdminStatusPanel(ctk.CTkFrame):
 
         admin = admin_core.is_admin()
         text = "● Адміністратор" if admin else "● Обмежений режим"
-        color = "#2fa572" if admin else "#e0a52f"
+        color = "#2ee59d" if admin else "#e0a52f"
 
         ctk.CTkLabel(
             self, text=text, text_color=color, font=ctk.CTkFont(size=12, weight="bold"), anchor="w"

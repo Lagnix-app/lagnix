@@ -80,13 +80,13 @@ class GameModeTab(ctk.CTkFrame):
         buttons_row.grid_columnconfigure((0, 1), weight=1)
 
         self.enable_button = ctk.CTkButton(
-            buttons_row, text="Увімкнути", fg_color="#2fa572", hover_color="#268a5f",
+            buttons_row, text="Увімкнути", fg_color="#2ee59d", hover_color="#268a5f",
             command=self._on_enable_clicked,
         )
         self.enable_button.grid(row=0, column=0, padx=(0, 4), sticky="ew")
 
         self.disable_button = ctk.CTkButton(
-            buttons_row, text="Вимкнути", fg_color="#8b2c2c", hover_color="#a83a3a",
+            buttons_row, text="Вимкнути", fg_color="#a8283f", hover_color="#ff5c7a",
             command=self._on_disable_clicked,
         )
         self.disable_button.grid(row=0, column=1, padx=(4, 0), sticky="ew")
@@ -150,12 +150,12 @@ class GameModeTab(ctk.CTkFrame):
 
         self.games_listbox = tk.Listbox(
             list_row, height=5, bg="#1a1a1a", fg="white",
-            selectbackground="#3b8ed0", highlightthickness=0, borderwidth=0,
+            selectbackground="#4fc3ff", highlightthickness=0, borderwidth=0,
         )
         self.games_listbox.grid(row=0, column=0, sticky="ew")
 
         ctk.CTkButton(
-            list_row, text="Видалити", width=110, fg_color="#8b2c2c", hover_color="#a83a3a",
+            list_row, text="Видалити", width=110, fg_color="#a8283f", hover_color="#ff5c7a",
             command=self._remove_selected_game,
         ).grid(row=0, column=1, padx=(8, 0), sticky="n")
 
@@ -183,7 +183,7 @@ class GameModeTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         if is_active:
-            self.status_label.configure(text="● Режим увімкнено", text_color="#2fa572")
+            self.status_label.configure(text="● Режим увімкнено", text_color="#2ee59d")
             self.enable_button.configure(state="disabled")
             self.disable_button.configure(state="normal")
         else:

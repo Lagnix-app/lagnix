@@ -14,7 +14,7 @@ _RISK_LABELS = {
     tweaks_core.RISK_CAUTION: "на свій розсуд",
 }
 _RISK_COLORS = {
-    tweaks_core.RISK_SAFE: "#2fa572",
+    tweaks_core.RISK_SAFE: "#2ee59d",
     tweaks_core.RISK_CAUTION: "#e0a52f",
 }
 
@@ -124,7 +124,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
         self.restore_button = ctk.CTkButton(
             controls, text="Повернути все як було", width=180,
-            fg_color="#8b2c2c", hover_color="#a83a3a", command=self._on_restore_clicked,
+            fg_color="#a8283f", hover_color="#ff5c7a", command=self._on_restore_clicked,
         )
         self.restore_button.pack(side="left", padx=(0, 10))
 

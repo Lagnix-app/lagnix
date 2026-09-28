@@ -127,7 +127,7 @@ class CleanupItemRow(ctk.CTkFrame):
         text = f"Звільнено {freed_text}"
         if result["skipped_count"]:
             text += f" · пропущено {result['skipped_count']}"
-        self.status_label.configure(text=text, text_color="#2fa572")
+        self.status_label.configure(text=text, text_color="#2ee59d")
 
 
 class CleanupTab(ctk.CTkFrame):
@@ -238,7 +238,7 @@ class CleanupTab(ctk.CTkFrame):
 
         self.clean_button = ctk.CTkButton(
             bar, text="Очистити вибране", width=160, state="disabled",
-            fg_color="#8b2c2c", hover_color="#a83a3a", command=self._clean_selected,
+            fg_color="#a8283f", hover_color="#ff5c7a", command=self._clean_selected,
         )
         self.clean_button.pack(side="right", padx=14, pady=12)
 

@@ -13,7 +13,9 @@ DEFAULT_SETTINGS = {
         "height": 700
     },
     "last_tab": "monitor",
-    "temp_threshold_c": 85
+    "temp_threshold_c": 85,
+    "sounds_enabled": True,
+    "sounds_volume": 0.35
 }
 
 

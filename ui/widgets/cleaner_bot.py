@@ -24,6 +24,8 @@ from collections import deque
 
 import customtkinter as ctk
 
+from core import sounds
+
 _IS_WINDOWS = platform.system() == "Windows"
 
 FRAME_INTERVAL_MS = 16  # ~60 кадрів/с
@@ -32,12 +34,12 @@ STATUS_UPDATE_INTERVAL_S = 0.1  # текст і прогрес-бар оновл
 
 DEBUG_FPS = False  # тимчасовий лічильник FPS у кутку для перевірки продуктивності
 
-_CANVAS_BG = "#1a1a1a"
-_BODY_MAIN = "#3b8ed0"
-_BODY_DARK = "#2d6ea3"
-_SCREEN_BG = "#12181f"
-_EYE_COLOR = "#dce4ee"
-_ACCENT_GREEN = "#2fa572"
+_CANVAS_BG = "#0d1321"
+_BODY_MAIN = "#4fc3ff"
+_BODY_DARK = "#1f7ae0"
+_SCREEN_BG = "#0d1321"
+_EYE_COLOR = "#2ee59d"
+_ACCENT_GREEN = "#2ee59d"
 _ACCENT_PURPLE = "#c77dff"
 _ACCENT_ORANGE = "#e0a52f"
 _BROOM_HANDLE = "#8a5a2b"
@@ -168,10 +170,12 @@ class CleanerBotAnimation(ctk.CTkFrame):
             self._elapsed = 0.0
             self.progress.set(1.0)
             self._spawn_confetti()
+            sounds.play_success()
             delay_ms = 3200
         else:
             self._state = "shrug"
             self._elapsed = 0.0
+            sounds.play_error()
             delay_ms = 2600
 
         self._ensure_loop()
