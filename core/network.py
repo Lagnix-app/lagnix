@@ -8,7 +8,7 @@ import threading
 from collections import deque
 from statistics import mean
 
-from core.settings import load_settings, save_settings
+from core.app_data import load_data, save_data
 
 try:
     from icmplib import ping as _icmp_ping
@@ -269,16 +269,16 @@ def rate_test(stats: dict) -> dict:
 
 
 def load_test_history() -> list:
-    settings = load_settings()
-    return list(settings.get(TEST_HISTORY_KEY, []))
+    data = load_data()
+    return list(data.get(TEST_HISTORY_KEY, []))
 
 
 def save_test_result(entry: dict) -> list:
     """Додає результат тесту на початок історії та зберігає останні TEST_HISTORY_MAX."""
-    settings = load_settings()
-    history = list(settings.get(TEST_HISTORY_KEY, []))
+    data = load_data()
+    history = list(data.get(TEST_HISTORY_KEY, []))
     history.insert(0, entry)
     history = history[:TEST_HISTORY_MAX]
-    settings[TEST_HISTORY_KEY] = history
-    save_settings(settings)
+    data[TEST_HISTORY_KEY] = history
+    save_data(data)
     return history

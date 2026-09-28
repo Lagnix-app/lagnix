@@ -102,6 +102,14 @@ class LogoWidget(ctk.CTkFrame):
             self._after_id = None
             return
 
+        if not theme.robot_animation_enabled():
+            # Лишає останній намальований кадр на місці (без "заморожування"
+            # посеред руху при першому вимкненні) й перевіряє прапорець
+            # рідше, щоб не гріти слабкий ПК марними after()-циклами.
+            self._last_tick = None
+            self._after_id = self.after(200, self._tick)
+            return
+
         now = time.perf_counter()
         dt = now - self._last_tick if self._last_tick is not None else _FRAME_MS / 1000.0
         dt = min(dt, 0.2)

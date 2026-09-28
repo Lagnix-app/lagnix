@@ -7,3 +7,4 @@ build/
 dist/
 logs.txt
 backups/
+config.json.bak

@@ -47,6 +47,35 @@ PAD_L = 20
 _FONT_FAMILY = "Segoe UI"
 
 
+# ----------------------------------------------------- перемикачі анімацій
+# Два незалежні глобальні флаги (вкладка «Налаштування», розділ
+# «Інтерфейс»): _animations_enabled вимикає плавні переходи кольору/позиції
+# нижче (наведення, клік, слайд вкладок) — для слабких ПК; _robot_animation
+# читають ui/widgets/cleaner_bot.py та ui/widgets/logo_widget.py окремо,
+# бо там власні after()-цикли, а не _ColorAnimator/ValueAnimator.
+
+_animations_enabled = True
+_robot_animation_enabled = True
+
+
+def set_animations_enabled(enabled: bool) -> None:
+    global _animations_enabled
+    _animations_enabled = bool(enabled)
+
+
+def animations_enabled() -> bool:
+    return _animations_enabled
+
+
+def set_robot_animation_enabled(enabled: bool) -> None:
+    global _robot_animation_enabled
+    _robot_animation_enabled = bool(enabled)
+
+
+def robot_animation_enabled() -> bool:
+    return _robot_animation_enabled
+
+
 def font_title() -> ctk.CTkFont:
     return ctk.CTkFont(family=_FONT_FAMILY, size=22, weight="bold")
 
@@ -113,7 +142,7 @@ class _ColorAnimator:
     def animate_to(self, target: str, duration: float = 0.15) -> None:
         if not self._owner.winfo_exists():
             return
-        if self._current is None:
+        if self._current is None or not animations_enabled():
             self.set_immediate(target)
             return
         if self._current == target:
@@ -167,7 +196,7 @@ class ValueAnimator:
     def animate_to(self, target: float, duration: float = 0.2, on_done=None) -> None:
         if not self._owner.winfo_exists():
             return
-        if self.current is None:
+        if self.current is None or not animations_enabled():
             self.set_immediate(target)
             if on_done:
                 on_done()

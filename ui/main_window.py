@@ -4,7 +4,9 @@ import os
 
 import customtkinter as ctk
 
-from core.settings import load_settings, update_setting
+from core.app_data import load_data, update_data
+from core.settings import load_settings
+from core.tray import TrayIcon, is_available as tray_is_available
 from ui import theme
 from ui.widgets.logo_widget import LogoWidget
 from ui.monitor_tab import MonitorTab
@@ -43,6 +45,8 @@ class MainWindow(ctk.CTk):
         super().__init__()
 
         self.settings = load_settings()
+        theme.set_animations_enabled(self.settings.get("animations_enabled", True))
+        theme.set_robot_animation_enabled(self.settings.get("robot_animation_enabled", True))
 
         self.title("PulseFPS")
         self._apply_icon()
@@ -60,13 +64,53 @@ class MainWindow(ctk.CTk):
         self._tab_anim = {}
         self._current_tab = None
 
+        self._tray = TrayIcon(on_open=self._on_tray_open, on_exit=self._on_tray_exit)
+        self.protocol("WM_DELETE_WINDOW", self._on_window_close)
+
         self._build_sidebar()
         self._build_content_area()
 
-        start_tab = self.settings.get("last_tab", TABS[0][0])
+        if self.settings.get("startup_tab_mode", "last") == "monitor":
+            start_tab = TABS[0][0]
+        else:
+            start_tab = load_data().get("last_tab", TABS[0][0])
         if start_tab not in self.tab_frames:
             start_tab = TABS[0][0]
         self._select_tab(start_tab)
+
+    # -------------------------------------------------------- трей/закриття
+
+    def start_minimized(self) -> None:
+        """Викликається з main.py при запуску з --minimized (автозапуск
+        Windows) — вікно одразу ховається в трей, без блимання на екрані."""
+        if not tray_is_available():
+            return  # трею немає — лишаємо вікно видимим, щоб програма не "зникла"
+        self.withdraw()
+        self._tray.show()
+
+    def _on_window_close(self) -> None:
+        close_action = load_settings().get("close_action", "exit")
+        if close_action == "tray" and self._tray is not None:
+            self.withdraw()
+            self._tray.show()
+        else:
+            self._exit_app()
+
+    def _on_tray_open(self) -> None:
+        self.after(0, self._restore_from_tray)
+
+    def _on_tray_exit(self) -> None:
+        self.after(0, self._exit_app)
+
+    def _restore_from_tray(self) -> None:
+        self._tray.hide()
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _exit_app(self) -> None:
+        self._tray.hide()
+        self.destroy()
 
     def _apply_icon(self) -> None:
         if os.path.exists(_ICON_PATH):
@@ -152,5 +196,4 @@ class MainWindow(ctk.CTk):
         target_y = button.winfo_y() + (button.winfo_height() - self._indicator_height) / 2
         self._indicator_anim.animate_to(target_y, duration=0.22)
 
-        self.settings["last_tab"] = key
-        update_setting("last_tab", key)
+        update_data("last_tab", key)

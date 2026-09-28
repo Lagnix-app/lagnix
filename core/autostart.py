@@ -23,7 +23,7 @@ import winreg
 from ctypes import wintypes
 
 from core.admin import is_admin
-from core.settings import load_settings, update_setting
+from core.app_data import load_data, update_data
 
 _RUN_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _RUN_SUBKEY_WOW64 = r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"
@@ -86,11 +86,11 @@ def _entry_id(source: str, name: str) -> str:
 
 
 def _disabled_state() -> dict:
-    return dict(load_settings().get("autostart_disabled", {}))
+    return dict(load_data().get("autostart_disabled", {}))
 
 
 def _save_disabled_state(state: dict) -> None:
-    update_setting("autostart_disabled", state)
+    update_data("autostart_disabled", state)
 
 
 def requires_admin_for(source: str) -> bool:

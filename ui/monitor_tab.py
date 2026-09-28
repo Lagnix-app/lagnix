@@ -9,9 +9,10 @@ import customtkinter as ctk
 
 from core import monitor as monitor_core
 from core.logging_setup import get_logger
+from core.settings import load_settings
 from core.system_processes import is_protected
 
-UPDATE_INTERVAL_SEC = 1.0
+DEFAULT_UPDATE_INTERVAL_SEC = 1.0
 GRAPH_POINTS = 60
 
 _logger = get_logger(__name__)
@@ -218,7 +219,8 @@ class MonitorTab(ctk.CTkFrame):
                 break
 
             self.after(0, self._apply_snapshot, data)
-            self._stop_event.wait(UPDATE_INTERVAL_SEC)
+            interval = load_settings().get("monitor_update_interval_s", DEFAULT_UPDATE_INTERVAL_SEC)
+            self._stop_event.wait(interval)
 
     def _on_destroy(self, event):
         if event.widget is self:

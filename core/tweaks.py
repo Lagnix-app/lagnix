@@ -25,7 +25,7 @@ from datetime import datetime
 
 from core.admin import is_admin
 from core.logging_setup import get_logger
-from core.settings import load_settings, update_setting
+from core.app_data import load_data, update_data
 
 _logger = get_logger(__name__)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -612,20 +612,20 @@ def _run_full_backup() -> None:
 
 
 def _ensure_backup_for(tweak: Tweak) -> None:
-    settings = load_settings()
+    data = load_data()
 
-    initial_state = dict(settings.get("registry_tweaks_initial_state", {}))
+    initial_state = dict(data.get("registry_tweaks_initial_state", {}))
     if tweak.id not in initial_state:
         initial_state[tweak.id] = get_state(tweak)
-        update_setting("registry_tweaks_initial_state", initial_state)
+        update_data("registry_tweaks_initial_state", initial_state)
 
-    if not settings.get("registry_tweaks_backup_done", False):
+    if not data.get("registry_tweaks_backup_done", False):
         _run_full_backup()
-        update_setting("registry_tweaks_backup_done", True)
+        update_data("registry_tweaks_backup_done", True)
 
 
 def has_initial_state() -> bool:
-    return bool(load_settings().get("registry_tweaks_initial_state"))
+    return bool(load_data().get("registry_tweaks_initial_state"))
 
 
 # ------------------------------------------------------------------ apply
@@ -658,8 +658,8 @@ def apply_recommended() -> list[tuple[Tweak, bool, str]]:
 
 
 def restore_initial_state() -> list[tuple[Tweak, bool, str]]:
-    settings = load_settings()
-    initial_state = settings.get("registry_tweaks_initial_state", {})
+    data = load_data()
+    initial_state = data.get("registry_tweaks_initial_state", {})
 
     results = []
     for tweak in TWEAKS:
@@ -690,8 +690,8 @@ def restore_appearance_defaults() -> list[tuple[Tweak, bool, str]]:
     """Повертає твіки розділу "Вигляд" до збережених початкових значень
     (кнопка «Повернути гарну Windows»). Якщо твік ще не мав збереженого
     початкового стану — вважається, що типовий стан Windows вимкнений."""
-    settings = load_settings()
-    initial_state = settings.get("registry_tweaks_initial_state", {})
+    data = load_data()
+    initial_state = data.get("registry_tweaks_initial_state", {})
 
     results = []
     for tweak in get_appearance_tweaks():

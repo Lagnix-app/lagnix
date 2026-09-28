@@ -1,6 +1,7 @@
 """Точка входу PulseFPS."""
 
 import os
+import sys
 
 import customtkinter as ctk
 
@@ -17,6 +18,8 @@ def main():
     ensure_sounds_exist()
 
     app = MainWindow()
+    if "--minimized" in sys.argv[1:]:
+        app.start_minimized()
     app.mainloop()
 
 

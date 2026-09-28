@@ -25,6 +25,7 @@ from collections import deque
 import customtkinter as ctk
 
 from core import sounds
+from ui import theme
 
 _IS_WINDOWS = platform.system() == "Windows"
 
@@ -114,6 +115,7 @@ class CleanerBotAnimation(ctk.CTkFrame):
         self.progress.pack(fill="x", padx=12, pady=(0, 14))
 
         self._build_static_items()
+        self._render_scene()
         self._fps_counter = _FpsCounter(self.canvas) if DEBUG_FPS else None
 
         self.bind("<Destroy>", self._on_destroy)
@@ -139,6 +141,7 @@ class CleanerBotAnimation(ctk.CTkFrame):
         self._cancel_hide()
         self.label.configure(text=text)
         self.progress.set(0.0)
+        self._render_scene()
         self._ensure_loop()
 
     def update(self, text: str, progress: float | None = None) -> None:
@@ -178,6 +181,7 @@ class CleanerBotAnimation(ctk.CTkFrame):
             sounds.play_error()
             delay_ms = 2600
 
+        self._render_scene()
         self._ensure_loop()
         self._hide_after_id = self.after(delay_ms, self.hide)
 
@@ -272,17 +276,25 @@ class CleanerBotAnimation(ctk.CTkFrame):
         dt = min(dt, MAX_FRAME_DT)
         self._last_tick_perf = now
 
-        self._elapsed += dt
-        self._update_particles(dt)
-        self._maybe_spawn(dt)
+        # "Анімація робота" вимкнена (слабкі ПК): робот лишається в
+        # статичній позі (намальованій у start()/finish()), рухи й частки
+        # не рахуються — але текст/прогрес продовжують оновлюватись нижче.
+        if theme.robot_animation_enabled():
+            self._elapsed += dt
+            self._update_particles(dt)
+            self._maybe_spawn(dt)
+            self._render_scene()
+
         self._flush_ui_update(now)
-        self._render_scene()
 
         if self._fps_counter is not None:
             self._fps_counter.tick(now)
 
-        work_ms = (time.perf_counter() - now) * 1000.0
-        delay = max(1, round(FRAME_INTERVAL_MS - work_ms))
+        if theme.robot_animation_enabled():
+            work_ms = (time.perf_counter() - now) * 1000.0
+            delay = max(1, round(FRAME_INTERVAL_MS - work_ms))
+        else:
+            delay = 100
         self._after_id = self.after(delay, self._tick)
 
     def _flush_ui_update(self, now: float) -> None:

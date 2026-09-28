@@ -6,7 +6,7 @@ import subprocess
 
 import psutil
 
-from core.settings import load_settings, update_setting
+from core.app_data import load_data, update_data
 from core.system_processes import is_hidden, is_protected
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -35,9 +35,9 @@ DEFAULT_GAME_MODE = {
 
 
 def load_game_mode() -> dict:
-    """Завантажує стан ігрового режиму з config.json, доповнюючи типовими профілями."""
-    settings = load_settings()
-    saved = settings.get("game_mode", {})
+    """Завантажує стан ігрового режиму з data.json, доповнюючи типовими профілями."""
+    data = load_data()
+    saved = data.get("game_mode", {})
 
     profiles = {name: dict(defaults) for name, defaults in DEFAULT_PROFILES.items()}
     for name, profile in saved.get("profiles", {}).items():
@@ -56,7 +56,7 @@ def load_game_mode() -> dict:
 
 
 def save_game_mode(state: dict) -> None:
-    update_setting("game_mode", state)
+    update_data("game_mode", state)
 
 
 def get_running_process_names() -> list[dict]:
