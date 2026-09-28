@@ -92,16 +92,17 @@ class RegistryTweaksTab(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
 
         self.rows: dict[str, TweakRow] = {}
         self._reboot_titles: set[str] = set()
         self._logoff_titles: set[str] = set()
 
         self._build_header()
+        self._build_mode_block()
 
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll.grid(row=1, column=0, sticky="nsew", padx=6, pady=(0, 10))
+        self.scroll.grid(row=2, column=0, sticky="nsew", padx=6, pady=(0, 10))
         self.scroll.grid_columnconfigure(0, weight=1)
 
         self._build_rows()
@@ -139,8 +140,52 @@ class RegistryTweaksTab(ctk.CTkFrame):
         )
         self.banner_label.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
+    def _build_mode_block(self):
+        block = ctk.CTkFrame(self, corner_radius=10)
+        block.grid(row=1, column=0, padx=20, pady=(0, 14), sticky="ew")
+        block.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            block, text="Режим Windows", font=ctk.CTkFont(size=15, weight="bold"),
+        ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
+
+        ctk.CTkLabel(
+            block,
+            text=(
+                "Швидко перемикає вигляд Windows між «як завжди» і «максимальна "
+                "швидкодія» (твіки розділу «Вигляд» нижче)."
+            ),
+            text_color="gray", font=ctk.CTkFont(size=11), wraplength=700, justify="left",
+        ).grid(row=1, column=0, sticky="w", padx=16, pady=(0, 10))
+
+        btn_row = ctk.CTkFrame(block, fg_color="transparent")
+        btn_row.grid(row=2, column=0, sticky="w", padx=16, pady=(0, 14))
+
+        self.max_perf_button = ctk.CTkButton(
+            btn_row, text="Максимальна швидкодія", command=self._on_max_performance_clicked,
+        )
+        self.max_perf_button.pack(side="left", padx=(0, 10))
+
+        self.restore_appearance_button = ctk.CTkButton(
+            btn_row, text="Повернути гарну Windows", fg_color="transparent", border_width=1,
+            command=self._on_restore_appearance_clicked,
+        )
+        self.restore_appearance_button.pack(side="left")
+
     def _build_rows(self):
+        current_group = None
         for tweak in tweaks_core.TWEAKS:
+            if tweak.group != current_group:
+                current_group = tweak.group
+                header = ctk.CTkLabel(
+                    self.scroll,
+                    text=tweaks_core.GROUP_LABELS.get(current_group, current_group),
+                    font=ctk.CTkFont(size=14, weight="bold"),
+                    anchor="w",
+                )
+                top_pad = 4 if len(self.rows) == 0 else 16
+                header.pack(fill="x", padx=10, pady=(top_pad, 2), anchor="w")
+
             row = TweakRow(self.scroll, tweak, self._on_row_toggle)
             row.pack(fill="x", padx=10, pady=6, anchor="w")
             self.rows[tweak.id] = row
@@ -177,6 +222,8 @@ class RegistryTweaksTab(ctk.CTkFrame):
         if success:
             self._register_requirements(tweak)
             self._update_restore_button_state()
+            if tweak.group == tweaks_core.GROUP_APPEARANCE:
+                self._offer_explorer_restart()
         else:
             messagebox.showerror("Помилка", error or "Не вдалося змінити твік", parent=self)
 
@@ -223,6 +270,58 @@ class RegistryTweaksTab(ctk.CTkFrame):
             self.after(0, self._on_batch_done, results, self.restore_button)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # -------------------------------------------------------- режим Windows
+
+    def _on_max_performance_clicked(self):
+        names = "\n".join(f"• {t.title}" for t in tweaks_core.get_appearance_tweaks())
+        confirmed = messagebox.askyesno(
+            "Максимальна швидкодія",
+            "Windows виглядатиме простіше: без прозорості, анімацій і тіней.\n\n"
+            f"Буде увімкнено:\n{names}\n\nПродовжити?",
+            parent=self,
+        )
+        if not confirmed:
+            return
+        self._run_appearance_batch(tweaks_core.apply_max_performance)
+
+    def _on_restore_appearance_clicked(self):
+        confirmed = messagebox.askyesno(
+            "Повернути гарну Windows",
+            "Повернути вигляд Windows (прозорість, анімації, тіні) до стану, який "
+            "був до перших змін?",
+            parent=self,
+        )
+        if not confirmed:
+            return
+        self._run_appearance_batch(tweaks_core.restore_appearance_defaults)
+
+    def _run_appearance_batch(self, action):
+        self.max_perf_button.configure(state="disabled")
+        self.restore_appearance_button.configure(state="disabled")
+
+        def worker():
+            results = action()
+            self.after(0, self._on_appearance_batch_done, results)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_appearance_batch_done(self, results: list):
+        self._on_batch_done(results, self.max_perf_button)
+        self.restore_appearance_button.configure(state="normal")
+        if results:
+            self._offer_explorer_restart()
+
+    def _offer_explorer_restart(self):
+        confirmed = messagebox.askyesno(
+            "Застосувати зараз",
+            "Щоб зміни вигляду набули чинності одразу, можна перезапустити "
+            "Провідник (закриються відкриті вікна папок). Зробити це зараз?\n\n"
+            "Якщо відмовитесь — зміни застосуються після виходу з системи.",
+            parent=self,
+        )
+        if confirmed:
+            threading.Thread(target=tweaks_core.restart_explorer, daemon=True).start()
 
     # --------------------------------------------------------------- спільне
 
