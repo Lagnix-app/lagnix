@@ -1,0 +1,16 @@
+Сторонні компоненти PulseFPS
+============================
+
+LibreHardwareMonitorLib 0.9.6 (libs/LibreHardwareMonitorLib.dll)
+  Ліцензія: Mozilla Public License 2.0 (повний текст: libs/LICENSE-LibreHardwareMonitor.txt)
+  Джерело: https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+  Використовується для читання температури CPU. Файли бібліотеки не змінювались.
+  Драйвер: PawnIO (https://pawnio.eu), НЕ WinRing0.
+
+Залежності LibreHardwareMonitorLib у libs/ (з NuGet, без змін):
+  HidSharp 2.6.4 (Apache-2.0), RAMSPDToolkit-NDD 1.4.2 (MIT), DiskInfoToolkit 1.1.2 (MIT),
+  System.Memory / System.Buffers / System.Numerics.Vectors /
+  System.Runtime.CompilerServices.Unsafe / System.Threading.AccessControl (MIT, Microsoft).
+
+pythonnet 3.1.0 — MIT. customtkinter — MIT. psutil — BSD-3-Clause. icmplib — LGPL-3.0.
+Pillow — HPND. pygame-ce — LGPL-2.1. pystray — LGPL-3.0. nvidia-ml-py — BSD-3-Clause.

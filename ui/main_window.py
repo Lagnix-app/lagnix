@@ -18,7 +18,6 @@ from ui.autostart_tab import AutostartTab
 from ui.registry_tweaks_tab import RegistryTweaksTab
 from ui.system_tab import SystemTab
 from ui.settings_tab import SettingsTab
-from ui.admin_status import AdminStatusPanel
 
 TABS = (
     ("monitor", "Монітор", MonitorTab),
@@ -151,9 +150,6 @@ class MainWindow(ctk.CTk):
             )
             button.grid(row=index, column=0, padx=10, pady=4, sticky="ew")
             self.nav_buttons[key] = button
-
-        admin_panel = AdminStatusPanel(sidebar)
-        admin_panel.grid(row=spacer_row + 1, column=0, padx=14, pady=(6, 16), sticky="ew")
 
     def _place_indicator(self, y: float) -> None:
         self._indicator.place(x=4, y=round(y))

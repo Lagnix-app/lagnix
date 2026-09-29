@@ -24,6 +24,9 @@ DEFAULT_SETTINGS = {
     # "monitor" — завжди починати з «Монітора».
     "startup_tab_mode": "last",
     "temp_threshold_c": 85,
+    # Розширені датчики (температура CPU) через LibreHardwareMonitorLib.
+    # Якщо вимкнено — драйвер датчиків не завантажується.
+    "advanced_sensors_enabled": True,
     "sounds_enabled": True,
     "sounds_volume": 0.25,
     "sounds_hover_volume": 0.125,

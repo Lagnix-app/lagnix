@@ -13,6 +13,7 @@ import tempfile
 import winreg
 
 from core.admin import is_admin
+from core.logging_setup import get_logger
 from core.game_mode import get_running_process_name_set
 
 WINDOWS_TEMP_PATH = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "Temp")
@@ -337,6 +338,7 @@ def scan_target(key: str, running_processes: set[str] | None = None) -> dict:
 
     if target.get("requires_admin") and not is_admin():
         result["admin_blocked"] = True
+        get_logger("core.cleanup").error("Немає прав адміністратора для %s", key)
 
     process_names = target.get("process_names") or []
     if process_names:
@@ -404,7 +406,8 @@ def clean_target(key: str, running_processes: set[str] | None = None) -> dict:
         return result
 
     if target.get("requires_admin") and not is_admin():
-        result["skipped_reason"] = "Потрібні права адміністратора"
+        result["skipped_reason"] = "Пропущено"
+        get_logger("core.cleanup").error("Немає прав адміністратора для очищення %s", key)
         return result
 
     process_names = target.get("process_names") or []

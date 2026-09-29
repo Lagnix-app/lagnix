@@ -11,7 +11,7 @@ from collections import deque
 
 import psutil
 
-from core import perf_counters, process_groups, process_snapshot
+from core import perf_counters, process_groups, process_snapshot, sensors
 from core.settings import load_settings
 from core.system_processes import is_hidden
 
@@ -442,6 +442,7 @@ def collect_snapshot(include_processes: bool = True) -> dict:
         gpu["load_percent"] = _gpu_load_avg.add(gpu["load_percent"])
     else:
         _gpu_load_avg.add(None)
+    cpu_sensors = sensors.get()
     freq = _cpu_freq_avg.add(usage["cpu_freq_ghz"])
     processes, groups, compression_mb = get_process_overview() if include_processes else (None, None, None)
 
@@ -452,7 +453,8 @@ def collect_snapshot(include_processes: bool = True) -> dict:
         "ram_used_gb": usage["ram_used_gb"],
         "ram_total_gb": usage["ram_total_gb"],
         "gpu": gpu,
-        "cpu_temp": get_cpu_temperature(),
+        "cpu_temp": cpu_sensors["temp"] if cpu_sensors.get("available") else None,
+        "cpu_sensors": cpu_sensors,
         "temp_threshold": threshold,
         "uptime_text": get_uptime_text(),
         "processes": processes,

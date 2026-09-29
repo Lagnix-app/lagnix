@@ -4,10 +4,8 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from core import admin as admin_core
 from core import autostart as autostart_core
 from ui import theme
-from ui.admin_status import elevate_and_restart
 from ui.widgets.canvas_list import CanvasList, card_image, pill_image, switch_image
 
 _SOURCE_ORDER = (
@@ -30,13 +28,7 @@ _HEADER_H = 38
 _SWITCH_W, _SWITCH_H = 40, 20
 _TEXT_X = 14 + _SWITCH_W + 12
 _OPEN_W, _BTN_H = 150, 26
-_ELEVATE_W = 214
 _LINE_SMALL = 16
-_ADMIN_NOTE = "Потрібні права адміністратора для зміни цього запису"
-
-
-def _is_blocked(entry: dict) -> bool:
-    return entry["requires_admin"] and not admin_core.is_admin()
 
 
 class AutostartList(CanvasList):
@@ -47,12 +39,12 @@ class AutostartList(CanvasList):
     і кнопки. Висота картки залежить від переносу тексту й рахується один
     раз на ширину (кеш), тож прокрутка лише зсуває готові рядки."""
 
-    clickable_regions = frozenset({"switch", "open", "elevate"})
-    sound_regions = frozenset({"open", "elevate"})
+    clickable_regions = frozenset({"switch", "open"})
+    sound_regions = frozenset({"open"})
 
-    def __init__(self, master, *, on_toggle, on_open_location, on_elevate):
+    def __init__(self, master, *, on_toggle, on_open_location):
         super().__init__(master, bg=theme.BG_MAIN)
-        self._on_toggle, self._on_open_location, self._on_elevate = on_toggle, on_open_location, on_elevate
+        self._on_toggle, self._on_open_location = on_toggle, on_open_location
         self.rows: list[tuple] = []  # ("header", source) | ("entry", entry)
         self._layouts: dict = {}
         self._probe = self.canvas.create_text(-10000, -10000, anchor="nw", text="")
@@ -98,12 +90,6 @@ class AutostartList(CanvasList):
             y += self.px(2)
             lay["anticheat"] = y
             y += self._text_height(autostart_core.ANTICHEAT_WARNING, small, text_w)
-        if _is_blocked(entry):
-            y += self.px(4)
-            lay["blocked"] = y
-            y += self.px(_LINE_SMALL + 4)
-            lay["elevate"] = y
-            y += self.px(_BTN_H)
         lay["card_h"] = max(y + self.px(_CARD_PAD), self.px(_CARD_PAD * 2 + _BTN_H + 12))
         self._layouts[key] = lay
         return lay
@@ -118,10 +104,6 @@ class AutostartList(CanvasList):
         x1 = self.width - self.px(14)
         y0 = self.px(_CARD_PAD - 2)
         return x1 - self.px(_OPEN_W), y0, x1, y0 + self.px(_BTN_H)
-
-    def _elevate_box(self, lay):
-        x0 = self.px(_TEXT_X)
-        return x0, lay["elevate"], x0 + self.px(_ELEVATE_W), lay["elevate"] + self.px(_BTN_H)
 
     def _switch_box(self, lay):
         x0 = self.px(14)
@@ -144,9 +126,7 @@ class AutostartList(CanvasList):
         it["command"] = c.create_text(0, 0, anchor="nw", fill=theme.TEXT_DIM, font=small, tags=opt)
         it["anticheat"] = c.create_text(0, 0, anchor="nw", fill=theme.WARNING, font=small,
                                         text=autostart_core.ANTICHEAT_WARNING, tags=opt)
-        it["blocked"] = c.create_text(0, 0, anchor="nw", fill=theme.WARNING, font=small,
-                                      text=_ADMIN_NOTE, tags=opt)
-        for name, text in (("open", "Відкрити розташування"), ("elevate", "Перезапустити як адміністратор")):
+        for name, text in (("open", "Відкрити розташування"),):
             it[f"{name}_bg"] = c.create_image(0, 0, anchor="nw", tags=opt)
             it[f"{name}_text"] = c.create_text(0, 0, anchor="center", text=text, font=small,
                                                fill=theme.TEXT_MAIN, tags=opt)
@@ -195,12 +175,6 @@ class AutostartList(CanvasList):
             c.coords(it["anticheat"], x, lay["anticheat"])
             c.itemconfigure(it["anticheat"], width=text_w)
             show("anticheat")
-        if "blocked" in lay:
-            c.coords(it["blocked"], x, lay["blocked"])
-            x0, y0, x1, y1 = self._elevate_box(lay)
-            c.coords(it["elevate_bg"], x0, y0)
-            c.coords(it["elevate_text"], (x0 + x1) / 2, (y0 + y1) / 2)
-            show("blocked", "elevate_bg", "elevate_text")
         x0, y0, x1, y1 = self._open_box()
         c.coords(it["open_bg"], x0, y0)
         c.coords(it["open_text"], (x0 + x1) / 2, (y0 + y1) / 2)
@@ -221,20 +195,14 @@ class AutostartList(CanvasList):
             theme.BG_PANEL_LIGHT if hovered else theme.BG_PANEL,
             theme.ACCENT_BLUE if hovered else theme.BORDER, self.bg, max(1, self.px(1)),
         ))
-        blocked = _is_blocked(entry)
         c.itemconfigure(it["switch"], image=switch_image(
-            self.px(_SWITCH_W), self.px(_SWITCH_H), entry["enabled"], region == "switch", blocked,
+            self.px(_SWITCH_W), self.px(_SWITCH_H), entry["enabled"], region == "switch", False,
         ))
         if entry.get("resolved_path"):
             open_color = "#2d3953" if region == "open" else theme.BORDER
         else:
             open_color = theme.BG_PANEL_LIGHT  # недоступна кнопка
         c.itemconfigure(it["open_bg"], image=pill_image(self.px(_OPEN_W), self.px(_BTN_H), open_color, self.px(8)))
-        if blocked:
-            c.itemconfigure(it["elevate_bg"], image=pill_image(
-                self.px(_ELEVATE_W), self.px(_BTN_H),
-                theme.ACCENT_BLUE if region == "elevate" else theme.ACCENT_BLUE_DIM, self.px(8),
-            ))
 
     def hit_test(self, index: int, x: int, y: int):
         kind, entry = self.rows[index]
@@ -247,12 +215,10 @@ class AutostartList(CanvasList):
         def inside(box):
             return box[0] <= x < box[2] and box[1] <= y < box[3]
 
-        if not _is_blocked(entry) and inside(self._switch_box(lay)):
+        if inside(self._switch_box(lay)):
             return "switch"
         if entry.get("resolved_path") and inside(self._open_box()):
             return "open"
-        if "elevate" in lay and inside(self._elevate_box(lay)):
-            return "elevate"
         return "row"
 
     def click(self, index: int, region: str) -> None:
@@ -262,8 +228,6 @@ class AutostartList(CanvasList):
             self.refresh_index(index)
         elif region == "open":
             self._on_open_location(entry)
-        elif region == "elevate":
-            self._on_elevate()
 
 
 class AutostartTab(ctk.CTkFrame):
@@ -279,7 +243,6 @@ class AutostartTab(ctk.CTkFrame):
 
         self.list = AutostartList(
             self, on_toggle=self._on_row_toggle, on_open_location=self._on_open_location,
-            on_elevate=lambda: elevate_and_restart(self),
         )
         self.list.grid(row=1, column=0, sticky="nsew", padx=(20, 14), pady=(0, 16))
 

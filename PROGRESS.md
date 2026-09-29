@@ -1,6 +1,6 @@
 # PulseFPS — стан проєкту
 
-Останнє оновлення: 2026-09-28 (перевірка й документування стану вкладки
+Останнє оновлення: 2026-09-29 (перевірка й документування стану вкладки
 «Монітор» після фіксу й редизайну).
 
 Довідково: `python main.py` — запуск (`--minimized` — одразу згорнутою в
@@ -590,3 +590,32 @@
   `pystray`. Захищено лише «наперед»: сам перемикач у «Налаштуваннях» і
   автозапуск `--minimized` не дають увімкнути трей, якщо pystray вже
   недоступний у момент вибору.
+
+## Права адміністратора, автозапуск, температура CPU (2026-09-29)
+
+- **Завжди адміністратор.** `main._ensure_admin()`: без прав — `ShellExecuteW "runas"` і
+  вихід; при відмові в UAC — вікно «PulseFPS потрібні права адміністратора для очищення,
+  твіків і датчиків» («Спробувати ще раз» / «Вийти», `core/admin.ask_retry_admin`).
+  «Обмежений режим», `ui/admin_status.py`, кнопки «Перезапустити як адміністратор» і
+  повідомлення «Потрібні права» з усіх вкладок прибрано; перевірки `is_admin()` у
+  `core/cleanup.py`, `tweaks.py`, `autostart.py` лишились лише як захист (пишуть у logs.txt).
+- **Автозапуск PulseFPS** (`core/launch_on_windows.py`) — завдання Планувальника `PulseFPS`
+  (schtasks + XML): вхід користувача, `RunLevel=HighestAvailable`, `--minimized`. Вимкнення
+  видаляє завдання. Старий запис HKCU\Run при старті мігрується (`migrate()`) і видаляється.
+- **Температура CPU** (`core/sensors.py`): LibreHardwareMonitorLib **0.9.6** (остання стабільна,
+  MPL-2.0) через pythonnet, dll і залежності — в `libs/`. **Драйвер: PawnIO, НЕ WinRing0**
+  (в dll немає згадок WinRing0; modules PawnIO вбудовані). Сам драйвер PawnIO
+  (https://pawnio.eu, `winget install namazso.PawnIO`) треба встановити окремо — без нього
+  температури немає: плитка показує «Недоступно» з підказкою, помилка — у logs.txt.
+  Один потік, інтервал = `monitor_update_interval_s`, закривається в `main` (`sensors.stop()`).
+  Плитка: Package / Tctl-Tdie (колір за порогом), у підказці — ядра, частота, Вт, вентилятори;
+  лінія «Темп. CPU °C» у графіку (вимикається кліком по легенді). Налаштування
+  `advanced_sensors_enabled` (типово увімкнено); вимкнено — драйвер не завантажується.
+  Ліцензії — `THIRD_PARTY_LICENSES` і «Про програму».
+- **Збірка .exe:** `pyinstaller --uac-admin --noconsole --icon assets/pulsefps.ico
+  --add-data "assets;assets" --add-data "libs;libs" main.py` (`--uac-admin` = маніфест
+  requireAdministrator; `libs/` розпаковується в `sys._MEIPASS/libs`, звідки `sensors.py`
+  його й бере; за потреби додати `--collect-all pythonnet --collect-all clr_loader`).
+- **Перевірено (під адміном):** схема автозапуску (створення/видалення), скан і очищення
+  цілей з `requires_admin`, HKLM-записи автозапуску, перемикання твіка. Температура не
+  звірена з HWMonitor/Core Temp — PawnIO на цьому ПК не встановлений.

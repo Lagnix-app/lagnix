@@ -5,10 +5,8 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from core import admin as admin_core
 from core import cleanup as cleanup_core
 from core import large_files as large_files_core
-from ui.admin_status import ElevateButton
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 
 RECOMMENDED_CATEGORIES = {
@@ -29,8 +27,6 @@ class CleanupItemRow(ctk.CTkFrame):
         self._cleanable = False
         self._on_toggle = on_toggle
         self._on_clean_one = on_clean_one
-
-        self.elevate_button = None
 
         self.grid_columnconfigure(0, weight=1)
 
@@ -76,11 +72,11 @@ class CleanupItemRow(ctk.CTkFrame):
         if not result["exists"]:
             text, color = "Не знайдено", "gray"
         elif result["admin_blocked"]:
-            text, color = "Потрібні права адміністратора", "#e0a52f"
+            text, color = "Пропущено", "gray"
         elif result["process_running"]:
             text, color = "Програма запущена — закрийте й оновіть сканування", "#e0a52f"
         elif result["access_denied"]:
-            text, color = "Немає доступу", "#e0a52f"
+            text, color = "Пропущено — папку захищено системою", "gray"
         elif result["file_count"] == 0:
             text, color = "Немає що очищати", "gray"
         else:
@@ -93,14 +89,6 @@ class CleanupItemRow(ctk.CTkFrame):
         self.clean_one_button.configure(state="normal" if cleanable else "disabled")
         if not cleanable:
             self.var.set(False)
-
-        needs_elevation = (result["admin_blocked"] or result["access_denied"]) and not admin_core.is_admin()
-        if needs_elevation and self.elevate_button is None:
-            self.elevate_button = ElevateButton(self._text_frame)
-            self.elevate_button.pack(anchor="w", padx=(28, 0), pady=(4, 0))
-        elif not needs_elevation and self.elevate_button is not None:
-            self.elevate_button.destroy()
-            self.elevate_button = None
 
     def is_selected(self) -> bool:
         return bool(self.scan_result) and self.var.get()

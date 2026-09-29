@@ -23,6 +23,7 @@ import winreg
 from ctypes import wintypes
 
 from core.admin import is_admin
+from core.logging_setup import get_logger
 from core.app_data import load_data, update_data
 
 _RUN_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -463,12 +464,14 @@ def disable_entry(entry: dict) -> tuple[bool, str]:
     if source in (SOURCE_HKCU, SOURCE_HKLM, SOURCE_HKLM32):
         hive, subkey_path, requires_admin = _registry_source_info(source)
         if requires_admin and not is_admin():
+            get_logger("core.autostart").error("Немає прав адміністратора для зміни")
             return False, "Потрібні права адміністратора"
         if not _delete_run_value(hive, subkey_path, entry["name"]):
             return False, "Не вдалося видалити запис із реєстру"
 
     elif source in (SOURCE_STARTUP_USER, SOURCE_STARTUP_COMMON):
         if requires_admin_for(source) and not is_admin():
+            get_logger("core.autostart").error("Немає прав адміністратора для зміни")
             return False, "Потрібні права адміністратора"
         directory = _startup_dir_for(source)
         disabled_dir = os.path.join(directory, _DISABLED_DIR_NAME)
@@ -498,12 +501,14 @@ def enable_entry(entry_id: str) -> tuple[bool, str]:
     if source in (SOURCE_HKCU, SOURCE_HKLM, SOURCE_HKLM32):
         hive, subkey_path, requires_admin = _registry_source_info(source)
         if requires_admin and not is_admin():
+            get_logger("core.autostart").error("Немає прав адміністратора для зміни")
             return False, "Потрібні права адміністратора"
         if not _write_run_value(hive, subkey_path, record["name"], record["command"]):
             return False, "Не вдалося відновити запис у реєстрі"
 
     elif source in (SOURCE_STARTUP_USER, SOURCE_STARTUP_COMMON):
         if requires_admin_for(source) and not is_admin():
+            get_logger("core.autostart").error("Немає прав адміністратора для зміни")
             return False, "Потрібні права адміністратора"
         directory = _startup_dir_for(source)
         disabled_path = os.path.join(directory, _DISABLED_DIR_NAME, record["name"])

@@ -5,9 +5,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from core import admin as admin_core
 from core import tweaks as tweaks_core
-from ui.admin_status import ElevateButton
 
 _RISK_LABELS = {
     tweaks_core.RISK_SAFE: "безпечно",
@@ -29,16 +27,12 @@ class TweakRow(ctk.CTkFrame):
 
         self.grid_columnconfigure(1, weight=1)
 
-        self.blocked = tweaks_core.tweak_requires_admin(tweak) and not admin_core.is_admin()
-
         self.switch_var = ctk.BooleanVar(value=tweaks_core.get_state(tweak))
         self.switch = ctk.CTkSwitch(
             self, text="", variable=self.switch_var, width=40,
             command=lambda: self._on_toggle(self),
         )
         self.switch.grid(row=0, column=0, padx=(0, 10), pady=8, sticky="n")
-        if self.blocked:
-            self.switch.configure(state="disabled")
 
         text_frame = ctk.CTkFrame(self, fg_color="transparent")
         text_frame.grid(row=0, column=1, sticky="ew", pady=8)
@@ -72,15 +66,8 @@ class TweakRow(ctk.CTkFrame):
             wraplength=560, justify="left",
         ).pack(anchor="w", pady=(2, 0))
 
-        if self.blocked:
-            ctk.CTkLabel(
-                text_frame, text="Потрібні права адміністратора для зміни цього твіка",
-                text_color="#e0a52f", font=ctk.CTkFont(size=11),
-            ).pack(anchor="w", pady=(4, 0))
-            ElevateButton(text_frame).pack(anchor="w", pady=(4, 0))
-
     def set_busy(self, busy: bool) -> None:
-        self.switch.configure(state="disabled" if busy or self.blocked else "normal")
+        self.switch.configure(state="disabled" if busy else "normal")
 
     def sync(self) -> None:
         """Перечитує реальний стан твіка з реєстру і оновлює перемикач."""

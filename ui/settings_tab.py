@@ -5,13 +5,14 @@
 наступному старті."""
 
 import os
+import threading
 from tkinter import messagebox
 
 import customtkinter as ctk
 from PIL import Image
 
 from core import launch_on_windows
-from core import sounds
+from core import sensors, sounds
 from core import tray as tray_core
 from core.app_info import APP_DESCRIPTION, APP_VERSION
 from core.logging_setup import LOG_PATH
@@ -168,8 +169,27 @@ class SettingsTab(ctk.CTkFrame):
         self._threshold_slider.set(threshold)
         self._threshold_slider.pack(fill="x", pady=(6, 0))
 
+        sensors_col = ctk.CTkFrame(card, fg_color="transparent")
+        sensors_col.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
+        self._sensors_var = ctk.BooleanVar(value=settings.get("advanced_sensors_enabled", True))
+        ctk.CTkSwitch(
+            sensors_col, text="Розширені датчики (температура CPU)", variable=self._sensors_var,
+            command=self._on_toggle_sensors,
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            sensors_col,
+            text="Потрібні для показу температури процесора. Якщо вимкнути — драйвер датчиків не завантажується.",
+            text_color=theme.TEXT_DIM, font=theme.font_small(), wraplength=640, justify="left",
+        ).pack(anchor="w", pady=(2, 0))
+
     def _on_interval_change(self, value: float) -> None:
         update_setting("monitor_update_interval_s", value)
+        sounds.play_click()
+
+    def _on_toggle_sensors(self) -> None:
+        enabled = self._sensors_var.get()
+        update_setting("advanced_sensors_enabled", enabled)
+        threading.Thread(target=sensors.set_enabled, args=(enabled,), daemon=True).start()
         sounds.play_click()
 
     def _on_threshold_change(self, value: float) -> None:
@@ -345,6 +365,9 @@ class SettingsTab(ctk.CTkFrame):
         theme.set_animations_enabled(defaults.get("animations_enabled", True))
         theme.set_robot_animation_enabled(defaults.get("robot_animation_enabled", True))
         sounds.set_enabled(defaults.get("sounds_enabled", True))
+        threading.Thread(
+            target=sensors.set_enabled, args=(defaults.get("advanced_sensors_enabled", True),), daemon=True,
+        ).start()
         sounds.set_volume(defaults.get("sounds_volume", 0.25))
         sounds.set_hover_volume(defaults.get("sounds_hover_volume", 0.125))
 
@@ -369,3 +392,9 @@ class SettingsTab(ctk.CTkFrame):
             text_col, text=APP_DESCRIPTION, text_color=theme.TEXT_DIM, font=theme.font_small(),
             wraplength=560, justify="left",
         ).pack(anchor="w", pady=(4, 0))
+        ctk.CTkLabel(
+            text_col,
+            text="Датчики температури: LibreHardwareMonitor (MPL-2.0) — github.com/LibreHardwareMonitor. "
+                 "Повний перелік ліцензій — файл THIRD_PARTY_LICENSES.",
+            text_color=theme.TEXT_DIM, font=theme.font_small(), wraplength=560, justify="left",
+        ).pack(anchor="w", pady=(6, 0))

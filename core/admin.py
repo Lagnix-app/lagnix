@@ -4,6 +4,8 @@ import ctypes
 import os
 import sys
 
+from core.logging_setup import get_logger
+
 
 def is_admin() -> bool:
     try:
@@ -31,6 +33,43 @@ def relaunch_as_admin() -> bool:
         params = " ".join(f'"{arg}"' for arg in args)
 
         result = ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, params, None, 1)
+        if result <= 32:
+            # 5 = SE_ERR_ACCESSDENIED: користувач відмовив у вікні UAC.
+            get_logger("core.admin").error("ShellExecuteW runas повернув %s", result)
         return result > 32
     except (AttributeError, OSError):
+        get_logger("core.admin").exception("Не вдалося запросити права адміністратора")
         return False
+
+
+def ask_retry_admin() -> bool:
+    """Вікно після відмови в UAC. True — «Спробувати ще раз», False — «Вийти»."""
+    import tkinter as tk
+
+    result = {"retry": False}
+    root = tk.Tk()
+    root.title("PulseFPS")
+    root.resizable(False, False)
+    root.configure(bg="#0d1321", padx=24, pady=20)
+    tk.Label(
+        root, text="PulseFPS потрібні права адміністратора\nдля очищення, твіків і датчиків",
+        bg="#0d1321", fg="#e8ecf5", font=("Segoe UI", 11), justify="center",
+    ).pack(pady=(0, 16))
+    row = tk.Frame(root, bg="#0d1321")
+    row.pack()
+
+    def choose(retry: bool):
+        result["retry"] = retry
+        root.destroy()
+
+    tk.Button(row, text="Спробувати ще раз", width=18, command=lambda: choose(True),
+              bg="#2ee59d", fg="#0d1321", relief="flat").pack(side="left", padx=6)
+    tk.Button(row, text="Вийти", width=12, command=lambda: choose(False),
+              bg="#2d3953", fg="#e8ecf5", relief="flat").pack(side="left", padx=6)
+    root.protocol("WM_DELETE_WINDOW", lambda: choose(False))
+    root.update_idletasks()
+    x = (root.winfo_screenwidth() - root.winfo_width()) // 2
+    y = (root.winfo_screenheight() - root.winfo_height()) // 3
+    root.geometry(f"+{x}+{y}")
+    root.mainloop()
+    return result["retry"]

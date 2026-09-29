@@ -25,6 +25,7 @@ from datetime import datetime
 
 from core.admin import is_admin
 from core.logging_setup import get_logger
+from core.logging_setup import get_logger
 from core.app_data import load_data, update_data
 
 _logger = get_logger(__name__)
@@ -632,6 +633,7 @@ def has_initial_state() -> bool:
 
 def set_tweak(tweak: Tweak, enabled: bool) -> tuple[bool, str]:
     if tweak_requires_admin(tweak) and not is_admin():
+        get_logger("core.tweaks").error("Немає прав адміністратора для зміни")
         return False, "Потрібні права адміністратора"
 
     _ensure_backup_for(tweak)

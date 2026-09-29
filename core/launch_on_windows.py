@@ -1,27 +1,68 @@
-"""Автозапуск самого PulseFPS разом із Windows (HKCU\\...\\Run), окремо від
-core/autostart.py (той керує ЧУЖИМИ програмами автозапуску). Стан читається
-наживо з реєстру (як і твіки/автозапуск в інших вкладках) — HKCU не
-потребує прав адміністратора."""
+"""Автозапуск самого PulseFPS разом із Windows через завдання Планувальника
+(«Виконувати з найвищими правами», тригер — вхід користувача), окремо від
+core/autostart.py (той керує ЧУЖИМИ програмами автозапуску). Завдання дає
+запуск з правами адміністратора без вікна UAC; запис у HKCU\\...\\Run, який
+використовували раніше, при першому виклику migrate() переноситься в завдання
+й видаляється. Потребує прав адміністратора — PulseFPS їх завжди має."""
 
+import getpass
 import os
+import subprocess
 import sys
+import tempfile
 import winreg
+from xml.sax.saxutils import escape
+
+from core.logging_setup import get_logger
 
 _RUN_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _VALUE_NAME = "PulseFPS"
+TASK_NAME = "PulseFPS"
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+_log = get_logger("core.launch_on_windows")
 
 
-def _launch_command() -> str:
-    """Команда, яку Windows виконає при вході — з прапорцем --minimized,
-    щоб програма одразу згорталась у трей, а не блимала вікном."""
+def _command_and_args() -> tuple[str, str]:
+    """Що запускає завдання — з --minimized, щоб програма одразу згорталась у трей."""
     if getattr(sys, "frozen", False):
-        return f'"{sys.executable}" --minimized'
+        return sys.executable, "--minimized"
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    script = os.path.join(project_root, "main.py")
-    return f'"{sys.executable}" "{script}" --minimized'
+    exe = sys.executable
+    pythonw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+    if os.path.exists(pythonw):
+        exe = pythonw
+    return exe, f'"{os.path.join(project_root, "main.py")}" --minimized'
 
 
-def is_enabled() -> bool:
+def _task_xml() -> str:
+    exe, args = _command_and_args()
+    user = escape(f"{os.environ.get('USERDOMAIN', '')}\\{getpass.getuser()}".lstrip("\\"))
+    workdir = escape(os.path.dirname(exe if getattr(sys, "frozen", False) else os.path.abspath(sys.argv[0])))
+    return f"""<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>Запуск PulseFPS при вході в Windows</Description></RegistrationInfo>
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>{escape(exe)}</Command><Arguments>{escape(args)}</Arguments><WorkingDirectory>{workdir}</WorkingDirectory></Exec></Actions>
+</Task>"""
+
+
+def _schtasks(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["schtasks", *args], capture_output=True, creationflags=_NO_WINDOW, timeout=30,
+    )
+
+
+def _run_value_exists() -> bool:
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_SUBKEY, 0, winreg.KEY_READ) as key:
             winreg.QueryValueEx(key, _VALUE_NAME)
@@ -30,17 +71,55 @@ def is_enabled() -> bool:
         return False
 
 
+def _delete_run_value() -> None:
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_SUBKEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.DeleteValue(key, _VALUE_NAME)
+    except OSError:
+        pass
+
+
+def is_enabled() -> bool:
+    try:
+        return _schtasks("/Query", "/TN", TASK_NAME).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        _log.exception("Не вдалося перевірити завдання автозапуску")
+        return False
+
+
 def set_enabled(enabled: bool) -> tuple[bool, str]:
     try:
         if enabled:
-            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, _RUN_SUBKEY, 0, winreg.KEY_SET_VALUE) as key:
-                winreg.SetValueEx(key, _VALUE_NAME, 0, winreg.REG_SZ, _launch_command())
+            # schtasks вимагає UTF-16 для XML із заголовком UTF-16.
+            fd, path = tempfile.mkstemp(suffix=".xml")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-16") as f:
+                    f.write(_task_xml())
+                proc = _schtasks("/Create", "/TN", TASK_NAME, "/XML", path, "/F")
+            finally:
+                os.remove(path)
+            if proc.returncode != 0:
+                err = proc.stderr.decode("cp866", errors="replace").strip()
+                _log.error("schtasks /Create: %s", err)
+                return False, err
+            _delete_run_value()
         else:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_SUBKEY, 0, winreg.KEY_SET_VALUE) as key:
-                try:
-                    winreg.DeleteValue(key, _VALUE_NAME)
-                except FileNotFoundError:
-                    pass
+            if is_enabled():
+                proc = _schtasks("/Delete", "/TN", TASK_NAME, "/F")
+                if proc.returncode != 0:
+                    err = proc.stderr.decode("cp866", errors="replace").strip()
+                    _log.error("schtasks /Delete: %s", err)
+                    return False, err
+            _delete_run_value()
         return True, ""
-    except OSError as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.exception("Помилка керування завданням автозапуску")
         return False, str(exc)
+
+
+def migrate() -> None:
+    """Старий автозапуск через HKCU\\Run → завдання Планувальника."""
+    if _run_value_exists():
+        ok, err = set_enabled(True)
+        if not ok:
+            _log.error("Міграція автозапуску не вдалась: %s", err)

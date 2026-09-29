@@ -58,6 +58,37 @@ def _fmt_rate(mb_per_s: float) -> str:
 
 # ----------------------------------------------------------------- ring gauge
 
+_TEMP_HINTS = {
+    "off": "Розширені датчики вимкнені. Увімкніть їх у «Налаштуваннях», щоб бачити температуру процесора.",
+    "starting": "Датчики запускаються — зачекайте кілька секунд.",
+}
+_TEMP_HINT_DEFAULT = (
+    "Не вдалося отримати температуру процесора. Можливо, не встановлено драйвер датчиків "
+    "PawnIO (pawnio.eu) — після встановлення перезапустіть програму."
+)
+
+
+def _cpu_temp_hint(sensor_data: dict | None) -> str:
+    reason = (sensor_data or {}).get("reason")
+    return _TEMP_HINTS.get(reason, _TEMP_HINT_DEFAULT)
+
+
+def _cpu_temp_details(s: dict) -> str:
+    """Підказка при наведенні: ядра, частота, споживання, вентилятори."""
+    lines = []
+    for name, value in sorted(s.get("core_temps", {}).items()):
+        lines.append(f"{name}: {value:.0f}°C")
+    clocks = s.get("core_clocks") or {}
+    if clocks:
+        lines.append(f"Частота: {sum(clocks.values()) / len(clocks) / 1000:.2f} ГГц (середня)")
+    if s.get("power_w") is not None:
+        lines.append(f"Споживання CPU: {s['power_w']:.0f} Вт")
+    for name, rpm in s.get("fans", []):
+        if rpm > 0:
+            lines.append(f"{name}: {rpm:.0f} об/хв")
+    return "\n".join(lines) or None
+
+
 class RingGauge(ctk.CTkFrame):
     """Кільце, що плавно заповнюється, з великою цифрою % посередині.
 
@@ -205,8 +236,8 @@ class InfoTile(ctk.CTkFrame):
             widget.bind("<Enter>", self._on_enter)
             widget.bind("<Leave>", self._on_leave)
 
-    def set_value(self, text: str) -> None:
-        theme.set_text(self.value_label, text, text_color=theme.TEXT_MAIN)
+    def set_value(self, text: str, color: str | None = None) -> None:
+        theme.set_text(self.value_label, text, text_color=color or theme.TEXT_MAIN)
 
     def required_width(self) -> int:
         """Мінімальна ширина плитки (px), за якої ні підпис, ні значення не обрізаються."""
@@ -262,7 +293,9 @@ class LoadGraph(ctk.CTkFrame):
     градієнт прозорості. Історія росте справа наліво без «нулів» зліва.
     """
 
-    SERIES = (("cpu", "CPU", theme.ACCENT_BLUE), ("gpu", "GPU", "#c77dff"), ("ram", "RAM", theme.ACCENT_GREEN))
+    SERIES = (("cpu", "CPU", theme.ACCENT_BLUE), ("gpu", "GPU", "#c77dff"), ("ram", "RAM", theme.ACCENT_GREEN),
+              ("temp", "Темп. CPU °C", "#ffb454"))
+    NO_FILL = frozenset({"temp"})  # температура — лише лінія, без заливки
     FILL_ALPHA = 0.42  # прозорість заливки біля лінії (далі згасає до 0 донизу)
     LINE_WIDTH = 2.0
     PAD = 4  # dp: відступ по вертикалі, щоб лінія на 0%/100% не обрізалась
@@ -277,15 +310,21 @@ class LoadGraph(ctk.CTkFrame):
 
         legend = ctk.CTkFrame(header, fg_color="transparent")
         legend.pack(side="right")
-        for _key, label, color in self.SERIES:
+        self._hidden: set[str] = set()
+        self._legend_labels = {}
+        for key, label, color in self.SERIES:
             item = ctk.CTkFrame(legend, fg_color="transparent")
             item.pack(side="left", padx=(14, 0))
             dot = tk.Label(
                 item, image=aa.dot_image(color, 10, theme.BG_PANEL, self._scale),
-                bg=theme.BG_PANEL, bd=0, highlightthickness=0,
+                bg=theme.BG_PANEL, bd=0, highlightthickness=0, cursor="hand2",
             )
             dot.pack(side="left", padx=(0, 5))
-            ctk.CTkLabel(item, text=label, font=theme.font_small(), text_color=theme.TEXT_DIM).pack(side="left")
+            text = ctk.CTkLabel(item, text=label, font=theme.font_small(), text_color=theme.TEXT_DIM, cursor="hand2")
+            text.pack(side="left")
+            self._legend_labels[key] = text
+            for widget in (dot, text):
+                widget.bind("<Button-1>", lambda _e, k=key: self._toggle_series(k))
 
         self.canvas = tk.Canvas(
             self, height=round(GRAPH_MIN_DP * self._scale), bg=theme.BG_PANEL, highlightthickness=0,
@@ -322,13 +361,29 @@ class LoadGraph(ctk.CTkFrame):
             self._size = (0, 0)
             self._schedule_redraw()
 
-    def push(self, cpu: float, gpu: float | None, ram: float) -> None:
+    def _toggle_series(self, key: str) -> None:
+        """Клік по пункту легенди вмикає/вимикає лінію."""
+        if key in self._hidden:
+            self._hidden.discard(key)
+        else:
+            self._hidden.add(key)
+        self._legend_labels[key].configure(
+            text_color=theme.TEXT_DIM if key not in self._hidden else theme.BORDER,
+        )
+        self._dirty = True
+        self._redraw()
+
+    def push(self, cpu: float, gpu: float | None, ram: float, temp: float | None = None) -> None:
         self.history["cpu"].append(max(0.0, min(cpu, 100.0)))
         if gpu is None:
             self.history["gpu"].clear()  # немає GPU — не малюємо оманливу лінію на 0%
         else:
             self.history["gpu"].append(max(0.0, min(gpu, 100.0)))
         self.history["ram"].append(max(0.0, min(ram, 100.0)))
+        if temp is None:
+            self.history["temp"].clear()
+        else:
+            self.history["temp"].append(max(0.0, min(temp, 100.0)))
         self._dirty = True
         self._redraw()
 
@@ -378,7 +433,7 @@ class LoadGraph(ctk.CTkFrame):
         for key, _label, _color in self.SERIES:
             values = self.history[key]
             n = len(values)
-            if n < 2:
+            if n < 2 or key in self._hidden:
                 continue
             pts = [(x_right - (n - 1 - i) * step, self._y(v, h)) for i, v in enumerate(values)]
             lo, hi = self._y(100.0, h), self._y(0.0, h)
@@ -388,7 +443,7 @@ class LoadGraph(ctk.CTkFrame):
         colors = {key: aa.rgb(color) for key, _label, color in self.SERIES}
 
         # заливку серії з більшим поточним значенням малюємо першою (як фон)
-        for key in sorted(curves, key=lambda k: self.history[k][-1], reverse=True):
+        for key in sorted((k for k in curves if k not in self.NO_FILL), key=lambda k: self.history[k][-1], reverse=True):
             self._paint_fill(img, curves[key], colors[key], w, h)
         for key in curves:
             self._paint_line(img, curves[key], colors[key], w, h)
@@ -1083,7 +1138,7 @@ class MonitorTab(ctk.CTkFrame):
         if not self._visible:
             # лише накопичуємо історію графіка — нічого не перемальовуємо
             gpu = data["gpu"]
-            self.graph.push(data["cpu_percent"], gpu["load_percent"] if gpu else None, data["ram_percent"])
+            self.graph.push(data["cpu_percent"], gpu["load_percent"] if gpu else None, data["ram_percent"], data["cpu_temp"])
             return
         self._render_snapshot(data)
 
@@ -1128,11 +1183,13 @@ class MonitorTab(ctk.CTkFrame):
                     warnings.append(f"GPU перегрівається: {temp:.0f}°C (поріг {threshold}°C)")
 
         if cpu_temp is None:
-            self.tile_cpu_temp.set_value("н/д")
-            self.tile_cpu_temp.set_tooltip("Не вдалося визначити датчик температури CPU на цьому ПК (може знадобитись пакет wmi).")
+            self.tile_cpu_temp.set_value("Недоступно")
+            self.tile_cpu_temp.set_tooltip(_cpu_temp_hint(data.get("cpu_sensors")))
         else:
-            self.tile_cpu_temp.set_value(f"{cpu_temp:.0f}°C")
-            self.tile_cpu_temp.set_tooltip(None)
+            self.tile_cpu_temp.set_value(
+                f"{cpu_temp:.0f}°C", theme.ERROR if cpu_temp > threshold else None,
+            )
+            self.tile_cpu_temp.set_tooltip(_cpu_temp_details(data["cpu_sensors"]))
             if cpu_temp > threshold:
                 warnings.append(f"CPU перегрівається: {cpu_temp:.0f}°C (поріг {threshold}°C)")
 
@@ -1147,7 +1204,7 @@ class MonitorTab(ctk.CTkFrame):
         theme.set_text(self.warning_label, (" ⚠ " + "  |  ".join(warnings)) if warnings else "")
 
         if push_graph:
-            self.graph.push(data["cpu_percent"], gpu["load_percent"] if gpu else None, data["ram_percent"])
+            self.graph.push(data["cpu_percent"], gpu["load_percent"] if gpu else None, data["ram_percent"], data["cpu_temp"])
         else:
             self.graph._schedule_redraw()
 
