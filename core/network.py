@@ -313,3 +313,33 @@ def save_test_result(entry: dict) -> list:
     data[TEST_HISTORY_KEY] = history
     save_data(data)
     return history
+
+
+def delete_test_result(index: int) -> dict | None:
+    """Видаляє запис історії за індексом і повертає його (для «Скасувати»)."""
+    data = load_data()
+    history = list(data.get(TEST_HISTORY_KEY, []))
+    if not 0 <= index < len(history):
+        return None
+    removed = history.pop(index)
+    data[TEST_HISTORY_KEY] = history
+    save_data(data)
+    return removed
+
+
+def restore_test_result(index: int, entry: dict) -> list:
+    """Повертає раніше видалений запис на його місце."""
+    data = load_data()
+    history = list(data.get(TEST_HISTORY_KEY, []))
+    history.insert(min(max(index, 0), len(history)), entry)
+    history = history[:TEST_HISTORY_MAX]
+    data[TEST_HISTORY_KEY] = history
+    save_data(data)
+    return history
+
+
+def clear_test_history() -> list:
+    data = load_data()
+    data[TEST_HISTORY_KEY] = []
+    save_data(data)
+    return []

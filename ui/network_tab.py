@@ -3,6 +3,7 @@
 
 import time
 import tkinter as tk
+from tkinter import messagebox
 from collections import deque
 from datetime import datetime
 
@@ -36,6 +37,14 @@ COLUMN_TIPS = {
     "Оцінка": "Загальна оцінка за найгіршим із показників. Наведи на оцінку, щоб побачити причину.",
 }
 SETTING_HELP_COLLAPSED = "network_help_collapsed"
+TXT_HISTORY_TITLE = "Історія тестів"
+TXT_HISTORY_EMPTY = "Ще немає тестів. Натисни «Почати тест», щоб перевірити з'єднання"
+TXT_CLEAR_HISTORY = "Очистити історію"
+TXT_CLEAR_CONFIRM_TITLE = "Очистити історію"
+TXT_CLEAR_CONFIRM = "Видалити всі записи?"
+TXT_ENTRY_DELETED = "Запис видалено"
+TXT_UNDO = "Скасувати"
+UNDO_TIMEOUT_MS = 5000
 
 
 class Tooltip:
@@ -196,69 +205,125 @@ class PingCard(ctk.CTkFrame):
 
 
 class TestHistoryTable(ctk.CTkFrame):
-    """Маленька таблиця останніх тестів: дата, пінг, джитер, втрати, оцінка."""
+    """Таблиця останніх тестів: дата, пінг, джитер, втрати, оцінка.
+
+    Заголовки й рядки лежать в одній grid-сітці з однаковими колонками, тож
+    значення стоять точно під заголовками. Праворуч від рядка при наведенні
+    з'являється іконка кошика (on_delete отримує індекс запису)."""
 
     COLUMNS = ("Дата", "Пінг", "Джитер", "Втрати", "Оцінка")
+    TRASH_COL = len(COLUMNS)
 
-    def __init__(self, master):
+    def __init__(self, master, on_delete=None):
         super().__init__(master, corner_radius=10)
-        self._rows: list[list[ctk.CTkLabel]] = []
+        self._on_delete = on_delete
+        self._rows: list[dict] = []
 
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=12, pady=(10, 4))
-        for i, title in enumerate(self.COLUMNS):
-            header.grid_columnconfigure(i, weight=1)
-            head = ctk.CTkLabel(
-                header, text=title, font=ctk.CTkFont(size=11, weight="bold"), text_color="gray",
-            )
-            head.grid(row=0, column=i, sticky="w")
-            Tooltip(head, COLUMN_TIPS.get(title, ""))
-
-        self.rows_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.rows_frame.pack(fill="x", padx=12, pady=(0, 10))
+        self.grid_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.grid_frame.pack(fill="x", padx=12, pady=(10, 10))
         for i in range(len(self.COLUMNS)):
-            self.rows_frame.grid_columnconfigure(i, weight=1)
+            self.grid_frame.grid_columnconfigure(i, weight=1, uniform="hist")
+        self.grid_frame.grid_columnconfigure(self.TRASH_COL, weight=0, minsize=28)
 
-        self.empty_label = ctk.CTkLabel(
-            self.rows_frame, text="Історія тестів порожня", text_color="gray",
-            font=ctk.CTkFont(size=11),
-        )
-        self.empty_label.grid(row=0, column=0, columnspan=len(self.COLUMNS), sticky="w", pady=4)
+        self._header_labels = []
+        for i, title in enumerate(self.COLUMNS):
+            head = ctk.CTkLabel(
+                self.grid_frame, text=title, font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="gray", anchor="w",
+            )
+            head.grid(row=0, column=i, sticky="ew", pady=(0, 4))
+            Tooltip(head, COLUMN_TIPS.get(title, ""))
+            self._header_labels.append(head)
+
+        self.empty_frame = ctk.CTkFrame(self, fg_color="transparent")
+        ctk.CTkLabel(self.empty_frame, text="🤖", font=ctk.CTkFont(size=34)).pack(pady=(14, 2))
+        ctk.CTkLabel(
+            self.empty_frame, text=TXT_HISTORY_EMPTY, text_color="gray",
+            font=ctk.CTkFont(size=12), wraplength=420, justify="center",
+        ).pack(padx=16, pady=(0, 16))
 
     def set_data(self, entries: list) -> None:
         for row in self._rows:
-            for label in row:
-                label.destroy()
+            for widget in row["widgets"]:
+                widget.destroy()
+            if row["after"] is not None:
+                try:
+                    self.after_cancel(row["after"])
+                except tk.TclError:
+                    pass
         self._rows.clear()
 
         if not entries:
-            self.empty_label.grid()
+            self.grid_frame.pack_forget()
+            self.empty_frame.pack(fill="x")
             return
-        self.empty_label.grid_remove()
+        self.empty_frame.pack_forget()
+        self.grid_frame.pack(fill="x", padx=12, pady=(10, 10))
 
         for r, entry in enumerate(entries):
             avg = entry.get("avg")
             jitter = entry.get("jitter")
-            label_text = entry.get("label", "—")
+            loss = entry.get("loss", 0) or 0
             values = (
                 entry.get("date", "—"),
                 f"{avg:.0f} мс" if avg is not None else "—",
                 f"{jitter:.0f} мс" if jitter is not None else "—",
-                f"{entry.get('loss', 0):.0f}%",
-                label_text,
+                f"{loss:.0f}%",
+                entry.get("label", "—"),
             )
-            row_labels = []
+            row = {"widgets": [], "hover": False, "after": None}
             for c, value in enumerate(values):
                 color = network_core.RATING_COLOR_BY_LABEL.get(value) if c == 4 else None
                 lbl = ctk.CTkLabel(
-                    self.rows_frame, text=str(value), font=ctk.CTkFont(size=11),
+                    self.grid_frame, text=str(value), font=ctk.CTkFont(size=11),
                     text_color=color or ("gray10", "gray90"), anchor="w",
                 )
-                lbl.grid(row=r, column=c, sticky="w", pady=2)
+                lbl.grid(row=r + 1, column=c, sticky="ew", pady=2)
                 if c == 4:
-                    Tooltip(lbl, network_core.explain_entry_rating(avg, jitter, entry.get("loss", 0) or 0))
-                row_labels.append(lbl)
-            self._rows.append(row_labels)
+                    Tooltip(lbl, network_core.explain_entry_rating(avg, jitter, loss))
+                row["widgets"].append(lbl)
+
+            trash = ctk.CTkLabel(
+                self.grid_frame, text="", width=24, cursor="hand2",
+                font=ctk.CTkFont(size=13), text_color="#ff5c7a",
+            )
+            trash.grid(row=r + 1, column=self.TRASH_COL, sticky="e", pady=2)
+            trash.bind("<Button-1>", lambda _e, i=r: self._delete(i))
+            row["widgets"].append(trash)
+            row["trash"] = trash
+
+            for widget in row["widgets"]:
+                widget.bind("<Enter>", lambda _e, rw=row: self._set_hover(rw, True), add="+")
+                widget.bind("<Leave>", lambda _e, rw=row: self._leave(rw), add="+")
+            self._rows.append(row)
+
+    def _set_hover(self, row: dict, hover: bool) -> None:
+        row["hover"] = hover
+        if row["after"] is not None:
+            try:
+                self.after_cancel(row["after"])
+            except tk.TclError:
+                pass
+            row["after"] = None
+        try:
+            row["trash"].configure(text="🗑" if hover else "")
+        except tk.TclError:
+            pass
+
+    def _leave(self, row: dict) -> None:
+        # Курсор може просто перейти на сусідній віджет цього ж рядка —
+        # вирішуємо після короткої паузи, щоб кошик не блимав.
+        row["hover"] = False
+        row["after"] = self.after(40, lambda: self._finish_leave(row))
+
+    def _finish_leave(self, row: dict) -> None:
+        row["after"] = None
+        if not row["hover"]:
+            self._set_hover(row, False)
+
+    def _delete(self, index: int) -> None:
+        if self._on_delete is not None:
+            self._on_delete(index)
 
 
 class NetworkTab(ctk.CTkFrame):
@@ -271,6 +336,8 @@ class NetworkTab(ctk.CTkFrame):
         self._test_after_id = None
         self._test_started_at = 0.0
         self._last_result_text = ""
+        self._undo_bar = None
+        self._undo_after_id = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -362,12 +429,69 @@ class NetworkTab(ctk.CTkFrame):
 
         history_wrap = ctk.CTkFrame(self.test_frame, fg_color="transparent")
         history_wrap.pack(fill="x", pady=(6, 0))
+
+        history_head = ctk.CTkFrame(history_wrap, fg_color="transparent")
+        history_head.pack(fill="x", pady=(0, 6))
         ctk.CTkLabel(
-            history_wrap, text="Історія тестів", font=ctk.CTkFont(size=13, weight="bold"),
-        ).pack(anchor="w", pady=(0, 6))
-        self.history_table = TestHistoryTable(history_wrap)
+            history_head, text=TXT_HISTORY_TITLE, font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(side="left")
+        self.clear_history_button = ctk.CTkButton(
+            history_head, text=TXT_CLEAR_HISTORY, width=130, height=26,
+            fg_color="transparent", border_width=1, text_color=("gray20", "gray80"),
+            command=self._clear_history,
+        )
+        self.clear_history_button.pack(side="right")
+
+        self.history_table = TestHistoryTable(history_wrap, on_delete=self._delete_history_entry)
         self.history_table.pack(fill="x")
-        self.history_table.set_data(network_core.load_test_history())
+        self._show_history(network_core.load_test_history())
+
+    # ---------------------------------------------------------- history
+
+    def _show_history(self, history: list) -> None:
+        self.history_table.set_data(history)
+        self.clear_history_button.configure(state="normal" if history else "disabled")
+
+    def _clear_history(self):
+        if not network_core.load_test_history():
+            return
+        if not messagebox.askyesno(TXT_CLEAR_CONFIRM_TITLE, TXT_CLEAR_CONFIRM, parent=self):
+            return
+        self._hide_undo()
+        self._show_history(network_core.clear_test_history())
+
+    def _delete_history_entry(self, index: int):
+        removed = network_core.delete_test_result(index)
+        if removed is None:
+            return
+        self._show_history(network_core.load_test_history())
+        self._show_undo(index, removed)
+
+    def _show_undo(self, index: int, entry: dict):
+        self._hide_undo()
+        self._undo_bar = ctk.CTkFrame(self, corner_radius=10, border_width=1)
+        ctk.CTkLabel(self._undo_bar, text=TXT_ENTRY_DELETED).pack(side="left", padx=(14, 10), pady=8)
+        ctk.CTkButton(
+            self._undo_bar, text=TXT_UNDO, width=90, height=26,
+            command=lambda: self._undo_delete(index, entry),
+        ).pack(side="left", padx=(0, 12), pady=8)
+        self._undo_bar.place(relx=0.5, rely=1.0, y=-14, anchor="s")
+        self._undo_after_id = self.after(UNDO_TIMEOUT_MS, self._hide_undo)
+
+    def _undo_delete(self, index: int, entry: dict):
+        self._hide_undo()
+        self._show_history(network_core.restore_test_result(index, entry))
+
+    def _hide_undo(self):
+        if self._undo_after_id is not None:
+            try:
+                self.after_cancel(self._undo_after_id)
+            except tk.TclError:
+                pass
+            self._undo_after_id = None
+        if self._undo_bar is not None:
+            self._undo_bar.destroy()
+            self._undo_bar = None
 
     def _build_help_section(self, parent):
         self._help_collapsed = bool(app_settings.load_settings().get(SETTING_HELP_COLLAPSED, False))
@@ -523,7 +647,7 @@ class NetworkTab(ctk.CTkFrame):
             "label": rating["label"],
         }
         history = network_core.save_test_result(entry)
-        self.history_table.set_data(history)
+        self._show_history(history)
 
         success = rating["level"] <= 1
         self.bot.finish("Готово!" if success else "Хм, не дуже...", success=success)
@@ -668,6 +792,13 @@ class NetworkTab(ctk.CTkFrame):
     def _on_destroy(self, event):
         if event.widget is not self:
             return
+
+        if self._undo_after_id is not None:
+            try:
+                self.after_cancel(self._undo_after_id)
+            except tk.TclError:
+                pass
+            self._undo_after_id = None
 
         if self._test_after_id is not None:
             try:
