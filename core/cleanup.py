@@ -10,7 +10,6 @@ import ctypes
 import glob
 import os
 import tempfile
-import winreg
 
 from core.admin import is_admin
 from core.logging_setup import get_logger
@@ -56,23 +55,6 @@ def _folder_target(key, category, label, patterns, process_names=None,
         "note": note,
         "exclude_names": exclude_names or set(),
     }
-
-
-def _steam_path() -> str | None:
-    candidates = (
-        (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath"),
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"),
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Valve\Steam", "InstallPath"),
-    )
-    for hive, subkey, value_name in candidates:
-        try:
-            with winreg.OpenKey(hive, subkey) as key:
-                value, _ = winreg.QueryValueEx(key, value_name)
-        except OSError:
-            continue
-        if value and os.path.isdir(value):
-            return value
-    return None
 
 
 def get_targets() -> list[dict]:
@@ -146,32 +128,8 @@ def get_targets() -> list[dict]:
             ],
             process_names=["opera.exe"],
         ))
-        targets.append(_folder_target(
-            key="discord_cache", category=CAT_APPS, label="Discord — кеш",
-            patterns=[
-                os.path.join(roaming, "discord", "Cache"),
-                os.path.join(roaming, "discord", "Code Cache"),
-                os.path.join(roaming, "discord", "GPUCache"),
-            ],
-            process_names=["discord.exe"],
-        ))
-        targets.append(_folder_target(
-            key="telegram_cache", category=CAT_APPS, label="Telegram Desktop — кеш",
-            patterns=[
-                os.path.join(roaming, "Telegram Desktop", "tdata", "*", "cache"),
-                os.path.join(roaming, "Telegram Desktop", "tdata", "*", "media_cache"),
-            ],
-            process_names=["telegram.exe"],
-            exclude_names={"emoji", "user_data", "working", "tdummy"},
-        ))
 
-    steam_path = _steam_path()
-    if steam_path:
-        targets.append(_folder_target(
-            key="steam_htmlcache", category=CAT_APPS, label="Steam — htmlcache",
-            patterns=[os.path.join(steam_path, "config", "htmlcache")],
-            process_names=["steam.exe", "steamwebhelper.exe"],
-        ))
+    # Кеш програм (CAT_APPS) шукається автоматично — див. core/app_cache.py.
 
     targets.append({
         "key": "recycle_bin", "category": CAT_RECYCLE, "label": "Кошик",

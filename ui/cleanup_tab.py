@@ -5,16 +5,17 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
+from core import app_cache as app_cache_core
 from core import cleanup as cleanup_core
 from core import large_files as large_files_core
+from ui.cleanup_app_cache import AppCacheSection
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 
 RECOMMENDED_CATEGORIES = {
     cleanup_core.CAT_TEMP,
     cleanup_core.CAT_BROWSERS,
-    cleanup_core.CAT_APPS,
     cleanup_core.CAT_THUMBNAILS,
-}
+}  # + усі незапущені програми з блоку «Кеш програм»
 
 
 class CleanupItemRow(ctk.CTkFrame):
@@ -130,6 +131,9 @@ class CleanupTab(ctk.CTkFrame):
         self._large_files_scanning = False
         self._large_files_stop_event = threading.Event()
         self._cleaning_in_progress = False
+        self._static_scanning = False
+        self._clean_static_keys: list[str] = []
+        self._clean_app_keys: list[str] = []
 
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.scroll.grid(row=0, column=0, sticky="nsew")
@@ -157,7 +161,7 @@ class CleanupTab(ctk.CTkFrame):
         # викликати self.after() ще до реального старту mainloop
         # (Python 3.13+ кидає на це непіймане RuntimeError, і потік мовчки
         # гине, залишаючи категорії без даних сканування).
-        self.after(0, self._scan_all)
+        self.after(0, lambda: self._scan_all(force=False))
 
     # ----------------------------------------------------------- top actions
 
@@ -180,11 +184,13 @@ class CleanupTab(ctk.CTkFrame):
         for row in self.rows.values():
             in_recommended = row.target["category"] in RECOMMENDED_CATEGORIES
             row.var.set(in_recommended and row.is_cleanable())
+        self.app_section.select_all(True)
         self._update_summary()
 
     def _select_none(self):
         for row in self.rows.values():
             row.var.set(False)
+        self.app_section.select_all(False)
         self._update_summary()
 
     # --------------------------------------------------------- categories
@@ -199,7 +205,21 @@ class CleanupTab(ctk.CTkFrame):
                 order.append(category)
             by_category[category].append(target)
 
+        # «Кеш програм» — окремий блок з автопошуком одразу після браузерів.
+        if cleanup_core.CAT_BROWSERS in order:
+            order.insert(order.index(cleanup_core.CAT_BROWSERS) + 1, cleanup_core.CAT_APPS)
+        else:
+            order.append(cleanup_core.CAT_APPS)
+
         for category in order:
+            if category == cleanup_core.CAT_APPS:
+                self.app_section = AppCacheSection(
+                    self.scroll, category, on_change=self._update_summary,
+                    on_clean=self._clean_one_app, on_close_clean=self._close_and_clean_app,
+                )
+                self.app_section.pack(fill="x", padx=6, pady=6)
+                continue
+
             frame = ctk.CTkFrame(self.scroll, corner_radius=10)
             frame.pack(fill="x", padx=6, pady=6)
 
@@ -239,32 +259,44 @@ class CleanupTab(ctk.CTkFrame):
         self.rescan_button.pack(side="right", padx=(0, 8), pady=12)
 
     def _update_summary(self):
+        if not hasattr(self, "summary_label"):
+            return  # блок «Кеш програм» створюється раніше за панель підсумку
         selected = [row for row in self.rows.values() if row.is_selected()]
-        total = sum(row.size_bytes() for row in selected)
+        app_selected = self.app_section.selected_rows()
+        total = sum(row.size_bytes() for row in selected) + self.app_section.selected_size()
         self.summary_label.configure(text=f"Можна звільнити: {cleanup_core.format_size(total)}")
         if not self._cleaning_in_progress:
-            self.clean_button.configure(state="normal" if selected else "disabled")
+            self.clean_button.configure(state="normal" if selected or app_selected else "disabled")
 
     # -------------------------------------------------------------- scan
 
-    def _scan_all(self):
-        self.rescan_button.configure(state="disabled")
-        self.select_recommended_button.configure(state="disabled")
-        self.select_none_button.configure(state="disabled")
-        for row in self.rows.values():
-            row.lock_controls()
-            row.status_label.configure(text="Сканування...", text_color="gray")
+    def _scan_all(self, force: bool = True):
+        """force=False — кеш програм береться з попереднього сканування (якщо воно було)."""
+        self._set_scan_controls(False)
+        self._scan_static()
+        self.app_section.scan(force=force, on_done=self._on_scan_done)
 
-        keys = list(self.rows.keys())
+    def _scan_static(self, keys: list[str] | None = None):
+        keys = list(self.rows.keys()) if keys is None else keys
+        self._static_scanning = True
+        self._set_scan_controls(False)
+        for key in keys:
+            self.rows[key].lock_controls()
+            self.rows[key].status_label.configure(text="Сканування...", text_color="gray")
 
         def worker():
             def progress(key, result):
                 self.after(0, self._on_scan_progress, key, result)
 
             cleanup_core.scan_many(keys, progress_cb=progress)
-            self.after(0, self._on_scan_done)
+            self.after(0, self._on_static_scan_done)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _set_scan_controls(self, enabled: bool):
+        state = "normal" if enabled else "disabled"
+        for button in (self.rescan_button, self.select_recommended_button, self.select_none_button):
+            button.configure(state=state)
 
     def _on_scan_progress(self, key, result):
         if not self.winfo_exists():
@@ -274,12 +306,18 @@ class CleanupTab(ctk.CTkFrame):
             row.apply_scan(result)
         self._update_summary()
 
+    def _on_static_scan_done(self):
+        if not self.winfo_exists():
+            return
+        self._static_scanning = False
+        self._on_scan_done()
+
     def _on_scan_done(self):
         if not self.winfo_exists():
             return
-        self.rescan_button.configure(state="normal")
-        self.select_recommended_button.configure(state="normal")
-        self.select_none_button.configure(state="normal")
+        if not (self._static_scanning or self.app_section.scanning or self._cleaning_in_progress):
+            self._set_scan_controls(True)
+        self._update_summary()
 
     # ------------------------------------------------------------- clean
 
@@ -287,18 +325,20 @@ class CleanupTab(ctk.CTkFrame):
         if self._cleaning_in_progress:
             return
         selected_rows = [row for row in self.rows.values() if row.is_selected()]
-        if not selected_rows:
+        app_rows = self.app_section.selected_rows()
+        if not selected_rows and not app_rows:
             return
 
-        total_size = sum(row.size_bytes() for row in selected_rows)
-        message = f"Очистити {len(selected_rows)} категорій ({cleanup_core.format_size(total_size)})?"
+        total_size = sum(row.size_bytes() for row in selected_rows) + self.app_section.selected_size()
+        count = len(selected_rows) + len(app_rows)
+        message = f"Очистити {count} пунктів ({cleanup_core.format_size(total_size)})?"
         if any(row.target["key"] == "recycle_bin" for row in selected_rows):
             message += "\n\nУвага: очищення кошика видаляє файли остаточно."
 
         if not messagebox.askyesno("Підтвердження", message, parent=self):
             return
 
-        self._start_clean([row.target["key"] for row in selected_rows])
+        self._start_clean([row.target["key"] for row in selected_rows], [row.group["key"] for row in app_rows])
 
     def _clean_one(self, row: CleanupItemRow):
         if self._cleaning_in_progress or not row.is_cleanable():
@@ -312,28 +352,57 @@ class CleanupTab(ctk.CTkFrame):
         if not messagebox.askyesno("Підтвердження", message, parent=self):
             return
 
-        self._start_clean([row.target["key"]])
+        self._start_clean([row.target["key"]], [])
 
-    def _start_clean(self, keys: list[str]):
+    def _clean_one_app(self, row):
+        if self._cleaning_in_progress or not row.is_cleanable():
+            return
+        group = row.group
+        message = f"Очистити кеш «{group['name']}» ({cleanup_core.format_size(group['size_bytes'])})?"
+        if not messagebox.askyesno("Підтвердження", message, parent=self):
+            return
+        self._start_clean([], [group["key"]])
+
+    def _close_and_clean_app(self, row):
+        if self._cleaning_in_progress:
+            return
+        group = row.group
+        message = (
+            f"«{group['name']}» зараз запущена. Закрити її й очистити кеш "
+            f"({cleanup_core.format_size(group['size_bytes'])})?\n\n"
+            "Незбережені дані в цій програмі можуть бути втрачені. Після очищення "
+            "PulseFPS запропонує запустити її знову."
+        )
+        if not messagebox.askyesno("Закрити й очистити", message, icon="warning", parent=self):
+            return
+        self._start_clean([], [group["key"]], close_first=True)
+
+    def _start_clean(self, keys: list[str], app_keys: list[str], close_first: bool = False):
         self._cleaning_in_progress = True
         self.clean_button.configure(state="disabled")
-        self.rescan_button.configure(state="disabled")
-        self.select_recommended_button.configure(state="disabled")
-        self.select_none_button.configure(state="disabled")
+        self._set_scan_controls(False)
+        self.app_section.lock(True)
 
         active_rows = [self.rows[key] for key in keys if key in self.rows]
         for row in self.rows.values():
             row.lock_controls()
         for row in active_rows:
             row.set_busy()
+        for key in app_keys:
+            self.app_section.set_busy(key)
 
-        self._clean_total_count = len(keys)
+        self._clean_total_count = len(keys) + len(app_keys)
         self._clean_done_count = 0
         self._clean_freed_so_far = 0
         self._clean_key_labels = {row.target["key"]: row.target["label"] for row in active_rows}
+        self._clean_key_labels.update({key: app_cache_core.group_name(key) for key in app_keys})
+        self._clean_static_keys = keys
+        self._clean_app_keys = app_keys
 
+        first = (keys or app_keys)[0]
+        verb = "Закриваю" if close_first else "Очищаю"
         self._clean_dialog = CleanerBotDialog(self.winfo_toplevel(), title="Очищення")
-        self._clean_dialog.start(f"Очищаю: {self._clean_key_labels[keys[0]]}…")
+        self._clean_dialog.start(f"{verb}: {self._clean_key_labels[first]}…")
 
         def worker():
             def on_item_start(key):
@@ -343,6 +412,23 @@ class CleanupTab(ctk.CTkFrame):
                 self.after(0, self._on_clean_progress, key, result)
 
             summary = cleanup_core.clean_many(keys, progress_cb=progress, start_cb=on_item_start)
+            relaunch = None
+            for key in app_keys:
+                if close_first:
+                    closed = app_cache_core.close_group(key)
+                    if not closed["ok"]:
+                        progress(key, {"key": key, "freed_bytes": 0, "deleted_count": 0, "skipped_count": 0,
+                                       "skipped_reason": closed["message"]})
+                        summary["skipped_count"] += 1
+                        continue
+                    relaunch = closed["relaunch"]
+                on_item_start(key)
+                result = app_cache_core.clean_group(key)
+                summary["freed_bytes"] += result["freed_bytes"]
+                summary["deleted_count"] += result["deleted_count"]
+                summary["skipped_count"] += result["skipped_count"] + (1 if result.get("skipped_reason") else 0)
+                progress(key, result)
+            summary["relaunch"] = relaunch
             self.after(0, self._on_clean_done, summary)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -359,6 +445,8 @@ class CleanupTab(ctk.CTkFrame):
         row = self.rows.get(key)
         if row:
             row.show_clean_result(result)
+        elif key in self._clean_app_keys:
+            self.app_section.show_result(key, result)
 
         self._clean_done_count += 1
         self._clean_freed_so_far += result.get("freed_bytes", 0)
@@ -372,11 +460,39 @@ class CleanupTab(ctk.CTkFrame):
             return
         freed_text = cleanup_core.format_size(summary["freed_bytes"])
         text = f"Готово! Звільнено {freed_text}, пропущено {summary['skipped_count']} файлів"
-        if self._clean_dialog is not None:
-            self._clean_dialog.finish(text, success=True)
-            self._clean_dialog = None
+        dialog, self._clean_dialog = self._clean_dialog, None
+        if dialog is not None:
+            dialog.finish(text, success=True)
         self._cleaning_in_progress = False
-        self._scan_all()
+
+        # Кеш програм повністю не пересканується — лише очищені групи; решта рядків
+        # просто розблоковується з попереднім результатом.
+        for key, row in self.rows.items():
+            if key not in self._clean_static_keys and row.scan_result:
+                row.apply_scan(row.scan_result)
+        if not self._clean_app_keys:
+            self.app_section.lock(False)
+        if self._clean_static_keys:
+            self._scan_static(self._clean_static_keys)
+        if self._clean_app_keys:
+            self._set_scan_controls(False)
+            self.app_section.refresh(self._clean_app_keys, on_done=self._on_scan_done)
+
+        relaunch = summary.get("relaunch")
+        if relaunch and self._clean_app_keys:
+            name = app_cache_core.group_name(self._clean_app_keys[0])
+            self.after(900, lambda: self._offer_relaunch(dialog, name, relaunch, freed_text))
+
+    def _offer_relaunch(self, dialog, name: str, target, freed_text: str):
+        if not self.winfo_exists():
+            return
+        if dialog is not None and dialog.winfo_exists():
+            dialog.destroy()  # інакше модальне вікно робота перехоплює фокус у messagebox
+        message = f"Кеш «{name}» очищено (звільнено {freed_text}).\n\nЗапустити {name} знову?"
+        if messagebox.askyesno("Запустити знову?", message, parent=self):
+            if not app_cache_core.relaunch(target):
+                messagebox.showwarning("Запуск", f"Не вдалося запустити {name}. Відкрийте програму вручну.",
+                                       parent=self)
 
     # ------------------------------------------------------- large files
 
