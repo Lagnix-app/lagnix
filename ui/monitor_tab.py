@@ -10,12 +10,14 @@ from collections import deque
 from tkinter import messagebox
 
 import customtkinter as ctk
+from PIL import Image, ImageChops, ImageDraw, ImageTk
 
 from core import monitor as monitor_core
 from core.logging_setup import get_logger
 from core.settings import load_settings
 from core.system_processes import is_protected
 from ui import theme
+from ui.widgets import aa
 
 DEFAULT_UPDATE_INTERVAL_SEC = 1.0
 GRAPH_POINTS = 60
@@ -35,16 +37,6 @@ def _level_color(percent: float) -> str:
     return theme.ACCENT_GREEN
 
 
-def _blend(bg: str, fg: str, t: float, widget: tk.Widget) -> str:
-    """Змішує bg і fg (t=0 -> bg, t=1 -> fg) — для градієнтної заливки без альфи."""
-    r1, g1, b1 = widget.winfo_rgb(bg)
-    r2, g2, b2 = widget.winfo_rgb(fg)
-    r = round((r1 + (r2 - r1) * t) / 256)
-    g = round((g1 + (g2 - g1) * t) / 256)
-    b = round((b1 + (b2 - b1) * t) / 256)
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
 def _fmt_rate(mb_per_s: float) -> str:
     if mb_per_s < 1.0:
         return f"{mb_per_s * 1024:.0f} КБ/с"
@@ -54,7 +46,14 @@ def _fmt_rate(mb_per_s: float) -> str:
 # ----------------------------------------------------------------- ring gauge
 
 class RingGauge(ctk.CTkFrame):
-    """Кільце, що плавно заповнюється, з великою цифрою % посередині."""
+    """Кільце, що плавно заповнюється, з великою цифрою % посередині.
+
+    Кільце малюється Pillow із суперсемплінгом (4x -> LANCZOS): незмінна
+    доріжка кешується, а на кожному кроці анімації малюється лише маска дуги
+    (режим L — найдешевший для ресемплінгу), яка накладається на доріжку.
+    """
+
+    RENDER_INTERVAL_S = 0.03  # анімація перемальовується не частіше ~33 р/с
 
     def __init__(self, master, title: str):
         super().__init__(master, corner_radius=14)
@@ -62,24 +61,24 @@ class RingGauge(ctk.CTkFrame):
         self._percent_anim = theme.ValueAnimator(self, self._on_percent_step)
         self._percent_anim.current = 0.0
         self._unavailable = False
+        self._target = 0.0
+        self._last_key = None
+        self._last_render = 0.0
+        self._scale = self._get_widget_scaling()
+        self._base = None
+        self._photo = None
 
         ctk.CTkLabel(self, text=title, font=theme.font_header()).pack(pady=(16, 4))
 
-        self.canvas = tk.Canvas(
-            self, width=RING_SIZE, height=RING_SIZE, bg=theme.BG_PANEL, highlightthickness=0,
-        )
+        px = round(RING_SIZE * self._scale)
+        self.canvas = tk.Canvas(self, width=px, height=px, bg=theme.BG_PANEL, highlightthickness=0)
         self.canvas.pack(padx=16)
-
-        m = RING_THICKNESS
-        self.canvas.create_oval(m, m, RING_SIZE - m, RING_SIZE - m, outline=theme.BORDER, width=RING_THICKNESS)
-        self._fg_ring = self.canvas.create_arc(
-            m, m, RING_SIZE - m, RING_SIZE - m, start=90, extent=0,
-            style="arc", outline=theme.ACCENT_GREEN, width=RING_THICKNESS,
-        )
+        self._image_item = self.canvas.create_image(0, 0, anchor="nw")
         self._value_text = self.canvas.create_text(
-            RING_SIZE / 2, RING_SIZE / 2, text="—",
-            font=("Segoe UI", 22, "bold"), fill=theme.TEXT_MAIN,
+            px / 2, px / 2, text="—",
+            font=("Segoe UI", -round(29 * self._scale), "bold"), fill=theme.TEXT_MAIN,
         )
+        self._build_base()
 
         self.subtitle_label = ctk.CTkLabel(
             self, text="", text_color=theme.TEXT_DIM, font=theme.font_small(),
@@ -87,22 +86,79 @@ class RingGauge(ctk.CTkFrame):
         )
         self.subtitle_label.pack(pady=(6, 16))
 
+        self.canvas.bind("<Map>", lambda _e: self._render(self._percent_anim.current or 0.0, force=True))
+
+    def _build_base(self) -> None:
+        """Незмінна доріжка кільця (кешується); ту саму PhotoImage далі лише оновлюємо."""
+        S = self._scale
+        px = round(RING_SIZE * S)
+        layer = aa.new_layer(px, px, "RGB", aa.rgb(theme.BG_PANEL))
+        m = RING_THICKNESS
+        aa.Painter(layer, S).ellipse(
+            m, m, RING_SIZE - m, RING_SIZE - m, outline=aa.rgb(theme.BORDER), width=RING_THICKNESS,
+        )
+        self._base = aa.downscale(layer, (px, px))
+        self._photo = ImageTk.PhotoImage(self._base)
+        self.canvas.itemconfigure(self._image_item, image=self._photo)
+        self._last_key = None
+
+    def _set_scaling(self, *args, **kwargs):
+        super()._set_scaling(*args, **kwargs)
+        self._scale = args[0]
+        if hasattr(self, "canvas"):
+            px = round(RING_SIZE * self._scale)
+            self.canvas.configure(width=px, height=px)
+            self.canvas.coords(self._value_text, px / 2, px / 2)
+            self.canvas.itemconfigure(self._value_text, font=("Segoe UI", -round(29 * self._scale), "bold"))
+            self._build_base()
+            self._render(self._percent_anim.current or 0.0, force=True)
+
     def set_value(self, percent: float, subtitle: str) -> None:
         self._unavailable = False
-        self._percent_anim.animate_to(max(0.0, min(percent, 100.0)), duration=0.3)
+        self._target = max(0.0, min(percent, 100.0))
+        self._percent_anim.animate_to(self._target, duration=0.3)
         self.subtitle_label.configure(text=subtitle)
 
     def set_unavailable(self, subtitle: str) -> None:
         self._unavailable = True
+        self._target = 0.0
         self._percent_anim.animate_to(0.0, duration=0.3)
         self.subtitle_label.configure(text=subtitle)
 
     def _on_percent_step(self, value: float) -> None:
-        extent = -(value / 100.0) * 360.0
+        now = time.perf_counter()
+        if abs(value - self._target) > 1e-6 and now - self._last_render < self.RENDER_INTERVAL_S:
+            return
+        self._last_render = now
+        self._render(value)
+
+    def _render(self, value: float, force: bool = False) -> None:
+        if not self.canvas.winfo_ismapped():
+            self._last_key = None  # перемалюємо, коли вкладку знову покажуть (<Map>)
+            return
         color = theme.BORDER if self._unavailable else _level_color(value)
-        self.canvas.itemconfig(self._fg_ring, extent=extent, outline=color)
+        key = (round(value * 4), color, self._unavailable)
+        if key == self._last_key and not force:
+            return
+        self._last_key = key
+
+        S = self._scale
+        px = round(RING_SIZE * S)
+        out = self._base.copy()
+        if value >= 0.05 and not self._unavailable:
+            m = RING_THICKNESS
+            mask = aa.new_layer(px, px, "L", 0)
+            aa.Painter(mask, S).arc(
+                m, m, RING_SIZE - m, RING_SIZE - m, start=90, extent=-(value / 100.0) * 360.0,
+                fill=255, width=RING_THICKNESS,
+            )
+            out.paste(aa.rgb(color), (0, 0, px, px), aa.downscale(mask, (px, px)))
+        self._photo.paste(out)
+
         text = "—" if self._unavailable else f"{value:.0f}%"
-        self.canvas.itemconfig(self._value_text, text=text, fill=theme.TEXT_DIM if self._unavailable else theme.TEXT_MAIN)
+        self.canvas.itemconfigure(
+            self._value_text, text=text, fill=theme.TEXT_DIM if self._unavailable else theme.TEXT_MAIN,
+        )
 
 
 # -------------------------------------------------------------------- tiles
@@ -161,13 +217,22 @@ class InfoTile(ctk.CTkFrame):
 
 class LoadGraph(ctk.CTkFrame):
     """Один гладкий графік CPU/GPU/RAM за останні 60 с, з легендою й
-    градієнтною заливкою під лініями."""
+    градієнтною заливкою під лініями.
+
+    Малюється Pillow: сітка (незмінна, кешується разом із фоном), для кожної
+    серії — маски заливки й лінії у 4x розмірі (згладжена крива Catmull-Rom,
+    ~2 px), що зменшуються через LANCZOS; заливка — плавний вертикальний
+    градієнт прозорості. Історія росте справа наліво без «нулів» зліва.
+    """
 
     SERIES = (("cpu", "CPU", theme.ACCENT_BLUE), ("gpu", "GPU", "#c77dff"), ("ram", "RAM", theme.ACCENT_GREEN))
-    BANDS = 5
+    FILL_ALPHA = 0.42  # прозорість заливки біля лінії (далі згасає до 0 донизу)
+    LINE_WIDTH = 2.0
+    PAD = 4  # dp: відступ по вертикалі, щоб лінія на 0%/100% не обрізалась
 
     def __init__(self, master):
         super().__init__(master, corner_radius=14)
+        self._scale = self._get_widget_scaling()
 
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=16, pady=(14, 4))
@@ -178,79 +243,178 @@ class LoadGraph(ctk.CTkFrame):
         for _key, label, color in self.SERIES:
             item = ctk.CTkFrame(legend, fg_color="transparent")
             item.pack(side="left", padx=(14, 0))
-            dot = tk.Canvas(item, width=10, height=10, highlightthickness=0, bg=theme.BG_PANEL)
-            dot.create_oval(1, 1, 9, 9, fill=color, outline="")
+            dot = tk.Label(
+                item, image=aa.dot_image(color, 10, theme.BG_PANEL, self._scale),
+                bg=theme.BG_PANEL, bd=0, highlightthickness=0,
+            )
             dot.pack(side="left", padx=(0, 5))
             ctk.CTkLabel(item, text=label, font=theme.font_small(), text_color=theme.TEXT_DIM).pack(side="left")
 
-        self.canvas = tk.Canvas(self, height=210, bg=theme.BG_PANEL, highlightthickness=0)
+        self.canvas = tk.Canvas(self, height=round(210 * self._scale), bg=theme.BG_PANEL, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=16, pady=(6, 16))
-        self.canvas.bind("<Configure>", lambda _e: self._redraw())
+        self._image_item = self.canvas.create_image(0, 0, anchor="nw")
+        self._labels = [
+            (frac, self.canvas.create_text(
+                4, 0, text=text, anchor="w", fill=theme.TEXT_DIM,
+                font=("Segoe UI", -round(11 * self._scale)),
+            ))
+            for frac, text in ((0.0, "0%"), (0.5, "50%"), (1.0, "100%"))
+        ]
 
-        self.history = {key: deque([0.0] * GRAPH_POINTS, maxlen=GRAPH_POINTS) for key, _, _ in self.SERIES}
+        self._photo = None
+        self._base = None
+        self._size = (0, 0)
+        self._dirty = True
+        self._redraw_job = None
+        self.canvas.bind("<Configure>", lambda _e: self._schedule_redraw())
+        self.canvas.bind("<Map>", lambda _e: self._dirty and self._schedule_redraw())
+
+        # історія росте з нуля: поки даних менше GRAPH_POINTS, малюємо лише наявні точки
+        self.history = {key: deque(maxlen=GRAPH_POINTS) for key, _, _ in self.SERIES}
+
+    def _set_scaling(self, *args, **kwargs):
+        super()._set_scaling(*args, **kwargs)
+        self._scale = args[0]
+        if hasattr(self, "canvas"):
+            self.canvas.configure(height=round(210 * self._scale))
+            font = ("Segoe UI", -round(11 * self._scale))
+            for _frac, item in self._labels:
+                self.canvas.itemconfigure(item, font=font)
+            self._size = (0, 0)
+            self._schedule_redraw()
 
     def push(self, cpu: float, gpu: float | None, ram: float) -> None:
         self.history["cpu"].append(max(0.0, min(cpu, 100.0)))
-        self.history["gpu"].append(max(0.0, min(gpu, 100.0)) if gpu is not None else 0.0)
+        if gpu is None:
+            self.history["gpu"].clear()  # немає GPU — не малюємо оманливу лінію на 0%
+        else:
+            self.history["gpu"].append(max(0.0, min(gpu, 100.0)))
         self.history["ram"].append(max(0.0, min(ram, 100.0)))
+        self._dirty = True
         self._redraw()
 
+    def _schedule_redraw(self) -> None:
+        # Configure приходить пачками при зміні розміру вікна — зливаємо в один кадр
+        if self._redraw_job is None:
+            self._redraw_job = self.after(30, self._redraw)
+
+    # ---------------------------------------------------------------- drawing
+
+    def _rebuild_base(self, w: int, h: int) -> None:
+        """Фон із сіткою (незмінний, кешується до зміни розміру) і PhotoImage."""
+        S = self._scale
+        base = Image.new("RGB", (w, h), aa.rgb(theme.BG_PANEL))
+        draw = ImageDraw.Draw(base)
+        line_w = max(1, round(S))
+        for frac, item in self._labels:
+            y = self._y(frac * 100.0, h)
+            draw.line((0, round(y), w, round(y)), fill=aa.rgb(theme.BORDER), width=line_w)
+            self.canvas.coords(item, round(4 * S), max(6 * S, min(y - 8 * S, h - 12 * S)))
+        self._base = base
+        self._photo = ImageTk.PhotoImage(base)
+        self.canvas.itemconfigure(self._image_item, image=self._photo)
+        self._size = (w, h)
+
+    def _y(self, value: float, h: int) -> float:
+        pad = self.PAD * self._scale
+        return h - pad - (value / 100.0) * (h - 2 * pad)
+
     def _redraw(self) -> None:
+        self._redraw_job = None
         c = self.canvas
-        c.delete("all")
-        width = c.winfo_width()
-        height = c.winfo_height()
-        if width <= 1 or height <= 1:
+        if not c.winfo_ismapped():
+            return  # невидима вкладка не витрачає CPU; перемалюємо на <Map>
+        w, h = c.winfo_width(), c.winfo_height()
+        if w <= 8 or h <= 8:
             return
+        if (w, h) != self._size:
+            self._rebuild_base(w, h)
 
-        for frac, label in ((0.0, "0%"), (0.5, "50%"), (1.0, "100%")):
-            y = height - frac * height
-            c.create_line(0, y, width, y, fill=theme.BORDER, width=1)
-            c.create_text(4, max(6, min(y - 8, height - 12)), text=label, anchor="w", fill=theme.TEXT_DIM, font=("Segoe UI", 8))
+        S = self._scale
+        margin = 2 * S
+        x_right = w - margin
+        step = (x_right - margin) / (GRAPH_POINTS - 1)
 
-        series_points = {}
+        curves = {}
         for key, _label, _color in self.SERIES:
             values = self.history[key]
             n = len(values)
-            step = width / (n - 1) if n > 1 else width
-            series_points[key] = [(i * step, height - (v / 100.0) * height) for i, v in enumerate(values)]
+            if n < 2:
+                continue
+            pts = [(x_right - (n - 1 - i) * step, self._y(v, h)) for i, v in enumerate(values)]
+            lo, hi = self._y(100.0, h), self._y(0.0, h)
+            curves[key] = [(x, min(max(y, lo), hi)) for x, y in aa.catmull_rom(pts)]
 
-        # Заливку série з більшим поточним значенням малюємо першою (як фон),
-        # інакше вона (маючи більшу площу) ховає під собою заливки менших
-        # серій, намальовані раніше.
-        by_avg_desc = sorted(
-            (key for key, _label, _color in self.SERIES),
-            key=lambda key: (self.history[key][-1] if self.history[key] else 0.0),
-            reverse=True,
-        )
-        colors_by_key = {key: color for key, _label, color in self.SERIES}
-        for key in by_avg_desc:
-            self._draw_gradient_area(series_points[key], colors_by_key[key], height)
+        img = self._base.copy()
+        colors = {key: aa.rgb(color) for key, _label, color in self.SERIES}
 
-        for key, _label, color in self.SERIES:
-            flat = []
-            for x, y in series_points[key]:
-                flat.extend((x, y))
-            if len(flat) >= 4:
-                c.create_line(*flat, fill=color, width=2, smooth=True)
+        # заливку серії з більшим поточним значенням малюємо першою (як фон)
+        for key in sorted(curves, key=lambda k: self.history[k][-1], reverse=True):
+            self._paint_fill(img, curves[key], colors[key], w, h)
+        for key in curves:
+            self._paint_line(img, curves[key], colors[key], w, h)
 
-    def _draw_gradient_area(self, points, color, height) -> None:
-        if len(points) < 2:
+        self._photo.paste(img)
+        self._dirty = False
+
+    @staticmethod
+    def _mask(pts, box, polygon: bool, width: float = 0.0) -> Image.Image:
+        """Маска фігури в межах box (пікселі), намальована у 4x і зменшена LANCZOS."""
+        x0, y0, x1, y1 = box
+        layer = aa.new_layer(x1 - x0, y1 - y0, "L", 0)
+        painter = aa.Painter(layer, 1.0, ox=x0, oy=y0)
+        if polygon:
+            painter.polygon(pts, fill=255)
+        else:
+            painter.line(pts, fill=255, width=width)
+        return aa.downscale(layer, (x1 - x0, y1 - y0))
+
+    def _paint_fill(self, img, curve, color, w: int, h: int) -> None:
+        # Суперсемплінг потрібен лише вздовж самої кривої: смугу [пік..мінімум
+        # кривої] малюємо у 4x -> LANCZOS, а під нею маска суцільна (255).
+        # Вертикальні краї заливки вирівняні по пікселях, тож шва немає.
+        x_left = round(curve[0][0])
+        x_right = round(curve[-1][0])
+        y_top = max(0, int(min(y for _x, y in curve)) - 2)
+        y_bot = min(h, int(max(y for _x, y in curve)) + 3)
+        rw, rh = x_right - x_left, h - y_top
+        if rw <= 0 or rh <= 0:
             return
-        top_y = min(y for _x, y in points)
-        band_height = max((height - top_y) / self.BANDS, 1.0)
+        poly = [(x_left, curve[0][1])] + curve + [(x_right, y_bot), (x_left, y_bot)]
+        band = self._mask(poly, (x_left, y_top, x_right, y_bot), polygon=True)
+        mask = Image.new("L", (rw, rh), 0)
+        mask.paste(band, (0, 0))
+        if y_bot < h:
+            mask.paste(255, (0, y_bot - y_top, rw, rh))
+        # плавний вертикальний градієнт прозорості: найгустіший біля піку серії, донизу -> 0
+        alpha = _fill_gradient(rw, rh, self.FILL_ALPHA)
+        img.paste(color, (x_left, y_top, x_right, h), ImageChops.multiply(mask, alpha))
 
-        for band in range(self.BANDS):
-            bottom = height - band * band_height
-            top = height - (band + 1) * band_height
-            blend_t = 0.06 + 0.07 * band
-            fill_color = _blend(theme.BG_PANEL, color, blend_t, self)
+    def _paint_line(self, img, curve, color, w: int, h: int) -> None:
+        pad = round(self.LINE_WIDTH * self._scale) + 2
+        x0 = max(0, int(curve[0][0]) - pad)
+        y0 = max(0, int(min(y for _x, y in curve)) - pad)
+        y1 = min(h, int(max(y for _x, y in curve)) + pad + 1)
+        box = (x0, y0, w, y1)
+        mask = self._mask(curve, box, polygon=False, width=self.LINE_WIDTH * self._scale)
+        img.paste(color, box, mask)
 
-            poly = [points[0][0], bottom]
-            for x, y in points:
-                poly.extend((x, min(max(y, top), bottom)))
-            poly.extend((points[-1][0], bottom))
-            self.canvas.create_polygon(*poly, fill=fill_color, outline="")
+
+_gradient_cache: dict = {}
+
+
+def _fill_gradient(width: int, height: int, top_alpha: float) -> Image.Image:
+    """L-маска (width x height): alpha top_alpha*255 угорі, лінійно до 0 унизу."""
+    key = (width, height, top_alpha)
+    grad = _gradient_cache.get(key)
+    if grad is None:
+        if len(_gradient_cache) > 8:
+            _gradient_cache.clear()
+        column = Image.linear_gradient("L").transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        column = column.point(lambda v: round(v * top_alpha))
+        grad = column.resize((width, height), Image.Resampling.BILINEAR)
+        _gradient_cache[key] = grad
+    return grad
 
 
 # ----------------------------------------------------------------- processes
@@ -270,8 +434,10 @@ class ProcessRow(ctk.CTkFrame):
 
         name_frame = ctk.CTkFrame(self, fg_color="transparent")
         name_frame.grid(row=0, column=0, sticky="ew", padx=(6, 8), pady=4)
-        self._dot = tk.Canvas(name_frame, width=8, height=8, highlightthickness=0, bg=theme.BG_PANEL)
-        self._dot_id = self._dot.create_oval(0, 0, 8, 8, fill=theme.ACCENT_BLUE, outline="")
+        self._dot_scale = self._get_widget_scaling()
+        self._dot = tk.Label(
+            name_frame, image=self._dot_image(theme.ACCENT_BLUE), bg=theme.BG_PANEL, bd=0, highlightthickness=0,
+        )
         self._dot.pack(side="left", padx=(2, 8))
         self.name_label = ctk.CTkLabel(name_frame, text="Завантаження…", anchor="w", text_color=theme.TEXT_DIM)
         self.name_label.pack(side="left", fill="x", expand=True)
@@ -298,6 +464,9 @@ class ProcessRow(ctk.CTkFrame):
             widget.bind("<Enter>", self._on_hover_enter)
             widget.bind("<Leave>", self._on_hover_leave)
 
+    def _dot_image(self, color: str):
+        return aa.dot_image(color, 8, theme.BG_PANEL, self._dot_scale)
+
     def update_data(self, pid: int, name: str, cpu_percent: float, memory_mb: float, protected: bool) -> None:
         self.pid = pid
         self.protected = protected
@@ -306,7 +475,7 @@ class ProcessRow(ctk.CTkFrame):
         self.ram_label.configure(text=f"{memory_mb:.0f} МБ")
 
         dot_color = theme.ERROR if cpu_percent >= 50 else (theme.WARNING if cpu_percent >= 20 else theme.ACCENT_BLUE)
-        self._dot.itemconfig(self._dot_id, fill=dot_color)
+        self._dot.configure(image=self._dot_image(dot_color))
 
         self.kill_button.pack_forget()
         if protected:
@@ -320,7 +489,7 @@ class ProcessRow(ctk.CTkFrame):
         self.name_label.configure(text="Завантаження…", text_color=theme.TEXT_DIM)
         self.cpu_label.configure(text="")
         self.ram_label.configure(text="")
-        self._dot.itemconfig(self._dot_id, fill=theme.BORDER)
+        self._dot.configure(image=self._dot_image(theme.BORDER))
         self.tag_label.pack_forget()
         self.kill_button.pack_forget()
 
@@ -403,18 +572,27 @@ class ProcessTable(ctk.CTkFrame):
 # ------------------------------------------------------------- status robot
 
 _MOOD_COLORS = {"happy": theme.ACCENT_GREEN, "neutral": theme.ACCENT_BLUE, "worried": theme.WARNING}
+ROBOT_SIZE = 88
 
 
 class StatusRobot(ctk.CTkFrame):
-    """Робот із настроєм і коротка фраза про стан системи."""
+    """Робот із настроєм і коротка фраза про стан системи.
+
+    Малюється Pillow (4x -> LANCZOS) у вигляді спрайтів за парою
+    (настрій, кліпання) — кожен малюється один раз і далі лише перемикається.
+    """
 
     def __init__(self, master):
         super().__init__(master, corner_radius=14)
+        self._scale = self._get_widget_scaling()
+        self._sprites: dict = {}
 
         ctk.CTkLabel(self, text="Статус системи", font=theme.font_header()).pack(padx=16, pady=(18, 8))
 
-        self.canvas = tk.Canvas(self, width=88, height=88, highlightthickness=0, bg=theme.BG_PANEL)
+        px = round(ROBOT_SIZE * self._scale)
+        self.canvas = tk.Canvas(self, width=px, height=px, highlightthickness=0, bg=theme.BG_PANEL)
         self.canvas.pack(pady=(0, 10))
+        self._image_item = self.canvas.create_image(0, 0, anchor="nw")
 
         self.phrase_label = ctk.CTkLabel(
             self, text="Збираємо дані…", font=theme.font_body(), text_color=theme.TEXT_DIM,
@@ -428,31 +606,49 @@ class StatusRobot(ctk.CTkFrame):
         self._last_tick = None
         self._after_id = None
 
-        self._build_face()
+        self._show()
         self.bind("<Destroy>", self._on_destroy)
         self._tick()
 
-    def _build_face(self) -> None:
-        c = self.canvas
-        self._antenna_tip = c.create_oval(40, 2, 48, 10, fill=theme.ACCENT_GREEN, outline="")
-        c.create_line(44, 10, 44, 18, fill=theme.TEXT_DIM, width=2)
-        self._head = c.create_oval(10, 16, 78, 78, fill=theme.ACCENT_BLUE, outline=theme.ACCENT_BLUE_DIM, width=2)
-        c.create_rectangle(22, 32, 66, 64, fill=theme.BG_MAIN, outline="")
-        self._eye_l = c.create_arc(28, 38, 42, 52, start=20, extent=140, style="arc", outline=theme.ACCENT_GREEN, width=2)
-        self._eye_r = c.create_arc(46, 38, 60, 52, start=20, extent=140, style="arc", outline=theme.ACCENT_GREEN, width=2)
-        self._mouth = c.create_arc(30, 46, 58, 64, start=200, extent=140, style="arc", outline=theme.ACCENT_GREEN, width=2)
+    def _set_scaling(self, *args, **kwargs):
+        super()._set_scaling(*args, **kwargs)
+        self._scale = args[0]
+        if hasattr(self, "canvas"):
+            px = round(ROBOT_SIZE * self._scale)
+            self.canvas.configure(width=px, height=px)
+            self._sprites.clear()
+            self._show()
+
+    def _render(self, mood, blink: bool) -> ImageTk.PhotoImage:
+        S = self._scale
+        px = round(ROBOT_SIZE * S)
+        color = aa.rgb(_MOOD_COLORS.get(mood, theme.ACCENT_GREEN))
+        head_outline = color if mood else aa.rgb(theme.ACCENT_BLUE_DIM)
+
+        img = aa.new_layer(px, px, "RGB", aa.rgb(theme.BG_PANEL))
+        p = aa.Painter(img, S)
+        p.line([(44, 10), (44, 18)], fill=aa.rgb(theme.TEXT_DIM), width=2, round_caps=False)
+        p.ellipse(40, 2, 48, 10, fill=color)
+        p.ellipse(10, 16, 78, 78, fill=aa.rgb(theme.ACCENT_BLUE), outline=head_outline, width=2)
+        p.rect(22, 32, 66, 64, fill=aa.rgb(theme.BG_MAIN))
+        eye_extent = 8 if blink else 140
+        p.arc(28, 38, 42, 52, start=20, extent=eye_extent, fill=color, width=2)
+        p.arc(46, 38, 60, 52, start=20, extent=eye_extent, fill=color, width=2)
+        p.arc(30, 46, 58, 64, start=20 if mood == "worried" else 200, extent=140, fill=color, width=2)
+        return ImageTk.PhotoImage(aa.downscale(img, (px, px)))
+
+    def _show(self) -> None:
+        key = (self._mood, self._blink)
+        photo = self._sprites.get(key)
+        if photo is None:
+            photo = self._sprites[key] = self._render(*key)
+        self.canvas.itemconfigure(self._image_item, image=photo)
 
     def set_mood(self, mood: str, phrase: str) -> None:
         if mood == self._mood and phrase == self.phrase_label.cget("text"):
             return
         self._mood = mood
-        color = _MOOD_COLORS[mood]
-        for item in (self._head,):
-            self.canvas.itemconfig(item, outline=color)
-        for item in (self._eye_l, self._eye_r, self._mouth):
-            self.canvas.itemconfig(item, outline=color)
-        self.canvas.itemconfig(self._antenna_tip, fill=color)
-        self.canvas.itemconfig(self._mouth, start=200 if mood != "worried" else 20, extent=140)
+        self._show()
         self.phrase_label.configure(text=phrase, text_color=theme.TEXT_MAIN)
 
     def _tick(self) -> None:
@@ -466,9 +662,7 @@ class StatusRobot(ctk.CTkFrame):
             if self._blink_timer <= 0:
                 self._blink = not self._blink
                 self._blink_timer = random.uniform(0.12, 0.2) if self._blink else random.uniform(2.0, 4.0)
-                extent = 8 if self._blink else 140
-                self.canvas.itemconfig(self._eye_l, extent=extent)
-                self.canvas.itemconfig(self._eye_r, extent=extent)
+                self._show()
         self._after_id = self.after(150, self._tick)
 
     def _on_destroy(self, event) -> None:

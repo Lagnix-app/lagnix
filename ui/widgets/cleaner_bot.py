@@ -9,9 +9,15 @@
 Продуктивність: цикл анімації працює на ~60 кадрів/с (after(16 мс) з
 корекцією під реальний час кадру), рух рахується від фактично сплиненого
 часу (time.perf_counter()), а не від номера кадру, тож затримки в системі
-не викликають ривків. Canvas-фігури створюються один раз при побудові
-віджета й пулу часток, а кожен кадр лише оновлює їхні coords()/itemconfig() —
-canvas.delete("all") не використовується.
+не викликають ривків. Робот складається зі спрайтів, намальованих через
+Pillow із суперсемплінгом (ui/widgets/aa.py: 4x + LANCZOS): тіло, тінь,
+вогник, інструмент і хвилі сигналу малюються один раз (лінивий кеш за
+квантованими параметрами пози), а кожен кадр лише перемикає/зсуває їх —
+перемальовування зображення щокадру давало ~6 мс/кадр і ~6x більше CPU.
+Частки (пил/файли/іскри/конфеті) лишаються canvas-фігурами, створеними один
+раз, а кожен кадр лише оновлює їхні coords()/itemconfig() — canvas.delete("all")
+не використовується. Усі розміри — в dp (100% масштаб), множник DPI-масштабу
+застосовується при виводі.
 """
 
 import ctypes
@@ -23,9 +29,11 @@ import tkinter as tk
 from collections import deque
 
 import customtkinter as ctk
+from PIL import Image, ImageTk
 
 from core import sounds
 from ui import theme
+from ui.widgets import aa
 
 _IS_WINDOWS = platform.system() == "Windows"
 
@@ -44,6 +52,9 @@ _ACCENT_GREEN = "#2ee59d"
 _ACCENT_PURPLE = "#c77dff"
 _ACCENT_ORANGE = "#e0a52f"
 _BROOM_HANDLE = "#8a5a2b"
+_SHADOW_RGBA = (0, 0, 0, 115)
+_ARC_GREY = "#4a5568"
+_SPRITE_HALF_W = 100  # dp: півширина спрайт-регіону навколо робота
 _ANTENNA_STICK = "#8a94a6"
 
 _FILE_COLORS = (_BODY_MAIN, _ACCENT_GREEN, _ACCENT_PURPLE)
@@ -86,8 +97,10 @@ class CleanerBotAnimation(ctk.CTkFrame):
     def __init__(self, master, height: int = 150):
         super().__init__(master, corner_radius=10)
 
-        self._canvas_w = 320
-        self._canvas_h = height
+        self._scale = self._get_widget_scaling()
+        self._height_dp = height
+        self._canvas_w = 320  # dp
+        self._canvas_h = height  # dp
         self._elapsed = 0.0
         self._state = "hidden"  # hidden | running | finishing | shrug
         self._tool = "broom"  # broom | scan
@@ -103,7 +116,11 @@ class CleanerBotAnimation(ctk.CTkFrame):
         self._geo_manager = None
         self._geo_options = None
 
-        self.canvas = tk.Canvas(self, height=height, bg=_CANVAS_BG, highlightthickness=0)
+        self._sprites: dict = {}  # ключ -> (PhotoImage, зсув x, зсув y)
+        self._shown: dict = {}  # canvas-елемент -> PhotoImage, що показується зараз
+        self._pos: dict = {}  # canvas-елемент -> (x, y)
+
+        self.canvas = tk.Canvas(self, height=round(height * self._scale), bg=_CANVAS_BG, highlightthickness=0)
         self.canvas.pack(fill="x", padx=12, pady=(12, 8))
         self.canvas.bind("<Configure>", self._on_configure)
 
@@ -228,8 +245,20 @@ class CleanerBotAnimation(ctk.CTkFrame):
             self.place(**self._geo_options)
 
     def _on_configure(self, event) -> None:
-        self._canvas_w = event.width
-        self._canvas_h = event.height
+        self._canvas_w = event.width / self._scale
+        self._canvas_h = event.height / self._scale
+        if self._after_id is None:
+            self._render_scene()
+
+    def _set_scaling(self, new_widget_scaling, new_window_scaling):
+        super()._set_scaling(new_widget_scaling, new_window_scaling)
+        self._scale = new_widget_scaling
+        if hasattr(self, "canvas"):
+            self._sprites.clear()
+            self._shown.clear()
+            self._pos.clear()
+            self.canvas.configure(height=round(self._height_dp * new_widget_scaling))
+            self._render_scene()
 
     # ------------------------------------------------------------- loop
 
@@ -341,44 +370,12 @@ class CleanerBotAnimation(ctk.CTkFrame):
         )
         self._file_pool = self._build_particle_pool(FILE_MAX, {"life": 0.0, "max_life": 1.0, "size": 10.0, "color": _FILE_COLORS[0]})
 
-        # робот — статичні фігури, надалі лише coords()/itemconfig()
-        self._items = {}
-        self._items["shadow"] = c.create_oval(0, 0, 0, 0, fill="black", outline="", stipple="gray50")
-        self._items["wheel_l"] = c.create_oval(0, 0, 0, 0, fill=_SCREEN_BG, outline=_BODY_DARK)
-        self._items["wheel_r"] = c.create_oval(0, 0, 0, 0, fill=_SCREEN_BG, outline=_BODY_DARK)
-        self._items["body"] = c.create_oval(0, 0, 0, 0, fill=_BODY_MAIN, outline=_BODY_DARK, width=2)
-        self._items["antenna_line"] = c.create_line(0, 0, 0, 0, fill=_BODY_DARK, width=2)
-        self._items["antenna_light"] = c.create_oval(0, 0, 0, 0, fill=_ACCENT_GREEN, outline="")
-
-        self._items["left_arm"] = c.create_line(0, 0, 0, 0, fill=_BODY_DARK, width=4, capstyle="round")
-        self._items["right_arm"] = c.create_line(0, 0, 0, 0, fill=_BODY_DARK, width=4, capstyle="round")
-
-        self._items["broom_handle"] = c.create_line(
-            0, 0, 0, 0, fill=_BROOM_HANDLE, width=3, capstyle="round", state="hidden",
-        )
-        self._items["broom_head"] = c.create_polygon(
-            0, 0, 0, 0, 0, 0, 0, 0, fill=_ACCENT_ORANGE, outline="", state="hidden",
-        )
-        self._items["broom_arc"] = c.create_arc(
-            0, 0, 0, 0, start=0, extent=25, style="arc", outline="#4a5568", state="hidden",
-        )
-
-        self._items["antenna_stick"] = c.create_line(
-            0, 0, 0, 0, fill=_ANTENNA_STICK, width=3, capstyle="round", state="hidden",
-        )
-        self._items["antenna_tip"] = c.create_oval(0, 0, 0, 0, fill=_ACCENT_GREEN, outline="", state="hidden")
-        self._items["signal_arcs"] = [
-            c.create_arc(0, 0, 0, 0, start=25, extent=130, style="arc", outline=_ACCENT_GREEN, state="hidden")
-            for _ in range(3)
-        ]
-
-        self._items["screen"] = c.create_rectangle(0, 0, 0, 0, fill=_SCREEN_BG, outline=_BODY_DARK)
-        self._items["eye_l"] = c.create_oval(0, 0, 0, 0, fill=_EYE_COLOR, outline="")
-        self._items["eye_r"] = c.create_oval(0, 0, 0, 0, fill=_EYE_COLOR, outline="")
-        self._items["mouth_arc"] = c.create_arc(
-            0, 0, 0, 0, start=200, extent=140, style="arc", outline=_EYE_COLOR, width=2,
-        )
-        self._items["mouth_line"] = c.create_line(0, 0, 0, 0, fill=_EYE_COLOR, width=2, state="hidden")
+        # робот — спрайти (див. _render_robot); порядок = z-порядок
+        self._shadow_item = c.create_image(0, 0, anchor="nw", state="hidden")
+        self._body_item = c.create_image(0, 0, anchor="nw", state="hidden")
+        self._light_item = c.create_image(0, 0, anchor="nw", state="hidden")
+        self._tool_item = c.create_image(0, 0, anchor="nw", state="hidden")
+        self._signal_item = c.create_image(0, 0, anchor="nw", state="hidden")
 
         # пул часток спереду (спалахи/конфеті), щоб лишались над роботом
         self._spark_pool = self._build_particle_pool(SPARK_MAX, {"life": 0.0, "max_life": 1.0, "size": 4.0, "color": _SPARK_COLORS[0]})
@@ -503,6 +500,7 @@ class CleanerBotAnimation(ctk.CTkFrame):
 
     def _render_particles(self) -> None:
         c = self.canvas
+        S = self._scale
 
         for slot in self._dust_pool:
             item = slot["item"]
@@ -515,7 +513,7 @@ class CleanerBotAnimation(ctk.CTkFrame):
                 c.itemconfigure(item, state="hidden")
                 continue
             x, y = slot["x"], slot["y"] - frac * 14
-            c.coords(item, x - r, y - r, x + r, y + r)
+            c.coords(item, (x - r) * S, (y - r) * S, (x + r) * S, (y + r) * S)
             c.itemconfigure(item, fill=slot["color"], state="normal")
 
         for slot in self._file_pool:
@@ -532,8 +530,10 @@ class CleanerBotAnimation(ctk.CTkFrame):
             fold = s * 0.35
             c.coords(
                 item,
-                x - s, y - s, x + s - fold, y - s, x + s, y - s + fold,
-                x + s, y + s, x - s, y + s,
+                *(v * S for v in (
+                    x - s, y - s, x + s - fold, y - s, x + s, y - s + fold,
+                    x + s, y + s, x - s, y + s,
+                )),
             )
             c.itemconfigure(item, fill=slot["color"], state="normal")
 
@@ -548,7 +548,7 @@ class CleanerBotAnimation(ctk.CTkFrame):
                 c.itemconfigure(item, state="hidden")
                 continue
             x, y = slot["x"], slot["y"]
-            c.coords(item, x, y - s, x + s, y, x, y + s, x - s, y)
+            c.coords(item, x * S, (y - s) * S, (x + s) * S, y * S, x * S, (y + s) * S, (x - s) * S, y * S)
             c.itemconfigure(item, fill=slot["color"], state="normal")
 
         for slot in self._confetti_pool:
@@ -564,18 +564,53 @@ class CleanerBotAnimation(ctk.CTkFrame):
             x, y = slot["x"], slot["y"]
             c.coords(
                 item,
-                x - dx - dx2, y - dy - dy2, x + dx - dx2, y + dy - dy2,
-                x + dx + dx2, y + dy + dy2, x - dx + dx2, y - dy + dy2,
+                *(v * S for v in (
+                    x - dx - dx2, y - dy - dy2, x + dx - dx2, y + dy - dy2,
+                    x + dx + dx2, y + dy + dy2, x - dx + dx2, y - dy + dy2,
+                )),
             )
             c.itemconfigure(item, fill=slot["color"], state="normal")
 
-    def _render_robot(self, w: float, h: float) -> None:
+    def _sprite(self, key, box, draw):
+        """Спрайт із лінивого кешу: малюється один раз (Pillow 4x -> LANCZOS),
+        далі лише показується. box=(l, t, r, b) у dp відносно якоря спрайта."""
+        entry = self._sprites.get(key)
+        if entry is None:
+            S = self._scale
+            ox, oy = math.floor(box[0] * S), math.floor(box[1] * S)
+            w = math.ceil(box[2] * S) - ox
+            h = math.ceil(box[3] * S) - oy
+            img = aa.new_layer(w, h)
+            draw(aa.Painter(img, S, ox=ox, oy=oy))
+            entry = (ImageTk.PhotoImage(aa.downscale(img, (w, h))), ox, oy)
+            self._sprites[key] = entry
+        return entry
+
+    def _place(self, item, entry, ax: int, ay: int) -> None:
+        photo, ox, oy = entry
         c = self.canvas
-        items = self._items
-        ground_y = h - 14
-        cx = w / 2
+        if self._shown.get(item) is not photo:
+            self._shown[item] = photo
+            c.itemconfigure(item, image=photo, state="normal")
+        pos = (ax + ox, ay + oy)
+        if self._pos.get(item) != pos:
+            self._pos[item] = pos
+            c.coords(item, *pos)
+
+    def _hide(self, item) -> None:
+        if self._shown.get(item) is not None:
+            self._shown[item] = None
+            self.canvas.itemconfigure(item, state="hidden")
+
+    def _render_robot(self, w: float, h: float) -> None:
+        """Складає робота зі спрайтів: кожен кадр лише перемикає/зсуває
+        заздалегідь намальовані (Pillow, суперсемплінг) частини — без
+        перемальовування зображення, тож CPU майже не росте."""
+        S = self._scale
         state = self._state
         t = self._elapsed
+        cx = w / 2
+        ground_y = h - 14
 
         if state == "finishing":
             bt = min(t, 1.6)
@@ -589,129 +624,119 @@ class CleanerBotAnimation(ctk.CTkFrame):
 
         radius = 30
         cy = ground_y - radius - 14 - bounce
+        ax, ay = round(cx * S), round(cy * S)
 
-        shadow_scale = max(0.4, 1 - bounce / 24)
-        sw = 44 * shadow_scale
-        c.coords(items["shadow"], cx - sw, ground_y + 2, cx + sw, ground_y + 9)
-
-        for dx, key in ((-15, "wheel_l"), (15, "wheel_r")):
-            c.coords(
-                items[key],
-                cx + dx - 7, cy + radius - 6, cx + dx + 7, cy + radius + 7,
-            )
-
-        c.coords(items["body"], cx - radius, cy - radius, cx + radius, cy + radius)
-
-        c.coords(items["antenna_line"], cx, cy - radius, cx, cy - radius - 12)
-        light_r = 4 + math.sin(t * 6.0) * 1.3
-        light_color = _ACCENT_GREEN if state != "shrug" else _ACCENT_ORANGE
-        c.coords(
-            items["antenna_light"],
-            cx - light_r, cy - radius - 12 - light_r, cx + light_r, cy - radius - 12 + light_r,
+        # тінь: ширина залежить від висоти стрибка (квантуємо до 5%)
+        shadow_level = round(max(0.4, 1 - bounce / 24) * 20)
+        shadow = self._sprite(
+            ("shadow", shadow_level), (-46, 0, 46, 11),
+            lambda p, sw=44 * shadow_level / 20: p.ellipse(-sw, 2, sw, 9, fill=_SHADOW_RGBA),
         )
-        c.itemconfigure(items["antenna_light"], fill=light_color)
+        self._place(self._shadow_item, shadow, ax, round(ground_y * S))
 
-        self._render_arms_and_tool(cx, cy, radius, state, t)
+        blink = self._blink and state != "shrug"
+        body = self._sprite(
+            ("body", state, blink), (-46, -46, 46, 42),
+            lambda p: self._draw_body(p, state, blink),
+        )
+        self._place(self._body_item, body, ax, ay)
 
-        panel_w, panel_h = 30, 20
-        py = cy - 4
-        c.coords(items["screen"], cx - panel_w / 2, py - panel_h / 2, cx + panel_w / 2, py + panel_h / 2)
-
-        eye_h = 1 if self._blink and state != "shrug" else 4
-        for dx, key in ((-7, "eye_l"), (7, "eye_r")):
-            ex, ey = cx + dx, py - 3
-            c.coords(items[key], ex - 4, ey - eye_h, ex + 4, ey + eye_h)
-
-        if state == "shrug":
-            c.itemconfigure(items["mouth_arc"], state="hidden")
-            c.coords(items["mouth_line"], cx - 6, py + 6, cx + 6, py + 6)
-            c.itemconfigure(items["mouth_line"], state="normal")
-        elif state == "finishing":
-            c.coords(items["mouth_arc"], cx - 8, py - 1, cx + 8, py + 11)
-            c.itemconfigure(items["mouth_arc"], state="normal")
-            c.itemconfigure(items["mouth_line"], state="hidden")
-        else:
-            c.coords(items["mouth_arc"], cx - 6, py + 1, cx + 6, py + 8)
-            c.itemconfigure(items["mouth_arc"], state="normal")
-            c.itemconfigure(items["mouth_line"], state="hidden")
-
-    def _hide_tool_items(self) -> None:
-        c = self.canvas
-        items = self._items
-        c.itemconfigure(items["broom_handle"], state="hidden")
-        c.itemconfigure(items["broom_head"], state="hidden")
-        c.itemconfigure(items["broom_arc"], state="hidden")
-        c.itemconfigure(items["antenna_stick"], state="hidden")
-        c.itemconfigure(items["antenna_tip"], state="hidden")
-        for arc in items["signal_arcs"]:
-            c.itemconfigure(arc, state="hidden")
-
-    def _render_arms_and_tool(self, cx: float, cy: float, radius: float, state: str, t: float) -> None:
-        c = self.canvas
-        items = self._items
+        light_r = round((4 + math.sin(t * 6.0) * 1.3) * 4) / 4
+        light_color = _ACCENT_GREEN if state != "shrug" else _ACCENT_ORANGE
+        light = self._sprite(
+            ("light", light_color, light_r), (-7, -7, 7, 7),
+            lambda p: p.ellipse(-light_r, -light_r, light_r, light_r, fill=aa.rgb(light_color)),
+        )
+        self._place(self._light_item, light, ax, round((cy - radius - 12) * S))
 
         if state == "shrug":
-            for side, key in ((-1, "left_arm"), (1, "right_arm")):
-                sx, sy = cx + side * (radius - 6), cy + 6
-                ex, ey = sx + side * 14, sy - 18
-                c.coords(items[key], sx, sy, ex, ey)
-            self._hide_tool_items()
+            self._hide(self._tool_item)
+            self._hide(self._signal_item)
             return
 
-        lx, ly = cx - (radius - 6), cy + 6
-        c.coords(items["left_arm"], lx, ly, lx - 9, ly + 10)
+        running = state == "running"
+        if self._tool == "scan":
+            deg = round(80 + math.sin(t * 1.6) * 6) if running else 80
+            tool_key = ("scan", deg)
+        else:
+            deg = round(45 + math.sin(t * 5.0) * 28) if running else 50
+            tool_key = ("broom", deg, running)
+        angle = math.radians(deg)
+        tool = self._sprite(
+            tool_key, (12, -64, 98, 18), lambda p: self._draw_tool(p, angle, running),
+        )
+        self._place(self._tool_item, tool, ax, ay)
 
-        rx, ry = cx + (radius - 6), cy + 6
+        if self._tool == "scan" and running:
+            # хвилі сигналу навколо кінчика антени; фаза квантується до 1/40
+            phase = round(((t * 1.3) % 1.0) * 40) / 40
+            tip_x = 24 + math.cos(angle) * 34
+            tip_y = 6 - math.sin(angle) * 34
+            signal = self._sprite(
+                ("signal", phase), (-28, -28, 28, 28), lambda p: self._draw_signals(p, phase),
+            )
+            self._place(self._signal_item, signal, round(cx * S + tip_x * S), round(cy * S + tip_y * S))
+        else:
+            self._hide(self._signal_item)
+
+    def _draw_body(self, p: "aa.Painter", state: str, blink: bool) -> None:
+        """Тіло робота з центром у (0, 0): колеса, корпус, антена, руки (у
+        стані «знизування» — обидві), екран, очі, рот."""
+        body_dark = aa.rgb(_BODY_DARK)
+        radius = 30
+
+        for dx in (-15, 15):
+            p.ellipse(dx - 7, radius - 6, dx + 7, radius + 7,
+                      fill=aa.rgb(_SCREEN_BG), outline=body_dark, width=1)
+        p.ellipse(-radius, -radius, radius, radius, fill=aa.rgb(_BODY_MAIN), outline=body_dark, width=2)
+        p.line([(0, -radius), (0, -radius - 12)], fill=body_dark, width=2)
+
+        if state == "shrug":
+            for side in (-1, 1):
+                sx, sy = side * (radius - 6), 6
+                p.line([(sx, sy), (sx + side * 14, sy - 18)], fill=body_dark, width=4)
+        else:
+            lx, ly = -(radius - 6), 6
+            p.line([(lx, ly), (lx - 9, ly + 10)], fill=body_dark, width=4)
+
+        py = -4
+        p.rect(-15, py - 10, 15, py + 10, fill=aa.rgb(_SCREEN_BG), outline=body_dark, width=1)
+
+        eye = aa.rgb(_EYE_COLOR)
+        eye_h = 1 if blink else 4
+        for dx in (-7, 7):
+            p.ellipse(dx - 4, py - 3 - eye_h, dx + 4, py - 3 + eye_h, fill=eye)
+
+        if state == "shrug":
+            p.line([(-6, py + 6), (6, py + 6)], fill=eye, width=2)
+        elif state == "finishing":
+            p.arc(-8, py - 1, 8, py + 11, start=200, extent=140, fill=eye, width=2)
+        else:
+            p.arc(-6, py + 1, 6, py + 8, start=200, extent=140, fill=eye, width=2)
+
+    def _draw_tool(self, p: "aa.Painter", angle: float, running: bool) -> None:
+        """Права рука з мітлою (або антеною-сканером) під кутом angle; початок
+        руки — (24, 6) відносно центру тіла."""
+        body_dark = aa.rgb(_BODY_DARK)
+        rx, ry = 24, 6
 
         if self._tool == "scan":
-            c.itemconfigure(items["broom_handle"], state="hidden")
-            c.itemconfigure(items["broom_head"], state="hidden")
-            c.itemconfigure(items["broom_arc"], state="hidden")
-
-            angle = math.radians(80 + math.sin(t * 1.6) * 6)
             hand_x = rx + math.cos(angle) * 20
             hand_y = ry - math.sin(angle) * 20
-            c.coords(items["right_arm"], rx, ry, hand_x, hand_y)
-
+            p.line([(rx, ry), (hand_x, hand_y)], fill=body_dark, width=4)
             tip_x = rx + math.cos(angle) * 34
             tip_y = ry - math.sin(angle) * 34
-            c.coords(items["antenna_stick"], hand_x, hand_y, tip_x, tip_y)
-            c.itemconfigure(items["antenna_stick"], state="normal")
-            c.coords(items["antenna_tip"], tip_x - 5, tip_y - 5, tip_x + 5, tip_y + 5)
-            c.itemconfigure(items["antenna_tip"], state="normal")
-
-            if state == "running":
-                for i, arc in enumerate(items["signal_arcs"]):
-                    phase = ((t * 1.3) + i / 3) % 1.0
-                    if phase >= 0.92:
-                        c.itemconfigure(arc, state="hidden")
-                        continue
-                    r = 6 + phase * 22
-                    c.coords(arc, tip_x - r, tip_y - r, tip_x + r, tip_y + r)
-                    c.itemconfigure(arc, state="normal")
-            else:
-                for arc in items["signal_arcs"]:
-                    c.itemconfigure(arc, state="hidden")
+            p.line([(hand_x, hand_y), (tip_x, tip_y)], fill=aa.rgb(_ANTENNA_STICK), width=3)
+            p.ellipse(tip_x - 5, tip_y - 5, tip_x + 5, tip_y + 5, fill=aa.rgb(_ACCENT_GREEN))
             return
-
-        c.itemconfigure(items["antenna_stick"], state="hidden")
-        c.itemconfigure(items["antenna_tip"], state="hidden")
-        for arc in items["signal_arcs"]:
-            c.itemconfigure(arc, state="hidden")
-
-        if state == "running":
-            angle = math.radians(45 + math.sin(t * 5.0) * 28)
-        else:
-            angle = math.radians(50)
 
         hand_x = rx + math.cos(angle) * 18
         hand_y = ry - math.sin(angle) * 18
-        c.coords(items["right_arm"], rx, ry, hand_x, hand_y)
+        p.line([(rx, ry), (hand_x, hand_y)], fill=body_dark, width=4)
 
         tip_x = rx + math.cos(angle) * 40
         tip_y = ry - math.sin(angle) * 40
-        c.coords(items["broom_handle"], hand_x, hand_y, tip_x, tip_y)
-        c.itemconfigure(items["broom_handle"], state="normal")
+        p.line([(hand_x, hand_y), (tip_x, tip_y)], fill=aa.rgb(_BROOM_HANDLE), width=3)
 
         perp = angle + math.pi / 2
         spread = 9
@@ -719,12 +744,17 @@ class CleanerBotAnimation(ctk.CTkFrame):
         base_y = hand_y + (tip_y - hand_y) * 0.7
         p1 = (tip_x + math.cos(perp) * spread, tip_y - math.sin(perp) * spread)
         p2 = (tip_x - math.cos(perp) * spread, tip_y + math.sin(perp) * spread)
-        c.coords(items["broom_head"], base_x, base_y, p1[0], p1[1], tip_x, tip_y, p2[0], p2[1])
-        c.itemconfigure(items["broom_head"], state="normal")
+        p.polygon([(base_x, base_y), p1, (tip_x, tip_y), p2], fill=aa.rgb(_ACCENT_ORANGE))
 
-        if state == "running":
-            deg = math.degrees(angle)
-            c.coords(items["broom_arc"], tip_x - 13, tip_y - 13, tip_x + 13, tip_y + 13)
-            c.itemconfigure(items["broom_arc"], start=deg - 35, state="normal")
-        else:
-            c.itemconfigure(items["broom_arc"], state="hidden")
+        if running:
+            p.arc(tip_x - 13, tip_y - 13, tip_x + 13, tip_y + 13, start=math.degrees(angle) - 35,
+                  extent=25, fill=aa.rgb(_ARC_GREY), width=1, round_caps=False)
+
+    def _draw_signals(self, p: "aa.Painter", base_phase: float) -> None:
+        green = aa.rgb(_ACCENT_GREEN)
+        for i in range(3):
+            phase = (base_phase + i / 3) % 1.0
+            if phase >= 0.92:
+                continue
+            r = 6 + phase * 22
+            p.arc(-r, -r, r, r, start=25, extent=130, fill=green, width=1, round_caps=False)
