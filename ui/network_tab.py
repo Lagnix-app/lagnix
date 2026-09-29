@@ -9,9 +9,85 @@ from datetime import datetime
 import customtkinter as ctk
 
 from core import network as network_core
+from core import settings as app_settings
 from ui.widgets.cleaner_bot import CleanerBotAnimation
 
 GRAPH_POINTS = 60
+
+# Тексти вкладки (системи перекладів у проєкті ще немає — усе в одному місці,
+# щоб згодом легко винести).
+TXT_TEST_INTRO = (
+    "Перевіримо, наскільки стабільний твій інтернет для онлайн-ігор: "
+    "пінг, стрибки затримки і втрату пакетів. Тест триває 30 секунд."
+)
+TXT_TEST_HINT = "Для точності закрий завантаження і стріми."
+TXT_HELP_SHOW = "Що це означає?"
+TXT_HELP_HIDE = "Сховати пояснення"
+HELP_CARDS = (
+    ("📡", "Пінг", "Час відповіді сервера.", "Для ігор добре: до 50 мс"),
+    ("〰️", "Джитер", "Наскільки пінг «скаче».", "Добре: до 10 мс"),
+    ("📦", "Втрати пакетів", "Скільки даних не дійшло.", "Добре: 0%"),
+)
+COLUMN_TIPS = {
+    "Дата": "Коли проводився тест.",
+    "Пінг": "Час відповіді сервера. Для ігор добре: до 50 мс.",
+    "Джитер": "Наскільки пінг «скаче». Добре: до 10 мс.",
+    "Втрати": "Скільки даних не дійшло. Добре: 0%.",
+    "Оцінка": "Загальна оцінка за найгіршим із показників. Наведи на оцінку, щоб побачити причину.",
+}
+SETTING_HELP_COLLAPSED = "network_help_collapsed"
+
+
+class Tooltip:
+    """Проста підказка при наведенні на віджет."""
+
+    def __init__(self, widget, text: str, delay_ms: int = 400):
+        self.widget = widget
+        self.text = text
+        self.delay_ms = delay_ms
+        self._after_id = None
+        self._tip = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<Destroy>", self._hide, add="+")
+
+    def _schedule(self, _event=None):
+        self._cancel()
+        self._after_id = self.widget.after(self.delay_ms, self._show)
+
+    def _cancel(self):
+        if self._after_id is not None:
+            try:
+                self.widget.after_cancel(self._after_id)
+            except tk.TclError:
+                pass
+            self._after_id = None
+
+    def _show(self):
+        self._after_id = None
+        if not self.text or self._tip is not None:
+            return
+        try:
+            x = self.widget.winfo_pointerx() + 12
+            y = self.widget.winfo_pointery() + 16
+            self._tip = tk.Toplevel(self.widget)
+            self._tip.wm_overrideredirect(True)
+            self._tip.wm_geometry(f"+{x}+{y}")
+            tk.Label(
+                self._tip, text=self.text, justify="left", wraplength=280, bg="#2b2b2b", fg="#e6e6e6",
+                relief="solid", borderwidth=1, padx=8, pady=5, font=("Segoe UI", 9),
+            ).pack()
+        except tk.TclError:
+            self._tip = None
+
+    def _hide(self, _event=None):
+        self._cancel()
+        if self._tip is not None:
+            try:
+                self._tip.destroy()
+            except tk.TclError:
+                pass
+            self._tip = None
 
 
 class PingGraph(ctk.CTkFrame):
@@ -132,9 +208,11 @@ class TestHistoryTable(ctk.CTkFrame):
         header.pack(fill="x", padx=12, pady=(10, 4))
         for i, title in enumerate(self.COLUMNS):
             header.grid_columnconfigure(i, weight=1)
-            ctk.CTkLabel(
+            head = ctk.CTkLabel(
                 header, text=title, font=ctk.CTkFont(size=11, weight="bold"), text_color="gray",
-            ).grid(row=0, column=i, sticky="w")
+            )
+            head.grid(row=0, column=i, sticky="w")
+            Tooltip(head, COLUMN_TIPS.get(title, ""))
 
         self.rows_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.rows_frame.pack(fill="x", padx=12, pady=(0, 10))
@@ -177,6 +255,8 @@ class TestHistoryTable(ctk.CTkFrame):
                     text_color=color or ("gray10", "gray90"), anchor="w",
                 )
                 lbl.grid(row=r, column=c, sticky="w", pady=2)
+                if c == 4:
+                    Tooltip(lbl, network_core.explain_entry_rating(avg, jitter, entry.get("loss", 0) or 0))
                 row_labels.append(lbl)
             self._rows.append(row_labels)
 
@@ -242,6 +322,11 @@ class NetworkTab(ctk.CTkFrame):
         self.start_section = ctk.CTkFrame(self.test_frame, fg_color="transparent")
         self.start_section.pack(fill="x", pady=(10, 16))
 
+        ctk.CTkLabel(
+            self.start_section, text=TXT_TEST_INTRO, wraplength=560, justify="center",
+            font=ctk.CTkFont(size=13),
+        ).pack(pady=(0, 12))
+
         self.test_custom_entry = ctk.CTkEntry(
             self.start_section, placeholder_text="Власна адреса (напр. google.com)", width=280,
         )
@@ -252,6 +337,12 @@ class NetworkTab(ctk.CTkFrame):
             font=ctk.CTkFont(size=16, weight="bold"), command=self._start_test,
         )
         self.start_button.pack()
+
+        ctk.CTkLabel(
+            self.start_section, text=TXT_TEST_HINT, text_color="gray", font=ctk.CTkFont(size=10),
+        ).pack(pady=(6, 0))
+
+        self._build_help_section(self.start_section)
 
         self.bot = CleanerBotAnimation(self.test_frame, height=170)
 
@@ -277,6 +368,48 @@ class NetworkTab(ctk.CTkFrame):
         self.history_table = TestHistoryTable(history_wrap)
         self.history_table.pack(fill="x")
         self.history_table.set_data(network_core.load_test_history())
+
+    def _build_help_section(self, parent):
+        self._help_collapsed = bool(app_settings.load_settings().get(SETTING_HELP_COLLAPSED, False))
+
+        self.help_toggle = ctk.CTkButton(
+            parent, text="", width=160, height=24, fg_color="transparent",
+            border_width=1, text_color=("gray20", "gray80"), command=self._toggle_help,
+        )
+        self.help_toggle.pack(pady=(14, 6))
+
+        self.help_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self.help_frame.grid_columnconfigure((0, 1, 2), weight=1, uniform="help")
+        for i, (icon, title, text, norm) in enumerate(HELP_CARDS):
+            card = ctk.CTkFrame(self.help_frame, corner_radius=8)
+            card.grid(row=0, column=i, padx=4, sticky="nsew")
+            ctk.CTkLabel(
+                card, text=f"{icon} {title}", font=ctk.CTkFont(size=12, weight="bold"),
+            ).pack(anchor="w", padx=10, pady=(8, 0))
+            ctk.CTkLabel(
+                card, text=text, font=ctk.CTkFont(size=11), wraplength=170, justify="left", anchor="w",
+            ).pack(anchor="w", padx=10)
+            ctk.CTkLabel(
+                card, text=norm, font=ctk.CTkFont(size=11), text_color="#2ee59d",
+                wraplength=170, justify="left", anchor="w",
+            ).pack(anchor="w", padx=10, pady=(0, 8))
+        self._apply_help_state()
+
+    def _apply_help_state(self):
+        if self._help_collapsed:
+            self.help_frame.pack_forget()
+            self.help_toggle.configure(text=TXT_HELP_SHOW)
+        else:
+            self.help_frame.pack(fill="x", padx=10)
+            self.help_toggle.configure(text=TXT_HELP_HIDE)
+
+    def _toggle_help(self):
+        self._help_collapsed = not self._help_collapsed
+        self._apply_help_state()
+        try:
+            app_settings.update_setting(SETTING_HELP_COLLAPSED, self._help_collapsed)
+        except OSError:
+            pass
 
     def _build_result_section(self):
         self.result_frame = ctk.CTkFrame(self.test_frame, corner_radius=10)

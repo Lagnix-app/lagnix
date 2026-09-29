@@ -268,6 +268,37 @@ def rate_test(stats: dict) -> dict:
     }
 
 
+def explain_entry_rating(avg: float | None, jitter: float | None, loss_percent: float) -> str:
+    """Пояснює, чому тест отримав таку оцінку: називає найгіршу метрику."""
+    levels = {
+        "ping": _ping_level(avg),
+        "jitter": _jitter_level(jitter),
+        "loss": _loss_level(loss_percent),
+    }
+    worst = max(levels, key=lambda k: levels[k])
+    level = levels[worst]
+    label = RATING_LABELS[level]
+
+    if worst == "ping":
+        if avg is None:
+            return f"{label}: сервери не відповіли — перевір підключення до інтернету"
+        detail = f"пінг {avg:.0f} мс"
+        tail = ("для ігор ідеально", "для більшості ігор прийнятно",
+                "у швидких іграх можливі затримки", "у динамічних іграх будуть лаги")[level]
+    elif worst == "jitter":
+        if jitter is None:
+            return f"{label}: не вдалося виміряти стабільність пінгу"
+        detail = f"джитер {jitter:.0f} мс"
+        tail = ("пінг дуже стабільний", "пінг стабільний, зрідка можливі короткі лаги",
+                "пінг помітно скаче", "пінг сильно скаче — можливі лаги")[level]
+    else:
+        detail = f"втрати {loss_percent:.0f}%"
+        tail = ("пакети не губляться", "зрідка губляться пакети",
+                "губляться пакети — можливі короткі лаги",
+                "можливі лаги і телепорти в іграх")[level]
+    return f"{label}: {detail} — {tail}"
+
+
 def load_test_history() -> list:
     data = load_data()
     return list(data.get(TEST_HISTORY_KEY, []))

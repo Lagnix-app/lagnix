@@ -31,6 +31,8 @@ DEFAULT_SETTINGS = {
     "robot_animation_enabled": True,
     # "exit" — закривати програму; "tray" — згортати в трей.
     "close_action": "exit",
+    # Чи згорнуті пояснення (пінг/джитер/втрати) на вкладці «Мережа».
+    "network_help_collapsed": False,
 }
 
 
