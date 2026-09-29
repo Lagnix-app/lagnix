@@ -11,6 +11,7 @@ import customtkinter as ctk
 
 from core import app_cache
 from core.cleanup import format_size
+from ui import bg
 
 _WARNING = "#e0a52f"
 _SUCCESS = "#2ee59d"
@@ -261,10 +262,7 @@ class AppCacheSection(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _post(self, fn, *args, **kwargs) -> None:
-        try:
-            self.after(0, lambda: fn(*args, **kwargs))
-        except RuntimeError:
-            pass  # головний цикл уже зупинено
+        bg.ui_call(self, lambda: fn(*args, **kwargs))
 
     def _on_progress(self, generation, fraction, text) -> None:
         if generation != self._scan_generation or not self.winfo_exists():

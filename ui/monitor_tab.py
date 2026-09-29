@@ -18,7 +18,7 @@ from core.logging_setup import get_logger
 from core.app_icons import IconLoader
 from core.settings import load_settings, update_setting
 from core.system_processes import is_protected
-from ui import theme
+from ui import bg, theme
 from ui.widgets import aa
 from ui.widgets import robot as robot_view
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, card_image, pill_image
@@ -596,10 +596,7 @@ class ProcessList(CanvasList):
         return photo
 
     def _icon_ready_threadsafe(self, _key: str) -> None:
-        try:
-            self.after(0, self.update_visible)
-        except (RuntimeError, tk.TclError):
-            pass
+        bg.ui_call(self, self.update_visible)
 
     # ---------------------------------------------------------- рядки
 
@@ -1078,10 +1075,7 @@ class MonitorTab(ctk.CTkFrame):
             if self._stop_event.is_set():
                 break
 
-            try:
-                self.after(0, self._apply_snapshot, data)
-            except RuntimeError:
-                _logger.exception("Не вдалося передати знімок монітора в UI")
+            bg.ui_call(self, self._apply_snapshot, data)
 
             interval = load_settings().get("monitor_update_interval_s", DEFAULT_UPDATE_INTERVAL_SEC)
             self._stop_event.wait(interval)
@@ -1264,7 +1258,7 @@ class MonitorTab(ctk.CTkFrame):
 
         def worker():
             killed, errors = process_control.terminate_processes(targets, action, timeout=3)
-            self.after(0, self._on_terminate_result, title, killed, errors)
+            bg.ui_call(self, self._on_terminate_result, title, killed, errors)
 
         threading.Thread(target=worker, daemon=True).start()
 

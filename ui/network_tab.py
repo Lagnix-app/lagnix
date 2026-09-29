@@ -11,7 +11,7 @@ import customtkinter as ctk
 
 from core import network as network_core
 from core import settings as app_settings
-from ui import theme
+from ui import bg, theme
 from ui.widgets.cleaner_bot import CleanerBotAnimation
 
 GRAPH_POINTS = 60
@@ -665,7 +665,7 @@ class NetworkTab(ctk.CTkFrame):
 
     def _make_test_callback(self, card: PingCard):
         def callback(host, latency, stats):
-            self.after(0, self._apply_test_update, card, latency, stats)
+            bg.ui_call(self, self._apply_test_update, card, latency, stats)
         return callback
 
     def _apply_test_update(self, card: PingCard, latency, stats):
@@ -787,7 +787,7 @@ class NetworkTab(ctk.CTkFrame):
 
     def _make_live_callback(self, card: PingCard):
         def callback(host, latency, stats):
-            self.after(0, self._apply_live_update, card, latency, stats)
+            bg.ui_call(self, self._apply_live_update, card, latency, stats)
         return callback
 
     def _apply_live_update(self, card: PingCard, latency, stats):

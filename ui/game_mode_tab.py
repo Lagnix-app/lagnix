@@ -15,10 +15,11 @@ from core import game_mode as game_mode_core
 from core import game_scanner, game_sessions, power_plans, process_control, process_info, smart_apps
 from core import monitor as monitor_core
 from core.system_processes import is_protected
-from core.logging_setup import get_logger
-from ui import theme
+from core.logging_setup import get_audit_logger, get_logger
+from ui import bg, theme
 from ui.widgets import aa
 from ui.widgets import robot as robot_view
+from ui.widgets.countdown_toast import CountdownToast
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, Tooltip, card_image, checkbox_image
 from ui.widgets.game_widgets import (
     BigSwitch, ChipBoard, GamesList, IconCache, ScrollPage, SessionsList,
@@ -28,6 +29,8 @@ from ui.widgets.game_widgets import (
 GAME_CHECK_INTERVAL_SEC = 2.0
 PREVIEW_INTERVAL_SEC = 3.0
 SESSION_END_GRACE_TICKS = 2  # гра «зникла» на стільки перевірок поспіль — сесія завершена
+AUTO_TOAST_SECONDS = 5       # сповіщення «Ігровий режим увімкнено для…» з «Скасувати»
+GAMES_SCAN_TIMEOUT_S = 60
 PROFILE_NAMES = ("Гра", "Стрім", "Робота")
 _LIST_HEIGHT_DP = 300
 _COMMIT_KEYS = ("is_active", "active_profile", "closed_apps", "freed_mb", "plan_name",
@@ -203,6 +206,9 @@ class GameModeTab(ctk.CTkFrame):
         self._on_battery = False
         self._note = ""
         self._monitor_tab = None
+        self._auto_pending = False         # показано сповіщення автоувімкнення, чекаємо 5 с
+        self._auto_toast = None
+        self._games_task = None
         self._advanced_built = False
         self._others_expanded = False
         self._process_groups: list[dict] = []
@@ -222,16 +228,15 @@ class GameModeTab(ctk.CTkFrame):
         self._build_sessions_card(inner)
         self._build_advanced_card(inner)
 
+        bg.ensure_pump(self)
+        self._reset_on_startup()
         self._render()
         self._render_sessions()
         self.bind("<Destroy>", self._on_destroy)
 
-        # Через after(0, ...), а не напряму: вкладки створюються ще до
-        # MainWindow.mainloop(), і потік міг би викликати self.after() ще
-        # до реального старту mainloop (Python 3.13+ кидає на це непіймане
-        # RuntimeError, і потік мовчки гине).
+        # Результати фонових потоків ідуть через ui/bg.py (черга + таймер у потоці UI),
+        # тож не губляться, навіть якщо потік стартував раніше за mainloop.
         self.after(0, self._start_workers)
-        self.after(1500, self._check_crash_recovery)
 
     # ------------------------------------------------------------ побудова
 
@@ -341,6 +346,9 @@ class GameModeTab(ctk.CTkFrame):
         self._small_button(header, "жодної", lambda: self._set_all_auto(False), width=52).grid(
             row=0, column=4, padx=(0, 8))
         self._icon_button(header, self._rescan_games, "Шукати ігри знову").grid(row=0, column=5)
+        self.games_retry_button = self._small_button(header, "Повторити", self._rescan_games, width=90)
+        self.games_retry_button.grid(row=1, column=0, columnspan=6, pady=(6, 0), sticky="w")
+        self.games_retry_button.grid_remove()
         self.games_list = GamesList(card, on_toggle=self._on_game_toggle, on_group=self._toggle_other_group)
         self.games_list.canvas.configure(width=10, height=round(_LIST_HEIGHT_DP * self._get_widget_scaling()))
         self.games_list.grid(row=1, column=0, padx=(12, 8), pady=(0, 6), sticky="nsew")
@@ -396,17 +404,14 @@ class GameModeTab(ctk.CTkFrame):
 
     def _start_workers(self) -> None:
         self._monitor_tab = getattr(self.winfo_toplevel(), "tab_frames", {}).get("monitor")
-        for target in (self._preview_loop, self._watch_loop, self._scan_games):
-            threading.Thread(target=target, daemon=True).start()
+        bg.start_thread(self, "Ігровий режим: список програм", self._preview_loop)
+        bg.start_thread(self, "Ігровий режим: стеження за іграми", self._watch_loop)
+        self._rescan_games()
 
     def _post(self, callback, *args) -> None:
-        """Виклик у потоці UI з фонового потоку."""
-        if self._stop_event.is_set():
-            return
-        try:
-            self.after(0, callback, *args)
-        except (RuntimeError, tk.TclError):
-            pass
+        """Виклик у потоці UI з фонового потоку (через чергу ui/bg.py — ніколи не губиться)."""
+        if not self._stop_event.is_set():
+            bg.ui_call(self, callback, *args)
 
     def _on_destroy(self, event) -> None:
         if event.widget is self:
@@ -697,40 +702,53 @@ class GameModeTab(ctk.CTkFrame):
         self._note = note
         self._render()
 
-    def _check_crash_recovery(self) -> None:
-        """PulseFPS закрився (або впав), поки режим був увімкнений: план живлення міг
-        лишитися ігровим — пропонуємо повернути попередній."""
-        if not self.state.get("is_active") or self._busy or self._stop_event.is_set():
+    def _reset_on_startup(self) -> None:
+        """Після запуску PulseFPS Ігровий режим ЗАВЖДИ вимкнений: збережений стан
+        «увімкнено» (закрили програму чи вона впала під час режиму) не
+        відновлюється. Лише повертаємо план живлення, який режим змінив, —
+        без діалогів і без закриття будь-яких програм."""
+        if not self.state.get("is_active"):
             return
-        if not self.state.get("previous_power_plan"):
-            with self._lock:
-                self.state["is_active"] = False
-                self._save()
-            self._render()
-            return
-        if messagebox.askyesno(
-            "Ігровий режим",
-            "Минулого разу PulseFPS закрився, поки Ігровий режим був увімкнений, — "
-            "план живлення міг лишитися ігровим.\n\nПовернути попередній план живлення?",
-            parent=self,
-        ):
-            self._start_deactivate(offer_reopen=False)
+        work = copy.deepcopy(self.state)
+        closed = [c.get("title") for c in self.state.get("closed_apps", [])]
+        with self._lock:
+            self.state.update(is_active=False, closed_apps=[], freed_mb=0, plan_name=None,
+                              previous_power_plan=None)
+            self._save()
+        previous = work.get("previous_power_plan")
+        get_audit_logger().info(
+            "Запуск PulseFPS: збережений стан «Ігровий режим увімкнено» не відновлюється — режим вимкнено "
+            "(план живлення: %s; раніше режим закривав: %s)",
+            f"повертаю «{game_mode_core.power_plan_name(game_mode_core.normal_plan_target(previous))}»"
+            if previous else "без змін", ", ".join(closed) or "нічого",
+        )
+        if previous:
+            bg.start_thread(self, "Ігровий режим: повернення плану", game_mode_core.deactivate, work)
 
     # ------------------------------------------------------------------ ігри
 
-    def _scan_games(self) -> None:
-        try:
-            games = game_scanner.scan_games()
-        except Exception:
-            _logger.exception("Не вдалося знайти ігри")
-            games = []
-        self._post(self._apply_games, games)
-
     def _rescan_games(self) -> None:
-        theme.set_text(self.games_info, "Шукаю ігри…")
-        threading.Thread(target=self._scan_games, daemon=True).start()
+        if self._games_task is not None and not self._games_task.finished:
+            return
+        self.games_retry_button.grid_remove()
+        theme.set_text(self.games_info, "Шукаю ігри…", text_color=theme.TEXT_DIM)
+        if not self._games:
+            self.games_list.set_empty_text("Шукаю встановлені ігри…")
+        self._games_task = bg.run_task(self, "Ігровий режим: пошук ігор", game_scanner.scan_games,
+                                       self._apply_games, self._on_games_failed, timeout=GAMES_SCAN_TIMEOUT_S)
+
+    def _on_games_failed(self, exc: BaseException) -> None:
+        if not self.winfo_exists():
+            return
+        theme.set_text(self.games_info, "Не вдалося завантажити", text_color=theme.ERROR)
+        self.games_list.set_empty_text(f"Не вдалося завантажити ігри ({bg.error_text(exc)}) — натисніть «Повторити»")
+        if not self._games:
+            self.games_list.set_items([])
+        self.games_retry_button.grid()
 
     def _apply_games(self, games: list[dict]) -> None:
+        self.games_retry_button.grid_remove()
+        self.games_info.configure(text_color=theme.TEXT_DIM)
         self._games = games
         self._refresh_games_list()
         self._wake.set()  # платформи лаунчерів змінилися — оновити список програм
@@ -781,18 +799,21 @@ class GameModeTab(ctk.CTkFrame):
     # ------------------------------------------------- стеження за іграми
 
     def _exe_table(self) -> dict:
-        """exe (нижній регістр) -> (назва гри, ключ, авто?, усі exe цієї гри)."""
+        """exe (нижній регістр) -> {name, key, auto, exes, folder} гри."""
         auto = set(self.state.get("auto_games", []))
         table = {}
         for game in self._games:
             if game.get("kind", "game") != "game" and game["key"] not in auto:
                 continue  # Blender, Wallpaper Engine… — не гра, сесію не пишемо
             exes = set(game["exe_names"])
+            entry = {"name": game["name"], "key": game["key"], "auto": game["key"] in auto, "exes": exes,
+                     "folder": game.get("folder")}
             for exe in exes:
-                table.setdefault(exe, (game["name"], game["key"], game["key"] in auto, exes))
+                table.setdefault(exe, entry)
         for exe in self.state.get("games", []):  # додані вручну: завжди з автовмиканням, як раніше
             low = exe.lower()
-            table[low] = (exe[:-4] if low.endswith(".exe") else exe, "manual:" + low, True, {low})
+            table[low] = {"name": exe[:-4] if low.endswith(".exe") else exe, "key": "manual:" + low,
+                          "auto": True, "exes": {low}, "folder": None}
         return table
 
     def _monitor_snapshot(self):
@@ -813,13 +834,12 @@ class GameModeTab(ctk.CTkFrame):
                 if tracker is None:
                     found = next((table[e] for e in running if e in table), None)
                     if found is not None:
-                        name, key, auto_game, exes = found
-                        tracker = game_sessions.SessionTracker(name, key)
+                        exes = found["exes"]
+                        tracker = game_sessions.SessionTracker(found["name"], found["key"])
                         missing = 0
-                        if auto_game and not self.state.get("is_active") and not self._busy:
-                            self._busy = True
-                            self._post(self._render)
-                            self._activate_worker(auto=True)
+                        if (found["auto"] and not self.state.get("is_active") and not self._busy
+                                and not self._auto_pending):
+                            self._maybe_offer_auto_enable(found)
                 else:
                     if exes & running:
                         missing = 0
@@ -829,6 +849,8 @@ class GameModeTab(ctk.CTkFrame):
                     if missing >= SESSION_END_GRACE_TICKS:
                         self._finish_session(tracker)
                         tracker = None
+                        if self._auto_pending:
+                            self._post(self._cancel_auto_offer, "гру закрито до автоувімкнення")
                         if self._auto_enabled and self.state.get("is_active") and not self._busy:
                             self._busy = True
                             self._post(self._render)
@@ -845,6 +867,63 @@ class GameModeTab(ctk.CTkFrame):
             except Exception:
                 _logger.exception("Помилка стеження за іграми")
             self._stop_event.wait(GAME_CHECK_INTERVAL_SEC)
+
+    def _maybe_offer_auto_enable(self, game: dict) -> None:
+        """(фоновий потік) Гра з «Авто» знайдена за назвою exe — перевіряємо, що це справді
+        exe з теки гри, і показуємо сповіщення з «Скасувати». Нічого не закриває."""
+        proc = game_mode_core.find_game_process(game["exes"], game["folder"])
+        if proc is None:
+            _logger.error("Автоувімкнення пропущено для «%s»: процес %s запущено не з теки гри (%s)",
+                          game["name"], "/".join(sorted(game["exes"])), game["folder"])
+            return
+        self._auto_pending = True
+        self._post(self._offer_auto_enable, game, proc)
+
+    def _offer_auto_enable(self, game: dict, proc: dict) -> None:
+        if not self.winfo_exists() or self.state.get("is_active") or self._busy:
+            self._auto_pending = False
+            return
+        get_audit_logger().info("Гра «%s» запущена (%s, PID %s, %s) — пропоную автоувімкнення Ігрового режиму",
+                                game["name"], proc["name"], proc["pid"], proc["exe"] or "шлях невідомий")
+        apps = list(self._current_apps())
+        extra = None
+        if apps:
+            extra = (f"Закрити програми ({len(apps)})…", lambda: self._auto_offer_close_apps(game))
+        self._auto_toast = CountdownToast(
+            self.winfo_toplevel(), f"Ігровий режим увімкнено для {game['name']}",
+            "План живлення буде змінено на ігровий. Програми не закриваються без вашого підтвердження.",
+            AUTO_TOAST_SECONDS, on_timeout=lambda: self._auto_offer_accepted(game),
+            on_cancel=lambda: self._auto_offer_cancelled(game), extra=extra,
+        )
+
+    def _auto_offer_accepted(self, game: dict) -> None:
+        self._auto_toast = None
+        self._auto_pending = False
+        if self.state.get("is_active") or self._busy:
+            return
+        get_audit_logger().info("Ігровий режим увімкнено автоматично для гри «%s» (%s) — лише план живлення",
+                                game["name"], game["key"])
+        self._busy = True
+        self._render()
+        bg.start_thread(self, "Ігровий режим: автоувімкнення", self._activate_worker, True)
+
+    def _auto_offer_cancelled(self, game: dict) -> None:
+        self._auto_toast = None
+        self._auto_pending = False  # повторно не запропонуємо, доки гра не закриється
+        get_audit_logger().info("Автоувімкнення Ігрового режиму для «%s» скасовано користувачем", game["name"])
+
+    def _auto_offer_close_apps(self, game: dict) -> None:
+        self._auto_toast = None
+        self._auto_pending = False
+        get_audit_logger().info("Сповіщення для «%s»: користувач обрав «Закрити програми…»", game["name"])
+        self._request_enable()  # звичайний шлях: список програм + підтвердження
+
+    def _cancel_auto_offer(self, reason: str) -> None:
+        self._auto_pending = False
+        toast, self._auto_toast = self._auto_toast, None
+        if toast is not None:
+            toast.dismiss()
+            get_audit_logger().info("Сповіщення автоувімкнення прибрано: %s", reason)
 
     def _finish_session(self, tracker) -> None:
         summary = tracker.finish()

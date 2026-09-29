@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 
 from core import game_sessions
 from core.app_icons import IconLoader
-from ui import theme
+from ui import bg, theme
 from ui.widgets.canvas_list import (
     CanvasList, FastScrollbar, Tooltip, card_image, switch_image,
 )
@@ -91,10 +91,7 @@ class IconCache:
         self._photos.clear()
 
     def _ready_threadsafe(self, _key: str) -> None:
-        try:
-            self._owner.after(0, self._on_update)
-        except (RuntimeError, tk.TclError):
-            pass
+        bg.ui_call(self._owner, self._on_update)
 
 
 # ============================================================ перемикач

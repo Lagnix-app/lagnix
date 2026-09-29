@@ -145,6 +145,24 @@ def get_running_process_name_set() -> set[str]:
     return names
 
 
+def find_game_process(exe_names, folder: str | None) -> dict | None:
+    """Запущений процес гри (лише читання): назва exe з exe_names І, якщо тека гри
+    відома, exe лежить у цій теці — щоб чужий процес з тією ж назвою (fr.exe,
+    tf.exe…) не вмикав режим. -> {"pid", "name", "exe"} або None."""
+    names = {n.lower() for n in exe_names}
+    root = os.path.normcase(os.path.normpath(folder)) + os.sep if folder else None
+    for proc in psutil.process_iter(["pid", "name", "exe"], ad_value=None):
+        info = proc.info
+        name = (info.get("name") or "").lower()
+        if name not in names or info["pid"] == _CURRENT_PID:
+            continue
+        exe = info.get("exe") or ""
+        if root is not None and not os.path.normcase(exe).startswith(root):
+            continue
+        return {"pid": info["pid"], "name": info.get("name"), "exe": exe or None}
+    return None
+
+
 # ---------------------------------------------------------- плани живлення
 
 def get_active_power_scheme() -> str | None:

@@ -19,7 +19,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 from core.app_icons import IconLoader
 from core.cleanup import format_size
-from ui import theme
+from ui import bg, theme
 from ui.widgets import aa
 from ui.widgets.canvas_list import CanvasList, Slot, card_image, checkbox_image, pill_image
 
@@ -373,10 +373,7 @@ class VirtualList(CanvasList):
         return photo
 
     def _icon_ready_threadsafe(self, key: str) -> None:
-        try:
-            self.after(0, self._on_icon_ready, key)
-        except (RuntimeError, Exception):
-            pass
+        bg.ui_call(self, self._on_icon_ready, key)
 
     def _on_icon_ready(self, key: str) -> None:
         if not self.winfo_exists():

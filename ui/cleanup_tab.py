@@ -9,6 +9,7 @@ from core import app_cache as app_cache_core
 from core import cleanup as cleanup_core
 from core import large_files as large_files_core
 from core import process_control
+from ui import bg
 from ui.cleanup_app_cache import AppCacheSection
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 
@@ -287,10 +288,10 @@ class CleanupTab(ctk.CTkFrame):
 
         def worker():
             def progress(key, result):
-                self.after(0, self._on_scan_progress, key, result)
+                bg.ui_call(self, self._on_scan_progress, key, result)
 
             cleanup_core.scan_many(keys, progress_cb=progress)
-            self.after(0, self._on_static_scan_done)
+            bg.ui_call(self, self._on_static_scan_done)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -418,10 +419,10 @@ class CleanupTab(ctk.CTkFrame):
 
         def worker():
             def on_item_start(key):
-                self.after(0, self._on_clean_item_start, key)
+                bg.ui_call(self, self._on_clean_item_start, key)
 
             def progress(key, result):
-                self.after(0, self._on_clean_progress, key, result)
+                bg.ui_call(self, self._on_clean_progress, key, result)
 
             summary = cleanup_core.clean_many(keys, action, progress_cb=progress, start_cb=on_item_start)
             relaunch = None
@@ -441,7 +442,7 @@ class CleanupTab(ctk.CTkFrame):
                 summary["skipped_count"] += result["skipped_count"] + (1 if result.get("skipped_reason") else 0)
                 progress(key, result)
             summary["relaunch"] = relaunch
-            self.after(0, self._on_clean_done, summary)
+            bg.ui_call(self, self._on_clean_done, summary)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -553,13 +554,13 @@ class CleanupTab(ctk.CTkFrame):
         self.large_files_status.configure(text="Сканування...", text_color="gray")
 
         def on_found(entry):
-            self.after(0, self._add_large_file_row, entry)
+            bg.ui_call(self, self._add_large_file_row, entry)
 
         def worker():
             results = large_files_core.scan_large_files(
                 progress_cb=on_found, stop_event=self._large_files_stop_event
             )
-            self.after(0, self._on_large_files_done, results)
+            bg.ui_call(self, self._on_large_files_done, results)
 
         threading.Thread(target=worker, daemon=True).start()
 

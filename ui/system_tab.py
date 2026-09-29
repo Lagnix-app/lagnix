@@ -13,7 +13,7 @@ import customtkinter as ctk
 from core import game_mode as game_mode_core
 from core import system_info as system_info_core
 from core.logging_setup import get_logger
-from ui import theme
+from ui import bg, theme
 from ui.widgets.cleaner_bot import CleanerBotAnimation
 
 _logger = get_logger(__name__)
@@ -300,7 +300,7 @@ class SystemTab(ctk.CTkFrame):
             except Exception:
                 _logger.exception("Не вдалося зібрати інформацію про систему")
                 snapshot = None
-            self.after(0, self._apply_snapshot, snapshot, tips)
+            bg.ui_call(self, self._apply_snapshot, snapshot, tips)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -453,7 +453,7 @@ class SystemTab(ctk.CTkFrame):
             success, error = game_mode_core.set_active_power_scheme(
                 game_mode_core.POWER_PLANS["Збалансований"]
             )
-            self.after(0, self._on_power_switch_done, success, error)
+            bg.ui_call(self, self._on_power_switch_done, success, error)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -486,7 +486,7 @@ class SystemTab(ctk.CTkFrame):
 
         def worker():
             report = system_info_core.run_diagnostic(system_info_core.REPORT_DURATION_SEC, stop_event)
-            self.after(0, self._finish_report, report)
+            bg.ui_call(self, self._finish_report, report)
 
         threading.Thread(target=worker, daemon=True).start()
 

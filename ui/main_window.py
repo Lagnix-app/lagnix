@@ -7,7 +7,7 @@ import customtkinter as ctk
 from core.app_data import load_data, update_data
 from core.settings import load_settings
 from core.tray import TrayIcon, is_available as tray_is_available
-from ui import theme
+from ui import bg, theme
 from ui.widgets.logo_widget import LogoWidget
 from ui.monitor_tab import MonitorTab
 from ui.game_mode_tab import GameModeTab
@@ -65,6 +65,7 @@ class MainWindow(ctk.CTk):
 
         self._tray = TrayIcon(on_open=self._on_tray_open, on_exit=self._on_tray_exit)
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        bg.ensure_pump(self)  # доставка результатів фонових потоків (ui/bg.py)
 
         self._build_sidebar()
         self._build_content_area()
@@ -100,10 +101,10 @@ class MainWindow(ctk.CTk):
             self._exit_app()
 
     def _on_tray_open(self) -> None:
-        self.after(0, self._restore_from_tray)
+        bg.ui_call(self, self._restore_from_tray)  # з потоку трею
 
     def _on_tray_exit(self) -> None:
-        self.after(0, self._exit_app)
+        bg.ui_call(self, self._exit_app)  # з потоку трею
 
     def _restore_from_tray(self) -> None:
         self._tray.hide()

@@ -6,6 +6,7 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from core import process_control
+from ui import bg
 from core import tweaks as tweaks_core
 
 _RISK_LABELS = {
@@ -199,7 +200,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
         def worker():
             success, error = tweaks_core.set_tweak(tweak, want_enabled)
-            self.after(0, self._on_toggle_done, row, tweak, success, error)
+            bg.ui_call(self, self._on_toggle_done, row, tweak, success, error)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -236,7 +237,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
         def worker():
             results = tweaks_core.apply_recommended()
-            self.after(0, self._on_batch_done, results, self.recommended_button)
+            bg.ui_call(self, self._on_batch_done, results, self.recommended_button)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -255,7 +256,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
         def worker():
             results = tweaks_core.restore_initial_state()
-            self.after(0, self._on_batch_done, results, self.restore_button)
+            bg.ui_call(self, self._on_batch_done, results, self.restore_button)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -290,7 +291,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
         def worker():
             results = action()
-            self.after(0, self._on_appearance_batch_done, results)
+            bg.ui_call(self, self._on_appearance_batch_done, results)
 
         threading.Thread(target=worker, daemon=True).start()
 

@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageTk
 
 from core import installed_programs as programs_core
 from core.cleanup import format_size
-from ui import theme
+from ui import bg, theme
 from ui.widgets import aa
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 from ui.widgets.program_list import CATEGORIES, VirtualList, plural
@@ -23,6 +23,7 @@ from ui.widgets.program_list import CATEGORIES, VirtualList, plural
 BIG_PROGRAM_BYTES = 10 * 1024 ** 3
 OLD_PROGRAM_DAYS = 365
 SEARCH_DEBOUNCE_MS = 150
+LOAD_TIMEOUT_S = 60
 SUMMARY_DEBOUNCE_MS = 250
 
 SORT_LABELS = {
@@ -157,10 +158,12 @@ class ProgramsTab(ctk.CTkFrame):
         self._build_list()
         self._build_footer()
 
-        # Через after(0, ...), а не напряму: вкладки створюються ще до
-        # MainWindow.mainloop(), і фоновий потік _load() міг би викликати
-        # self.after() раніше, ніж mainloop реально стартував (Python 3.13+
-        # кидає на це непіймане RuntimeError, і потік мовчки гине).
+        # Результати фонових потоків ідуть через ui/bg.py (черга + таймер у потоці UI),
+        # тож не губляться, навіть якщо потік стартував раніше за mainloop.
+        bg.ensure_pump(self)
+        self._load_task = None
+        self._abort_sizes = threading.Event()
+        self.bind("<Destroy>", lambda e: self._abort_sizes.set() if e.widget is self else None, add="+")
         self.after(0, self._load)
 
     # ------------------------------------------------------------------ UI
@@ -173,6 +176,10 @@ class ProgramsTab(ctk.CTkFrame):
             head, text="Завантаження списку програм…", text_color=theme.TEXT_DIM, font=theme.font_body(),
         )
         self.status_label.pack(anchor="w", pady=(2, 0))
+        self.retry_button = ctk.CTkButton(
+            head, text="Повторити", width=110, height=30, corner_radius=8, font=theme.font_small(),
+            fg_color=theme.BG_PANEL_LIGHT, hover_color=theme.BORDER, text_color=theme.TEXT_MAIN, command=self._load,
+        )
 
         self.usage_bar = UsageBar(self)
         self.usage_bar.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
@@ -268,7 +275,7 @@ class ProgramsTab(ctk.CTkFrame):
             footer, text="Видалити вибрані", height=34, corner_radius=10, fg_color=theme.ERROR,
             hover_color="#e04a68", text_color="#ffffff", state="disabled", command=self._uninstall_selected,
         )
-        self.after(0, self._update_footer)
+        self.after(0, self._update_footer)  # потік UI — звичайний after
         self.delete_selected_button.grid(row=0, column=2, padx=16, pady=10)
 
     # ---------------------------------------------------------- фільтри/сортування
@@ -402,26 +409,37 @@ class ProgramsTab(ctk.CTkFrame):
     # -------------------------------------------------------------- load
 
     def _post(self, func, *args):
-        """after() з фонового потоку; тихо ігнорує, якщо вікно вже закрите."""
-        try:
-            self.after(0, func, *args)
-        except (RuntimeError, tk.TclError):
-            pass
+        """Виклик у потоці UI з фонового потоку (через чергу ui/bg.py — ніколи не губиться)."""
+        bg.ui_call(self, func, *args)
 
     def _load(self):
-        if self._busy:
+        if self._busy or (self._load_task is not None and not self._load_task.finished):
             return
         self.refresh_button.configure(state="disabled")
-        self.status_label.configure(text="Завантаження списку програм…")
+        self.retry_button.pack_forget()
+        self.status_label.configure(text="Завантаження списку програм…", text_color=theme.TEXT_DIM)
+        if not self._loaded:
+            self.list.set_empty_text("Завантаження…")
+        self._load_task = bg.run_task(
+            self, "Програми: список встановлених", programs_core.list_installed_programs,
+            self._on_loaded, self._on_load_failed, timeout=LOAD_TIMEOUT_S,
+        )
 
-        def worker():
-            self._post(self._on_loaded, programs_core.list_installed_programs())
-
-        threading.Thread(target=worker, daemon=True).start()
+    def _on_load_failed(self, exc: BaseException):
+        if not self.winfo_exists():
+            return
+        self.refresh_button.configure(state="normal")
+        self.status_label.configure(text=f"Не вдалося завантажити список програм ({bg.error_text(exc)})",
+                                    text_color=theme.ERROR)
+        self.retry_button.pack(anchor="w", pady=(6, 0))
+        if not self._loaded:
+            self.list.set_empty_text("Не вдалося завантажити — натисніть «Повторити»")
 
     def _on_loaded(self, programs: list[dict]):
         if not self.winfo_exists():
             return
+        self.retry_button.pack_forget()
+        self.status_label.configure(text_color=theme.TEXT_DIM)
         self.refresh_button.configure(state="normal")
         self._loaded = True
         self.all_programs = programs
@@ -454,12 +472,12 @@ class ProgramsTab(ctk.CTkFrame):
 
         def worker():
             for program in to_compute:
-                if not self.winfo_exists():
+                if self._abort_sizes.is_set():  # вкладку закрито (winfo_* з потоку не можна)
                     return
                 size = programs_core.compute_folder_size(program["install_folder"])
                 self._post(self._on_size_computed, program["key"], size)
 
-        threading.Thread(target=worker, daemon=True).start()
+        bg.start_thread(self, "Програми: розміри тек", worker)
 
     def _on_size_computed(self, key: str, size_bytes: int):
         if not self.winfo_exists():
@@ -563,10 +581,15 @@ class ProgramsTab(ctk.CTkFrame):
                 ok, _error = programs_core.uninstall_and_wait(program, self._abort.is_set)
                 if ok:
                     removed.append(program["key"])
-            fresh = programs_core.list_installed_programs()
-            self._post(self._on_queue_done, dialog, programs, removed, fresh)
+            try:
+                fresh = programs_core.list_installed_programs()
+            except Exception:
+                fresh = None  # _on_queue_done лишить старий список; сама помилка вже в logs.txt
+                raise
+            finally:
+                self._post(self._on_queue_done, dialog, programs, removed, fresh)
 
-        threading.Thread(target=worker, daemon=True).start()
+        bg.start_thread(self, "Програми: черга видалення", worker)
 
     def _dialog_progress(self, dialog, label: str, progress: float):
         if dialog.winfo_exists():
@@ -579,7 +602,10 @@ class ProgramsTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         # ключі, що зникли з реєстру, рахуємо за свіжим списком (деінсталятор міг завершитись пізніше)
-        fresh_keys = {p["key"] for p in fresh}
+        if fresh is None:  # не вдалося перечитати реєстр — судимо за результатами деінсталяторів
+            fresh_keys = {p["key"] for p in self.all_programs} - set(removed)
+        else:
+            fresh_keys = {p["key"] for p in fresh}
         removed_count = sum(1 for p in programs if p["key"] not in fresh_keys)
 
         if dialog.winfo_exists():
@@ -593,7 +619,10 @@ class ProgramsTab(ctk.CTkFrame):
             else:
                 dialog.finish(f"Видалено {removed_count} з {total}", success=removed_count > 0)
 
-        self._on_loaded(fresh)
+        if fresh is None:
+            self._on_load_failed(RuntimeError("не вдалося перечитати список після видалення"))
+        else:
+            self._on_loaded(fresh)
 
     def _open_install_folder(self, program: dict):
         folder = program.get("install_folder")
