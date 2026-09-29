@@ -9,9 +9,11 @@ Steam, дата створення теки) — усе позначене як 
 вважається приблизним і має показуватись у вкладці з префіксом "~".
 """
 
+import json
 import os
 import re
 import subprocess
+import time
 import winreg
 from datetime import datetime
 
@@ -25,6 +27,25 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 _STEAM_UNINSTALL_RE = re.compile(r"steam://uninstall/(\d+)", re.IGNORECASE)
 _STEAM_INSTALLER_CACHE = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "Installer")
+
+_STEAM_KEY_RE = re.compile(r"Steam App (\d+)$", re.IGNORECASE)
+_EPIC_MANIFESTS_DIR = os.path.join(
+    os.environ.get("ProgramData", r"C:\ProgramData"), "Epic", "EpicGamesLauncher", "Data", "Manifests"
+)
+
+# Видавець (нижній регістр, префікс) -> магазин/лаунчер; Steam визначається окремо за appid.
+_STORE_PUBLISHERS = (
+    ("riot games", "Riot"),
+    ("rockstar games", "Rockstar"),
+    ("epic games", "Epic"),
+)
+_GAME_STORES = ("Steam", "Epic", "Riot", "Rockstar")
+_LAUNCHER_NAME_RE = re.compile(r"launcher|client|epic online services|social club", re.IGNORECASE)
+_SYSTEM_NAME_RE = re.compile(
+    r"redistributable|runtime|driver|chipset|physx|\.net |framework|webview2|directx|vulkan|"
+    r"visual c\+\+|windows (sdk|software development)|update for|management engine|hd audio",
+    re.IGNORECASE,
+)
 
 _folder_size_cache: dict[str, int] = {}
 
@@ -171,6 +192,65 @@ def _get_steam_app_info() -> dict[str, dict]:
     return apps
 
 
+def _get_epic_install_folders() -> set[str]:
+    """Нормалізовані InstallLocation усіх ігор із маніфестів Epic Games Launcher."""
+    folders = set()
+    try:
+        names = os.listdir(_EPIC_MANIFESTS_DIR)
+    except OSError:
+        return folders
+    for name in names:
+        if not name.endswith(".item"):
+            continue
+        try:
+            with open(os.path.join(_EPIC_MANIFESTS_DIR, name), "r", encoding="utf-8", errors="ignore") as f:
+                location = json.load(f).get("InstallLocation")
+        except (OSError, ValueError):
+            continue
+        if location:
+            folders.add(os.path.normcase(os.path.normpath(location)))
+    return folders
+
+
+def _detect_store(key_name: str, uninstall_string: str, publisher: str, install_folder: str | None,
+                  epic_folders: set[str]) -> tuple[str | None, str | None]:
+    """(магазин, steam_appid); магазин — "Steam"/"Epic"/"Riot"/"Rockstar" або None."""
+    steam_match = _STEAM_UNINSTALL_RE.search(uninstall_string) or _STEAM_KEY_RE.search(key_name)
+    if steam_match:
+        return "Steam", steam_match.group(1)
+
+    publisher_lc = publisher.lower()
+    for prefix, store in _STORE_PUBLISHERS:
+        if publisher_lc.startswith(prefix):
+            return store, None
+
+    if install_folder and os.path.normcase(os.path.normpath(install_folder)) in epic_folders:
+        return "Epic", None
+    return None, None
+
+
+def _classify(name: str, publisher: str, store: str | None) -> str:
+    """Категорія для діаграми: game / system / app / other (без видавця — невідомо що)."""
+    if store in _GAME_STORES and not _LAUNCHER_NAME_RE.search(name):
+        return "game"
+    if _SYSTEM_NAME_RE.search(name):
+        return "system"
+    return "app" if publisher else "other"
+
+
+def _parse_display_icon(raw) -> tuple[str, int] | None:
+    """DisplayIcon: '"C:\\a\\b.exe",0' -> (шлях, індекс); порожнє/неіснуюче -> None."""
+    if not raw or not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    index = 0
+    head, sep, tail = text.rpartition(",")
+    if sep and re.fullmatch(r"\s*-?\d+\s*", tail):
+        text, index = head, int(tail)
+    path = os.path.expandvars(text.strip().strip('"'))
+    return (path, index) if os.path.isfile(path) else None
+
+
 # --------------------------------------------------------------- programs
 
 def list_installed_programs() -> list[dict]:
@@ -183,6 +263,7 @@ def list_installed_programs() -> list[dict]:
     відповідної бібліотеки. Якщо дати немає — бере дату створення теки.
     """
     steam_apps = _get_steam_app_info()
+    epic_folders = _get_epic_install_folders()
     programs = []
 
     for hive, subkey_path, hive_name in _UNINSTALL_ROOTS:
@@ -220,9 +301,12 @@ def list_installed_programs() -> list[dict]:
 
                         install_folder = _guess_install_folder(entry_key, uninstall_string)
 
-                        steam_match = _STEAM_UNINSTALL_RE.search(uninstall_string)
-                        if steam_match:
-                            steam_info = steam_apps.get(steam_match.group(1))
+                        publisher = str(_read_value(entry_key, "Publisher", "") or "")
+                        store, steam_appid = _detect_store(
+                            subkey_name, uninstall_string, publisher, install_folder, epic_folders
+                        )
+                        if steam_appid:
+                            steam_info = steam_apps.get(steam_appid)
                             if steam_info:
                                 if not size_bytes and steam_info["size_bytes"]:
                                     size_bytes = steam_info["size_bytes"]
@@ -237,13 +321,17 @@ def list_installed_programs() -> list[dict]:
                         programs.append({
                             "key": f"{hive_name}\\{subkey_name}",
                             "name": str(name),
-                            "publisher": str(_read_value(entry_key, "Publisher", "") or ""),
+                            "publisher": publisher,
                             "version": str(_read_value(entry_key, "DisplayVersion", "") or ""),
                             "size_bytes": size_bytes,
                             "size_source": size_source,
                             "install_date": install_date,
                             "uninstall_string": uninstall_string,
                             "install_folder": install_folder,
+                            "store": store,
+                            "steam_appid": steam_appid,
+                            "category": _classify(str(name), publisher, store),
+                            "display_icon": _parse_display_icon(_read_value(entry_key, "DisplayIcon")),
                         })
                 except OSError:
                     continue
@@ -286,3 +374,54 @@ def uninstall_program(uninstall_string: str) -> tuple[subprocess.Popen | None, s
         return process, ""
     except OSError as exc:
         return None, str(exc)
+
+
+# ------------------------------------------------------- uninstall + wait
+
+STEAM_UNINSTALL_TIMEOUT_S = 300
+_POLL_INTERVAL_S = 1.0
+
+
+def is_registered(key: str) -> bool:
+    """Чи є ще запис програми в реєстрі (ключ виду "HKLM32\\<subkey>" з list_installed_programs)."""
+    hive_name, _, subkey = key.partition("\\")
+    for hive, root_path, name in _UNINSTALL_ROOTS:
+        if name != hive_name:
+            continue
+        try:
+            with winreg.OpenKey(hive, f"{root_path}\\{subkey}"):
+                return True
+        except OSError:
+            return False
+    return False
+
+
+def uninstall_and_wait(program: dict, should_abort=lambda: False) -> tuple[bool, str]:
+    """Запускає видалення й блокує потік, доки запис програми не зникне з реєстру.
+
+    Ігри Steam видаляються через Steam (steam://uninstall/<appid>) — він сам
+    показує вікно підтвердження й чистить бібліотеку; решта — через офіційний
+    UninstallString. Викликати лише з фонового потоку. Повертає (видалено, помилка);
+    помилка порожня, якщо видалення просто скасовано/не завершено.
+    """
+    key = program["key"]
+    appid = program.get("steam_appid")
+
+    if appid:
+        try:
+            os.startfile(f"steam://uninstall/{appid}")
+        except OSError as exc:
+            return False, str(exc)
+        deadline = time.monotonic() + STEAM_UNINSTALL_TIMEOUT_S
+        while time.monotonic() < deadline and not should_abort():
+            if not is_registered(key):
+                return True, ""
+            time.sleep(_POLL_INTERVAL_S)
+        return not is_registered(key), ""
+
+    process, error = uninstall_program(program["uninstall_string"])
+    if process is None:
+        return False, error
+    while process.poll() is None and not should_abort():
+        time.sleep(0.4)
+    return not is_registered(key), ""

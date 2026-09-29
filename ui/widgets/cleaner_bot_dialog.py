@@ -28,6 +28,7 @@ class CleanerBotDialog(ctk.CTkToplevel):
         self._status_text = ""
         self._closable = False
         self._auto_close_id = None
+        self._on_cancel = None
 
         self.bot = CleanerBotAnimation(self, height=175)
         self.bot.pack(fill="x", padx=16, pady=(16, 8))
@@ -37,7 +38,7 @@ class CleanerBotDialog(ctk.CTkToplevel):
             self.freed_label.pack(pady=(0, 10))
 
         self.close_button = ctk.CTkButton(
-            self, text="Закрити", width=140, state="disabled", command=self.destroy
+            self, text="Закрити", width=140, state="disabled", command=self._cancel_or_close
         )
         self.close_button.pack(pady=(0, 16))
 
@@ -68,8 +69,14 @@ class CleanerBotDialog(ctk.CTkToplevel):
 
     def _on_close_attempt(self) -> None:
         if self._closable:
-            self.destroy()
+            self._cancel_or_close()
         # поки триває операція — закрити хрестиком не можна
+
+    def _cancel_or_close(self) -> None:
+        callback, self._on_cancel = self._on_cancel, None
+        if callback is not None:
+            callback()
+        self.destroy()
 
     # ------------------------------------------------------------ public
 
@@ -98,7 +105,15 @@ class CleanerBotDialog(ctk.CTkToplevel):
             self.bot.progress.stop()
             self.bot.progress.configure(mode="determinate")
 
+    def allow_cancel(self, on_cancel, label: str = "Не чекати") -> None:
+        """Дозволяє закрити вікно до завершення: on_cancel() сповіщає, що чекати більше не треба."""
+        self._on_cancel = on_cancel
+        self._closable = True
+        self.close_button.configure(text=label, state="normal")
+
     def finish(self, text: str, success: bool = True) -> None:
+        self._on_cancel = None
+        self.close_button.configure(text="Закрити")
         if self.bot.progress.cget("mode") == "indeterminate":
             self.bot.progress.stop()
             self.bot.progress.configure(mode="determinate")
