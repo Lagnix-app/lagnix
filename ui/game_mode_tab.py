@@ -8,8 +8,9 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 from core import game_mode as game_mode_core
+from core import process_info
 from ui import theme
-from ui.widgets.canvas_list import CanvasList, card_image, checkbox_image
+from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, card_image, checkbox_image
 
 GAME_CHECK_INTERVAL_SEC = 2.0
 PROFILE_NAMES = ("Гра", "Стрім", "Робота")
@@ -45,6 +46,8 @@ class ProcessCheckList(CanvasList):
         slot.items["bg"] = c.create_image(0, 0, anchor="nw", tags=(slot.tag,))
         slot.items["check"] = c.create_image(0, 0, anchor="w", tags=base)
         slot.items["label"] = c.create_text(0, 0, anchor="w", font=self.font(13), tags=base)
+        slot.items["badge_bg"] = c.create_image(0, 0, anchor="w", tags=(slot.tag,))
+        slot.items["badge"] = c.create_text(0, 0, anchor="center", font=self.font(10, "bold"), tags=(slot.tag,))
 
     def bind_slot(self, slot, index: int) -> None:
         item = self.items[index]
@@ -52,11 +55,22 @@ class ProcessCheckList(CanvasList):
         c = self.canvas
         c.coords(slot.items["check"], self.px(6), mid)
         x = self.px(6 + _CHECK_DP + 10)
+        kind = process_info.kind_for(item["name"])
+        badge_w = 0
+        if kind:
+            text, color = PROCESS_BADGES[kind]
+            photo, badge_w = self.badge_image(text, color)
+        font = self.font(13)
+        shown = self.truncate(item["label"], max(self.width - x - self.px(14) - badge_w, 40), font)
         c.coords(slot.items["label"], x, mid)
-        c.itemconfigure(
-            slot.items["label"], text=self.truncate(item["label"], max(self.width - x - self.px(6), 40), self.font(13)),
-            fill=theme.TEXT_DIM if item["protected"] else theme.TEXT_MAIN,
-        )
+        c.itemconfigure(slot.items["label"], text=shown,
+                        fill=theme.TEXT_DIM if item["protected"] else theme.TEXT_MAIN)
+        if kind:
+            bx = x + self.text_width(shown, font) + self.px(8)
+            c.coords(slot.items["badge_bg"], bx, mid)
+            c.itemconfigure(slot.items["badge_bg"], image=photo, state="normal")
+            c.coords(slot.items["badge"], bx + badge_w / 2, mid)
+            c.itemconfigure(slot.items["badge"], text=text, fill=color, state="normal")
 
     def hover_slot(self, slot, index: int, region) -> None:
         item = self.items[index]
@@ -76,10 +90,22 @@ class ProcessCheckList(CanvasList):
     def hit_test(self, index: int, x: int, y: int):
         return "disabled" if self.items[index]["protected"] else "row"
 
+    def tooltip_for(self, index: int, region: str):
+        item = self.items[index]
+        return process_info.tooltip_text(item["name"], item.get("pid"))
+
     def click(self, index: int, region: str) -> None:
         if region != "row":
             return
         item = self.items[index]
+        if not item["checked"] and process_info.is_anticheat(item["name"]):
+            if not messagebox.askyesno(
+                "Античит",
+                f"«{item['name']}» — античит.\n\n{process_info.ANTICHEAT_WARNING}\n\n"
+                "Усе одно закривати його під час увімкнення профілю?",
+                parent=self,
+            ):
+                return
         item["checked"] = not item["checked"]
         slot = self.slot_for(index)
         if slot is not None:
@@ -282,10 +308,8 @@ class GameModeTab(ctk.CTkFrame):
         for proc in game_mode_core.get_running_process_names():
             name = proc["name"]
             label = name if proc["count"] <= 1 else f"{name} ({proc['count']})"
-            if proc["protected"]:
-                label += " (системний)"
             items.append({
-                "name": name, "label": label, "protected": proc["protected"],
+                "name": name, "label": label, "protected": proc["protected"], "pid": proc.get("pid"),
                 "checked": name in selected and not proc["protected"],
             })
         self.process_list.set_items(items)
@@ -348,6 +372,13 @@ class GameModeTab(ctk.CTkFrame):
             self.games_listbox.insert("end", name)
 
     # ------------------------------------------------------- увімкнути/ні
+
+    def is_active(self) -> bool:
+        return bool(self.state.get("is_active"))
+
+    def enable(self) -> None:
+        """Увімкнути поточний профіль (для кнопки робота на «Моніторі»)."""
+        self._on_enable_clicked()
 
     def _on_enable_clicked(self) -> None:
         profile_name = self.profile_var.get()

@@ -248,6 +248,10 @@ def _read_version_field(exe_path: str, field: str) -> str | None:
     return value
 
 
+read_version_field = _read_version_field
+"""Публічна назва: поле VERSIONINFO exe (CompanyName тощо), з кешем."""
+
+
 def _read_version_field_uncached(exe_path: str, field: str) -> str | None:
     try:
         size = _version_dll.GetFileVersionInfoSizeW(exe_path, None)

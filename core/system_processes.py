@@ -29,6 +29,7 @@ PROTECTED_PROCESS_NAMES = {
     "dwm.exe",
     "explorer.exe",
     "memcompression",
+    "memory compression",  # так його називає NtQuerySystemInformation
     "msmpeng.exe",
     "nissrv.exe",
     "securityhealthservice.exe",

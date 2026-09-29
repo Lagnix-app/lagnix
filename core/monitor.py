@@ -313,6 +313,13 @@ def get_uptime_text() -> str:
     return f"{minutes} хв"
 
 
+def get_process_overview(limit: int = 12) -> tuple[list[dict], float | None]:
+    """(топ процесів як get_top_processes, розмір «Memory Compression» у МБ або None)."""
+    procs = _all_processes()
+    compression = next((p["memory_mb"] for p in procs if p["name"].lower() == "memory compression"), None)
+    return _top(procs, limit), compression
+
+
 def get_top_processes(limit: int = 12):
     """Повертає об'єднаний список процесів (топ за CPU + топ за RAM, без
     дублів) — кожен запис містить обидві метрики, тож UI може перемикати
@@ -322,6 +329,19 @@ def get_top_processes(limit: int = 12):
     PulseFPS. Відсоток CPU нормалізується на кількість логічних ядер, щоб
     максимум був 100%.
     """
+    return _top(_all_processes(), limit)
+
+
+def _top(procs: list[dict], limit: int) -> list[dict]:
+    top_cpu = sorted(procs, key=lambda p: p["cpu_percent"], reverse=True)[:limit]
+    top_ram = sorted(procs, key=lambda p: p["memory_mb"], reverse=True)[:limit]
+
+    merged = {p["pid"]: p for p in top_ram}
+    merged.update({p["pid"]: p for p in top_cpu})
+    return list(merged.values())
+
+
+def _all_processes() -> list[dict]:
     current_pid = os.getpid()
     if process_snapshot.is_available():
         try:
@@ -333,13 +353,7 @@ def get_top_processes(limit: int = 12):
             procs = _psutil_processes(current_pid)
     else:
         procs = _psutil_processes(current_pid)
-
-    top_cpu = sorted(procs, key=lambda p: p["cpu_percent"], reverse=True)[:limit]
-    top_ram = sorted(procs, key=lambda p: p["memory_mb"], reverse=True)[:limit]
-
-    merged = {p["pid"]: p for p in top_ram}
-    merged.update({p["pid"]: p for p in top_cpu})
-    return list(merged.values())
+    return procs
 
 
 def _psutil_processes(current_pid: int) -> list[dict]:
@@ -408,6 +422,7 @@ def collect_snapshot(include_processes: bool = True) -> dict:
     else:
         _gpu_load_avg.add(None)
     freq = _cpu_freq_avg.add(usage["cpu_freq_ghz"])
+    processes, compression_mb = get_process_overview() if include_processes else (None, None)
 
     return {
         "cpu_percent": usage["cpu_percent"],
@@ -419,6 +434,7 @@ def collect_snapshot(include_processes: bool = True) -> dict:
         "cpu_temp": get_cpu_temperature(),
         "temp_threshold": threshold,
         "uptime_text": get_uptime_text(),
-        "processes": get_top_processes() if include_processes else None,
+        "processes": processes,
+        "memory_compression_mb": compression_mb,
         **io_rates,
     }

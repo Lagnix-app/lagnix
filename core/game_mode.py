@@ -60,8 +60,10 @@ def save_game_mode(state: dict) -> None:
 
 
 def get_running_process_names() -> list[dict]:
-    """Унікальні (за назвою) запущені процеси, без прихованих. name/count/protected."""
+    """Унікальні (за назвою) запущені процеси, без прихованих. name/count/protected/pid
+    (pid — першого знайденого екземпляра, щоб показати шлях до exe в підказці)."""
     counts = {}
+    first_pid = {}
     for proc in psutil.process_iter(["pid", "name"]):
         try:
             info = proc.info
@@ -74,9 +76,10 @@ def get_running_process_names() -> list[dict]:
             continue
 
         counts[name] = counts.get(name, 0) + 1
+        first_pid.setdefault(name, pid)
 
     result = [
-        {"name": name, "count": count, "protected": is_protected(name)}
+        {"name": name, "count": count, "protected": is_protected(name), "pid": first_pid[name]}
         for name, count in counts.items()
     ]
     result.sort(key=lambda p: p["name"].lower())

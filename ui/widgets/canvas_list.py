@@ -28,6 +28,7 @@ import tkinter.font as tkfont
 
 from PIL import Image, ImageDraw, ImageTk
 
+from core import process_info
 from ui import theme
 from ui.widgets import aa
 
@@ -148,6 +149,17 @@ def switch_image(w: int, h: int, on: bool, hover: bool, disabled: bool):
     return _cached(("switch", w, h, on, hover, disabled), build)
 
 
+# ================================================== позначки процесів
+
+# вид процесу (core/process_info.py) -> (текст позначки, колір)
+_BADGE_COLORS = {
+    process_info.SYSTEM: theme.TEXT_DIM,
+    process_info.ANTICHEAT: theme.WARNING,
+    process_info.SAFE: theme.ACCENT_GREEN,
+}
+PROCESS_BADGES = {kind: (text, _BADGE_COLORS[kind]) for kind, text in process_info.BADGES.items()}
+
+
 # ================================================================ скролбар
 
 class FastScrollbar(tk.Canvas):
@@ -250,6 +262,7 @@ class Tooltip:
         win = tk.Toplevel(self._owner)
         win.wm_overrideredirect(True)
         win.wm_geometry(f"+{x + 12}+{y + 18}")
+        win.attributes("-topmost", True)  # поверх головного вікна, навіть якщо воно «завжди зверху»
         tk.Label(
             win, text=text, background="#1a1a1a", foreground="#dce4ee", font=(_FONT_FAMILY, 10),
             padx=8, pady=4, relief="solid", borderwidth=1, wraplength=380, justify="left",
@@ -419,6 +432,13 @@ class CanvasList(theme.PlainFrame):
             self._trunc_cache.clear()
         self._trunc_cache[key] = result
         return result
+
+    def badge_image(self, text: str, color: str):
+        """(PhotoImage, ширина px) пігулки-позначки під текст шрифтом font(10, "bold"):
+        тло — колір позначки, ледь підмішаний до фону списку."""
+        w = self.text_width(text, self.font(10, "bold")) + self.px(12)
+        fill = theme.lerp_color(self, self.bg, color, 0.2)
+        return pill_image(w, self.px(18), fill), w
 
     def iset(self, slot: Slot, name: str, **options) -> None:
         """itemconfigure елемента slot.items[name], лише якщо опції змінилися —

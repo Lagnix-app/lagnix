@@ -13,14 +13,19 @@ import customtkinter as ctk
 from PIL import Image, ImageChops, ImageDraw, ImageTk
 
 from core import monitor as monitor_core
+from core import process_info
 from core.logging_setup import get_logger
 from core.settings import load_settings
 from core.system_processes import is_protected
 from ui import theme
 from ui.widgets import aa
-from ui.widgets.canvas_list import CanvasList, card_image, pill_image
+from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, card_image, pill_image
 
 DEFAULT_UPDATE_INTERVAL_SEC = 1.0
+# «Бракує оперативної пам'яті»: зайнято понад 85% RAM або Windows уже
+# стиснула понад 1 ГБ (Memory Compression) — ознака, що пам'яті не вистачає
+LOW_RAM_PERCENT = 85
+LOW_RAM_COMPRESSION_MB = 1024
 GRAPH_POINTS = 60
 
 RING_SIZE = 128
@@ -466,8 +471,8 @@ class ProcessList(CanvasList):
         it["name"] = c.create_text(0, 0, anchor="w", font=self.font(13), tags=base)
         it["cpu"] = c.create_text(0, 0, anchor="e", fill=theme.TEXT_MAIN, font=self.font(13), tags=base)
         it["ram"] = c.create_text(0, 0, anchor="e", fill=theme.TEXT_MAIN, font=self.font(13), tags=base)
-        it["tag"] = c.create_text(0, 0, anchor="e", text="системний", fill=theme.TEXT_DIM,
-                                  font=self.font(11), tags=opt)
+        it["badge_bg"] = c.create_image(0, 0, anchor="w", tags=opt)
+        it["badge"] = c.create_text(0, 0, anchor="center", font=self.font(10, "bold"), tags=opt)
         it["kill_bg"] = c.create_image(0, 0, anchor="nw", tags=opt)
         it["kill"] = c.create_text(0, 0, anchor="center", text="Завершити", fill="#ffffff",
                                    font=self.font(12), tags=opt)
@@ -482,14 +487,27 @@ class ProcessList(CanvasList):
         self.iset(slot, "dot", image=aa.dot_image(dot_color, 8, theme.BG_PANEL, self.S))
         name_x = self.px(26)
         name_w = w - self.px(_COL_CPU_R + 56 + 8) - name_x
+        kind = process_info.kind_for(p["name"])
+        badge_w = 0
+        if kind:
+            text, color = PROCESS_BADGES[kind]
+            photo, badge_w = self.badge_image(text, color)
+        shown = self.truncate(p["name"], max(name_w - badge_w - self.px(8), self.px(40)), self.font(13))
         self.icoords(slot, "name", name_x, mid)
-        self.iset(slot, "name", text=self.truncate(p["name"], max(name_w, self.px(40)), self.font(13)),
-                  fill=theme.TEXT_MAIN)
+        self.iset(slot, "name", text=shown, fill=theme.TEXT_MAIN)
+        if kind:
+            bx = name_x + self.text_width(shown, self.font(13)) + self.px(8)
+            self.icoords(slot, "badge_bg", bx, mid)
+            self.iset(slot, "badge_bg", image=photo, state="normal")
+            self.icoords(slot, "badge", bx + badge_w / 2, mid)
+            self.iset(slot, "badge", text=text, fill=color, state="normal")
+        else:
+            self.iset(slot, "badge_bg", state="hidden")
+            self.iset(slot, "badge", state="hidden")
         self.icoords(slot, "cpu", w - self.px(_COL_CPU_R), mid)
         self.iset(slot, "cpu", text=f"{cpu:.1f}%")
         self.icoords(slot, "ram", w - self.px(_COL_RAM_R), mid)
         self.iset(slot, "ram", text=f"{p['memory_mb']:.0f} МБ")
-        self.icoords(slot, "tag", w - self.px(10), mid)
         self.icoords(slot, "bg", 0, 0)
         x0, y0, x1, y1 = self._kill_box()
         self.icoords(slot, "kill_bg", x0, y0)
@@ -505,7 +523,6 @@ class ProcessList(CanvasList):
                 theme.BG_PANEL_LIGHT, theme.BG_PANEL_LIGHT, theme.BG_PANEL,
             ))
         self.iset(slot, "bg", state="normal" if hovered else "hidden")
-        self.iset(slot, "tag", state="normal" if protected else "hidden")
         show_kill = hovered and not protected
         self.iset(slot, "kill_bg", state="normal" if show_kill else "hidden",
                   image=pill_image(self.px(_KILL_W), self.px(_KILL_H),
@@ -523,6 +540,12 @@ class ProcessList(CanvasList):
         if region == "kill":
             p = self.rows[index]
             self._on_terminate(p["pid"], p["name"])
+
+    def tooltip_for(self, index: int, region: str):
+        if region != "row":
+            return None
+        p = self.rows[index]
+        return process_info.tooltip_text(p["name"], p["pid"])
 
 
 class ProcessTable(ctk.CTkFrame):
@@ -601,6 +624,14 @@ class StatusRobot(ctk.CTkFrame):
         )
         self.phrase_label.pack(padx=16, pady=(0, 20))
 
+        # кнопка-дія під фразою (напр. «Увімкнути Ігровий режим», коли бракує RAM)
+        self._action = None
+        self.action_button = ctk.CTkButton(
+            self, text="", height=32, corner_radius=10, font=theme.font_small(),
+            fg_color=theme.ACCENT_GREEN, hover_color=theme.ACCENT_GREEN_DIM, text_color=theme.BG_MAIN,
+            command=lambda: self._action and self._action[1](),
+        )
+
         self._mood = None
         self._blink = False
         self._blink_timer = random.uniform(1.6, 3.0)
@@ -653,7 +684,19 @@ class StatusRobot(ctk.CTkFrame):
             photo = self._sprites[key] = self._render(*key)
         self.canvas.itemconfigure(self._image_item, image=photo)
 
-    def set_mood(self, mood: str, phrase: str) -> None:
+    def set_mood(self, mood: str, phrase: str, action: tuple | None = None) -> None:
+        """action — (текст кнопки, колбек) або None (кнопку сховати)."""
+        new_text = action[0] if action else None
+        old_text = self._action[0] if self._action else None
+        self._action = action
+        if new_text != old_text:
+            if new_text is None:
+                self.action_button.pack_forget()
+                self.phrase_label.pack_configure(pady=(0, 20))
+            else:
+                self.action_button.configure(text=new_text)
+                self.phrase_label.pack_configure(pady=(0, 10))
+                self.action_button.pack(padx=16, pady=(0, 18), fill="x")
         if mood == self._mood and phrase == self.phrase_label.cget("text"):
             return
         self._mood = mood
@@ -899,8 +942,13 @@ class MonitorTab(ctk.CTkFrame):
         if warnings:
             self.status_robot.set_mood("worried", warnings[0])
             return
-        if data["ram_percent"] > 90:
-            self.status_robot.set_mood("worried", "RAM майже заповнена — закрий зайві програми")
+        compression = data.get("memory_compression_mb") or 0.0
+        if data["ram_percent"] > LOW_RAM_PERCENT or compression > LOW_RAM_COMPRESSION_MB:
+            details = f"RAM {data['ram_percent']:.0f}%"
+            if compression > LOW_RAM_COMPRESSION_MB:
+                details += f" · стиснуто {compression / 1024:.1f} ГБ"
+            action = None if self._game_mode_active() else ("Увімкнути Ігровий режим", self._enable_game_mode)
+            self.status_robot.set_mood("worried", f"Бракує оперативної пам'яті\n{details}", action)
             return
         if data["cpu_percent"] > 90:
             self.status_robot.set_mood("worried", "CPU сильно завантажений")
@@ -913,14 +961,30 @@ class MonitorTab(ctk.CTkFrame):
         else:
             self.status_robot.set_mood("happy", "Все чудово, система в нормі")
 
+    def _game_tab(self):
+        return getattr(self.winfo_toplevel(), "tab_frames", {}).get("game_mode")
+
+    def _game_mode_active(self) -> bool:
+        tab = self._game_tab()
+        return bool(tab is not None and tab.is_active())
+
+    def _enable_game_mode(self) -> None:
+        """Кнопка робота: перейти в «Ігровий режим» і ввімкнути поточний профіль
+        (там же підтвердження закриття процесів профілю)."""
+        tab = self._game_tab()
+        if tab is None:
+            return
+        self.winfo_toplevel().select_tab("game_mode")
+        if not tab.is_active():
+            tab.enable()
+
     # ---------------------------------------------------------- terminate
 
     def _confirm_terminate(self, pid: int, name: str):
-        confirmed = messagebox.askyesno(
-            "Підтвердження",
-            f"Завершити процес «{name}» (PID {pid})?",
-            parent=self,
-        )
+        question = f"Завершити процес «{name}» (PID {pid})?"
+        if process_info.is_anticheat(name):
+            question += f"\n\n⚠ {process_info.ANTICHEAT_WARNING}"
+        confirmed = messagebox.askyesno("Підтвердження", question, parent=self)
         if not confirmed:
             return
 
