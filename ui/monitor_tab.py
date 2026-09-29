@@ -13,7 +13,7 @@ import customtkinter as ctk
 from PIL import Image, ImageChops, ImageDraw, ImageTk
 
 from core import monitor as monitor_core
-from core import process_info
+from core import process_control, process_info
 from core.logging_setup import get_logger
 from core.app_icons import IconLoader
 from core.settings import load_settings, update_setting
@@ -1254,13 +1254,16 @@ class MonitorTab(ctk.CTkFrame):
             return
         if anticheat:
             question += f"\n\n⚠ {process_info.ANTICHEAT_WARNING}"
-        if not messagebox.askyesno("Підтвердження", question, parent=self):
+        action = process_control.ask_user_action(
+            self, "Підтвердження", question, reason=f"Монітор → «Завершити» {title}"
+        )
+        if action is None:
             return
 
         targets = [(p["pid"], p.get("create_time")) for p in members]
 
         def worker():
-            killed, errors = monitor_core.terminate_processes(targets)
+            killed, errors = process_control.terminate_processes(targets, action, timeout=3)
             self.after(0, self._on_terminate_result, title, killed, errors)
 
         threading.Thread(target=worker, daemon=True).start()

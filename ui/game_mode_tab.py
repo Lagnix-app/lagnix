@@ -12,7 +12,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 from core import game_mode as game_mode_core
-from core import game_scanner, game_sessions, power_plans, process_info, smart_apps
+from core import game_scanner, game_sessions, power_plans, process_control, process_info, smart_apps
 from core import monitor as monitor_core
 from core.system_processes import is_protected
 from core.logging_setup import get_logger
@@ -603,31 +603,38 @@ class GameModeTab(ctk.CTkFrame):
                 return
             if answer is False:
                 plan_override = ""
-        apps, extras = self._current_apps(), self._current_extras()
+        apps, extras = list(self._current_apps()), list(self._current_extras())
+        action = None
         if apps or extras:
             names = [a["title"] for a in apps] + extras
             shown = "\n".join("• " + n for n in names[:12]) + (f"\n… і ще {len(names) - 12}" if len(names) > 12 else "")
-            if not messagebox.askyesno(
-                "Ігровий режим",
+            action = process_control.ask_user_action(
+                self, "Ігровий режим",
                 f"Буде закрито:\n{shown}\n\nНезбережені дані в цих програмах можуть загубитись. Продовжити?",
-                parent=self,
-            ):
+                reason="Ігровий режим → перемикач «Увімкнути»",
+            )
+            if action is None:
                 return
         self._busy = True
         self._render()
-        threading.Thread(target=self._activate_worker, args=(False, plan_override), daemon=True).start()
+        threading.Thread(target=self._activate_worker, args=(False, plan_override, action, apps, extras),
+                         daemon=True).start()
 
-    def _activate_worker(self, auto: bool, plan_override: str | None = None) -> None:
-        """Довга операція (закриття процесів, powercfg) — у фоні, на копії стану."""
+    def _activate_worker(self, auto: bool, plan_override: str | None = None, action=None,
+                         apps: list[dict] | None = None, extras: list[str] | None = None) -> None:
+        """Довга операція (закриття процесів, powercfg) — у фоні, на копії стану.
+        Автоувімкнення (auto=True) приходить без action — програми не закриваються."""
         try:
             with self._lock:
                 work = copy.deepcopy(self.state)
             report = game_mode_core.activate(
-                work, work["active_profile"], {g["platform"] for g in self._games}, auto=auto,
-                plan_override=plan_override,
+                work, work["active_profile"], auto=auto, plan_override=plan_override,
+                action=None if auto else action, apps=apps, extras=extras,
             )
             self._commit(work)
             self._auto_enabled = auto
+            if auto:
+                report["note"] = "Увімкнено автоматично (гра запущена): лише план живлення, програми не закривались."
         except Exception as exc:
             _logger.exception("Не вдалося ввімкнути ігровий режим")
             report = {"errors": [str(exc)], "plan_error": "", "closed": []}
@@ -644,7 +651,7 @@ class GameModeTab(ctk.CTkFrame):
         problems = list(report.get("errors", []))
         if report.get("plan_error"):
             problems.append(report["plan_error"])
-        self._note = ("Не все вдалося: " + "; ".join(problems[:3])) if problems else ""
+        self._note = ("Не все вдалося: " + "; ".join(problems[:3])) if problems else report.get("note", "")
         self._render()
 
     def _start_deactivate(self, offer_reopen: bool = True) -> None:

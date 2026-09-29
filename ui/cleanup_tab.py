@@ -8,6 +8,7 @@ import customtkinter as ctk
 from core import app_cache as app_cache_core
 from core import cleanup as cleanup_core
 from core import large_files as large_files_core
+from core import process_control
 from ui.cleanup_app_cache import AppCacheSection
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 
@@ -335,10 +336,13 @@ class CleanupTab(ctk.CTkFrame):
         if any(row.target["key"] == "recycle_bin" for row in selected_rows):
             message += "\n\nУвага: очищення кошика видаляє файли остаточно."
 
-        if not messagebox.askyesno("Підтвердження", message, parent=self):
+        action = process_control.ask_user_action(self, "Підтвердження", message,
+                                                 reason="Очищення → «Очистити вибране»")
+        if action is None:
             return
 
-        self._start_clean([row.target["key"] for row in selected_rows], [row.group["key"] for row in app_rows])
+        self._start_clean([row.target["key"] for row in selected_rows], [row.group["key"] for row in app_rows],
+                          action)
 
     def _clean_one(self, row: CleanupItemRow):
         if self._cleaning_in_progress or not row.is_cleanable():
@@ -349,19 +353,23 @@ class CleanupTab(ctk.CTkFrame):
         if row.target["key"] == "recycle_bin":
             message += "\n\nУвага: очищення кошика видаляє файли остаточно."
 
-        if not messagebox.askyesno("Підтвердження", message, parent=self):
+        action = process_control.ask_user_action(
+            self, "Підтвердження", message, reason=f"Очищення → «Очистити» ({row.target['label']})")
+        if action is None:
             return
 
-        self._start_clean([row.target["key"]], [])
+        self._start_clean([row.target["key"]], [], action)
 
     def _clean_one_app(self, row):
         if self._cleaning_in_progress or not row.is_cleanable():
             return
         group = row.group
         message = f"Очистити кеш «{group['name']}» ({cleanup_core.format_size(group['size_bytes'])})?"
-        if not messagebox.askyesno("Підтвердження", message, parent=self):
+        action = process_control.ask_user_action(
+            self, "Підтвердження", message, reason=f"Кеш програм → «Очистити» ({group['name']})")
+        if action is None:
             return
-        self._start_clean([], [group["key"]])
+        self._start_clean([], [group["key"]], action)
 
     def _close_and_clean_app(self, row):
         if self._cleaning_in_progress:
@@ -373,11 +381,15 @@ class CleanupTab(ctk.CTkFrame):
             "Незбережені дані в цій програмі можуть бути втрачені. Після очищення "
             "PulseFPS запропонує запустити її знову."
         )
-        if not messagebox.askyesno("Закрити й очистити", message, icon="warning", parent=self):
+        action = process_control.ask_user_action(
+            self, "Закрити й очистити", message, icon="warning",
+            reason=f"Кеш програм → «Закрити й очистити» ({group['name']})")
+        if action is None:
             return
-        self._start_clean([], [group["key"]], close_first=True)
+        self._start_clean([], [group["key"]], action, close_first=True)
 
-    def _start_clean(self, keys: list[str], app_keys: list[str], close_first: bool = False):
+    def _start_clean(self, keys: list[str], app_keys: list[str], action, close_first: bool = False):
+        """action — process_control.UserAction з підтвердження; без нього ядро нічого не видалить."""
         self._cleaning_in_progress = True
         self.clean_button.configure(state="disabled")
         self._set_scan_controls(False)
@@ -411,11 +423,11 @@ class CleanupTab(ctk.CTkFrame):
             def progress(key, result):
                 self.after(0, self._on_clean_progress, key, result)
 
-            summary = cleanup_core.clean_many(keys, progress_cb=progress, start_cb=on_item_start)
+            summary = cleanup_core.clean_many(keys, action, progress_cb=progress, start_cb=on_item_start)
             relaunch = None
             for key in app_keys:
                 if close_first:
-                    closed = app_cache_core.close_group(key)
+                    closed = app_cache_core.close_group(key, action)
                     if not closed["ok"]:
                         progress(key, {"key": key, "freed_bytes": 0, "deleted_count": 0, "skipped_count": 0,
                                        "skipped_reason": closed["message"]})
@@ -423,7 +435,7 @@ class CleanupTab(ctk.CTkFrame):
                         continue
                     relaunch = closed["relaunch"]
                 on_item_start(key)
-                result = app_cache_core.clean_group(key)
+                result = app_cache_core.clean_group(key, action)
                 summary["freed_bytes"] += result["freed_bytes"]
                 summary["deleted_count"] += result["deleted_count"]
                 summary["skipped_count"] += result["skipped_count"] + (1 if result.get("skipped_reason") else 0)

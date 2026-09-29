@@ -5,6 +5,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
+from core import process_control
 from core import tweaks as tweaks_core
 
 _RISK_LABELS = {
@@ -300,15 +301,15 @@ class RegistryTweaksTab(ctk.CTkFrame):
             self._offer_explorer_restart()
 
     def _offer_explorer_restart(self):
-        confirmed = messagebox.askyesno(
-            "Застосувати зараз",
+        action = process_control.ask_user_action(
+            self, "Застосувати зараз",
             "Щоб зміни вигляду набули чинності одразу, можна перезапустити "
             "Провідник (закриються відкриті вікна папок). Зробити це зараз?\n\n"
             "Якщо відмовитесь — зміни застосуються після виходу з системи.",
-            parent=self,
+            reason="Твіки → «Застосувати зараз» (перезапуск Провідника)",
         )
-        if confirmed:
-            threading.Thread(target=tweaks_core.restart_explorer, daemon=True).start()
+        if action is not None:
+            threading.Thread(target=process_control.restart_explorer, args=(action,), daemon=True).start()
 
     # --------------------------------------------------------------- спільне
 

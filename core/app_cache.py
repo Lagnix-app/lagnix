@@ -26,8 +26,9 @@ import xml.etree.ElementTree as ET
 
 import psutil
 
+from core import process_control
 from core.admin import is_admin
-from core.logging_setup import get_logger
+from core.logging_setup import get_audit_logger, get_logger
 from core.system_processes import is_hidden, is_protected
 
 MAX_DEPTH = 4
@@ -652,14 +653,14 @@ def _identify(group: dict, program_index: dict, processes: list[dict]) -> None:
 def _process_table() -> list[dict]:
     own = os.getpid()
     table = []
-    for proc in psutil.process_iter(["pid", "name", "exe", "ppid"], ad_value=None):
+    for proc in psutil.process_iter(["pid", "name", "exe", "ppid", "create_time"], ad_value=None):
         info = proc.info
         name = info.get("name") or ""
         if info["pid"] == own or not name or is_hidden(name) or is_protected(name):
             continue
         exe = info.get("exe") or ""
         table.append({"pid": info["pid"], "ppid": info.get("ppid"), "name": name.lower(),
-                      "exe": exe.lower(), "exe_raw": exe})
+                      "exe": exe.lower(), "exe_raw": exe, "create_time": info.get("create_time")})
     return table
 
 
@@ -914,8 +915,11 @@ def group_name(key: str) -> str:
     return group["name"] if group else key
 
 
-def clean_group(key: str) -> dict:
-    """Видаляє вміст знайдених папок кешу групи. Зайняті файли пропускаються без помилок."""
+def clean_group(key: str, action) -> dict:
+    """Видаляє вміст знайдених папок кешу групи — лише з action (process_control.UserAction).
+    Зайняті файли пропускаються без помилок. Кожна тека пишеться в журнал аудиту."""
+    process_control.require(action, f"видалення кешу програми {key}")
+    audit = get_audit_logger()
     result = {"key": key, "freed_bytes": 0, "deleted_count": 0, "skipped_count": 0, "skipped_reason": None}
     group = _get_group(key)
     if group is None:
@@ -930,15 +934,22 @@ def clean_group(key: str) -> dict:
         path = folder["path"]
         if not _safe_dir(path):
             continue
+        freed = deleted = skipped = 0
         for file_path, size in list(_walk_files(path, folder["exts"])):
             try:
                 os.remove(file_path)
-                result["freed_bytes"] += size
-                result["deleted_count"] += 1
+                freed += size
+                deleted += 1
             except OSError:
-                result["skipped_count"] += 1
+                skipped += 1
         if folder["exts"] is None:
             _remove_empty_dirs(path)
+        if deleted or skipped:
+            audit.info("Видалено %d файлів (%d байт, пропущено %d) у %s — програма «%s», причина: %s",
+                       deleted, freed, skipped, path, group["name"], action.reason)
+        result["freed_bytes"] += freed
+        result["deleted_count"] += deleted
+        result["skipped_count"] += skipped
     return result
 
 
@@ -954,9 +965,11 @@ def _remove_empty_dirs(path: str) -> None:
             pass
 
 
-def close_group(key: str) -> dict:
-    """Закриває всі процеси програми. Повертає {"ok", "relaunch", "message"}:
-    relaunch — ("aumid", id) / ("exe", шлях) для повторного запуску або None."""
+def close_group(key: str, action) -> dict:
+    """Закриває всі процеси програми через process_control (лише з UserAction).
+    Повертає {"ok", "relaunch", "message"}: relaunch — ("aumid", id) / ("exe", шлях)
+    для повторного запуску або None."""
+    process_control.require(action, f"закриття програми {key}")
     group = _get_group(key)
     if group is None:
         return {"ok": False, "relaunch": None, "message": "Оновіть сканування"}
@@ -975,40 +988,14 @@ def close_group(key: str) -> dict:
         else:
             relaunch = ("exe", main["exe_raw"])
 
-    processes = []
-    for proc in matched:
-        try:
-            processes.append(psutil.Process(proc["pid"]))
-        except psutil.Error:
-            continue
-
-    if group.get("shutdown_args"):
-        # Steam коректно завершується сам (зберігає стан завантажень) — даємо йому шанс.
-        try:
-            subprocess.Popen(group["shutdown_args"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            _gone, processes = psutil.wait_procs(processes, timeout=10)
-        except (OSError, psutil.Error):
-            pass
-
-    denied = 0
-    for proc in processes:
-        try:
-            proc.terminate()
-        except psutil.NoSuchProcess:
-            pass
-        except psutil.Error:
-            denied += 1
-    _gone, alive = psutil.wait_procs(processes, timeout=5)
-    for proc in alive:
-        try:
-            proc.kill()
-        except psutil.Error:
-            pass
-    _gone, alive = psutil.wait_procs(alive, timeout=3)
+    # Steam коректно завершується сам (зберігає стан завантажень) — спершу -shutdown.
+    targets = [(p["pid"], p["create_time"]) for p in matched]
+    killed, errors = process_control.terminate_processes(targets, action, graceful_command=group.get("shutdown_args"))
     time.sleep(0.5)  # Windows відпускає дескриптори файлів не миттєво
 
-    if alive:
-        _log.error("Не вдалося закрити %d процес(ів) %s", len(alive), key)
+    if _group_processes(group, _process_table()):
+        _log.error("Не вдалося закрити програму %s: %s", key, "; ".join(errors))
+        denied = any("немає прав" in e for e in errors)
         return {"ok": False, "relaunch": relaunch,
                 "message": "Не вдалося закрити програму" + (" — немає прав" if denied else "")}
     return {"ok": True, "relaunch": relaunch, "message": ""}

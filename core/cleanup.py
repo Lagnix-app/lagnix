@@ -4,6 +4,10 @@
 ззовні не приймається. Кожна ціль описує, ЩО саме буде видалено (конкретні
 папки кешу чи файли), і ніколи не зачіпає cookies, паролі, історію чи
 закладки браузерів — ці дані зберігаються поза шляхами, які тут скануються.
+
+Сканування (scan_target/scan_many) — лише читання розмірів. Видалення
+(clean_target/clean_many) вимагає process_control.UserAction — користувач
+натиснув кнопку й підтвердив — і кожна тека пишеться в журнал аудиту logs.txt.
 """
 
 import ctypes
@@ -11,8 +15,9 @@ import glob
 import os
 import tempfile
 
+from core import process_control
 from core.admin import is_admin
-from core.logging_setup import get_logger
+from core.logging_setup import get_audit_logger, get_logger
 from core.game_mode import get_running_process_name_set
 
 WINDOWS_TEMP_PATH = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "Temp")
@@ -356,8 +361,10 @@ def scan_many(keys: list[str], progress_cb=None) -> dict:
 
 # -------------------------------------------------------------------- clean
 
-def clean_target(key: str, running_processes: set[str] | None = None) -> dict:
-    """Видаляє файли цілі. Зайняті файли й запущені програми пропускаються без помилок."""
+def clean_target(key: str, action, running_processes: set[str] | None = None) -> dict:
+    """Видаляє файли цілі (лише з UserAction). Зайняті файли й запущені програми пропускаються без помилок."""
+    process_control.require(action, f"очищення {key}")
+    audit = get_audit_logger()
     target = _find_target(key)
     result = {"key": key, "freed_bytes": 0, "deleted_count": 0, "skipped_count": 0, "skipped_reason": None}
     if target is None:
@@ -381,6 +388,8 @@ def clean_target(key: str, running_processes: set[str] | None = None) -> dict:
     if kind == "recycle_bin":
         if not _empty_recycle_bin():
             result["skipped_reason"] = "Не вдалося очистити кошик"
+        else:
+            audit.info("Очищено Кошик — причина: %s", action.reason)
         return result
 
     if kind == "files_glob":
@@ -394,12 +403,17 @@ def clean_target(key: str, running_processes: set[str] | None = None) -> dict:
                     deleted += 1
                 except OSError:
                     skipped += 1
+        audit.info("Видалено %d файлів (%d байт, пропущено %d): %s — причина: %s",
+                   deleted, freed, skipped, target["label"], action.reason)
         result.update(freed_bytes=freed, deleted_count=deleted, skipped_count=skipped)
         return result
 
     freed = deleted = skipped = 0
     for path in _resolve_folder_patterns(target):
         f, d, s = _clean_dir_contents(path)
+        if d or s:
+            audit.info("Видалено %d файлів (%d байт, пропущено %d) у %s — причина: %s",
+                       d, f, s, path, action.reason)
         freed += f
         deleted += d
         skipped += s
@@ -407,7 +421,8 @@ def clean_target(key: str, running_processes: set[str] | None = None) -> dict:
     return result
 
 
-def clean_many(keys: list[str], progress_cb=None, start_cb=None) -> dict:
+def clean_many(keys: list[str], action, progress_cb=None, start_cb=None) -> dict:
+    process_control.require(action, f"очищення {keys}")
     running = get_running_process_name_set()
     total_freed = total_deleted = total_skipped = 0
     results = {}
@@ -415,7 +430,7 @@ def clean_many(keys: list[str], progress_cb=None, start_cb=None) -> dict:
     for key in keys:
         if start_cb:
             start_cb(key)
-        result = clean_target(key, running_processes=running)
+        result = clean_target(key, action, running_processes=running)
         results[key] = result
         total_freed += result["freed_bytes"]
         total_deleted += result["deleted_count"]

@@ -1,8 +1,10 @@
 """Логіка «Ігрового режиму»: закриття фонових програм, план живлення, стан у data.json.
 
 Що робить увімкнення:
-  1. закриває розумний список фонових програм (core/smart_apps.py) і
-     процеси, вручну позначені в профілі («Розширені»);
+  1. ЛИШЕ при ручному увімкненні з підтвердженням — закриває показаний
+     користувачу розумний список фонових програм (core/smart_apps.py) і
+     процеси профілю («Розширені»); автоувімкнення (гра запустилась)
+     нічого не закриває;
   2. запам'ятовує поточний план живлення й вмикає «PulseFPS Ultra»
      (або інший, обраний у профілі);
   3. запам'ятовує закриті програми, щоб при вимкненні запропонувати
@@ -17,7 +19,7 @@ import os
 
 import psutil
 
-from core import power_plans, process_snapshot, smart_apps
+from core import power_plans, process_control, process_snapshot, smart_apps
 from core.app_data import load_data, update_data
 from core.logging_setup import get_logger
 from core.system_processes import is_hidden, is_protected
@@ -143,43 +145,6 @@ def get_running_process_name_set() -> set[str]:
     return names
 
 
-def terminate_by_names(names: list[str]) -> list[tuple[str, bool, str]]:
-    """Завершує запущені процеси з переданими назвами (крім прихованих/захищених/себе)."""
-    targets = {n.lower() for n in names}
-    results = []
-    if not targets:
-        return results
-
-    for proc in psutil.process_iter(["pid", "name"]):
-        try:
-            info = proc.info
-            pid = info["pid"]
-            name = info["name"] or ""
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-
-        if pid == _CURRENT_PID or name.lower() not in targets:
-            continue
-        if is_hidden(name) or is_protected(name):
-            continue
-
-        try:
-            proc.terminate()
-            try:
-                proc.wait(timeout=2)
-            except psutil.TimeoutExpired:
-                proc.kill()
-            results.append((name, True, ""))
-        except psutil.NoSuchProcess:
-            results.append((name, True, ""))
-        except psutil.AccessDenied:
-            results.append((name, False, "Немає прав для завершення цього процесу"))
-        except Exception as exc:
-            results.append((name, False, str(exc)))
-
-    return results
-
-
 # ---------------------------------------------------------- плани живлення
 
 def get_active_power_scheme() -> str | None:
@@ -227,23 +192,28 @@ def _resolve_plan(state: dict, plan: str, auto: bool) -> tuple[str | None, str |
 
 # --------------------------------------------------- увімкнення/вимкнення
 
-def activate(state: dict, profile_name: str, game_platforms: set[str], auto: bool = False,
-             plan_override: str | None = None) -> dict:
+def activate(state: dict, profile_name: str, auto: bool = False, plan_override: str | None = None,
+             action=None, apps: list[dict] | None = None, extras: list[str] | None = None) -> dict:
     """Вмикає режим, змінюючи `state` (зберігає його ВИКЛИКАЧ — операція довга,
     а стан читають кілька потоків). auto=True — режим вмикається сам (гра
     запустилась): «PulseFPS Ultra» на батареї тоді пропускається. plan_override —
     значення плану замість профільного ("" = не чіпати план).
+
+    Програми закриваються ЛИШЕ з action (process_control.UserAction — користувач
+    натиснув перемикач і підтвердив список) і лише ті, що були в показаному
+    списку: apps (розумний список) та extras (назви процесів профілю).
+    Автоувімкнення (action=None) нічого не закриває — тільки план живлення.
     -> звіт: closed [{title, name, exe_path, memory_mb}], freed_mb, errors, plan_name, plan_error."""
     profile = state["profiles"].get(profile_name, {"processes": [], "power_plan": ULTRA})
-    excluded = {n.lower() for n in state.get("excluded_apps", [])}
 
-    apps = smart_apps.compute_suggestions(excluded, game_platforms)
-    closed, errors = smart_apps.close_apps(apps)
-    for name, success, error in terminate_by_names(profile.get("processes", [])):
-        if success:
-            closed.append({"title": name, "name": name, "exe_path": None, "memory_mb": 0})
-        else:
-            errors.append(f"{name}: {error}")
+    closed, errors = [], []
+    if action is not None:
+        closed, errors = smart_apps.close_apps(apps or [], action)
+        for name in extras or []:
+            killed, errs = process_control.terminate_processes(process_control.find_by_names([name]), action)
+            errors.extend(f"{name}: {e}" for e in errs)
+            if killed:
+                closed.append({"title": name, "name": name, "exe_path": None, "memory_mb": 0})
 
     if not state.get("is_active"):  # повторне вмикання не має затирати справжній «попередній» план
         current = power_plans.get_active_scheme()

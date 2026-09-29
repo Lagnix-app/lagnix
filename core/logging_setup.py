@@ -20,3 +20,11 @@ def get_logger(name: str) -> logging.Logger:
         logger.propagate = False
         _configured_loggers.add(name)
     return logger
+
+
+def get_audit_logger() -> logging.Logger:
+    """Журнал дій, що змінюють систему: кожне завершення процесу й кожне видалення
+    (з причиною — яка кнопка) пишеться в logs.txt рівнем INFO."""
+    logger = get_logger("pulsefps.audit")
+    logger.setLevel(logging.INFO)
+    return logger

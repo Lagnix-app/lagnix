@@ -19,7 +19,7 @@ import os
 import subprocess
 
 from core import monitor as monitor_core
-from core import process_info
+from core import process_control, process_info
 from core.logging_setup import get_logger
 from core.system_processes import is_hidden, is_protected
 
@@ -124,13 +124,13 @@ def compute_suggestions(excluded: set[str], game_platforms: set[str] = frozenset
     return result
 
 
-def close_apps(apps: list[dict]) -> tuple[list[dict], list[str]]:
-    """Закриває програми. -> (реально закриті у форматі для збереження
-    {title, name, exe_path, memory_mb}, помилки)."""
+def close_apps(apps: list[dict], action) -> tuple[list[dict], list[str]]:
+    """Закриває програми, які користувач щойно підтвердив (action — process_control.UserAction).
+    -> (реально закриті у форматі для збереження {title, name, exe_path, memory_mb}, помилки)."""
     closed, errors = [], []
     for app in apps:
         try:
-            killed, errs = monitor_core.terminate_processes(app["targets"])
+            killed, errs = process_control.terminate_processes(app["targets"], action, timeout=3)
         except Exception as exc:
             _logger.exception("Не вдалося закрити %s", app["name"])
             errors.append(f"{app['title']}: {exc}")

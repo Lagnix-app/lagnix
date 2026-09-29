@@ -705,16 +705,4 @@ def restore_appearance_defaults() -> list[tuple[Tweak, bool, str]]:
     return results
 
 
-def restart_explorer() -> bool:
-    """Перезапускає Провідник, щоб зміни вигляду (панель завдань, меню) набули
-    чинності без повного виходу з системи. Закриває відкриті вікна папок."""
-    try:
-        subprocess.run(
-            ["taskkill", "/f", "/im", "explorer.exe"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, creationflags=_NO_WINDOW,
-        )
-        subprocess.Popen(["explorer.exe"])
-        return True
-    except (subprocess.SubprocessError, OSError) as exc:
-        _logger.error("Не вдалося перезапустити Провідник: %s", exc)
-        return False
+# Перезапуск Провідника — process_control.restart_explorer (лише після підтвердження).

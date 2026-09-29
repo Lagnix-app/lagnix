@@ -373,57 +373,7 @@ def _psutil_processes(current_pid: int) -> list[dict]:
     return procs
 
 
-def _filetime_to_unix(filetime: int) -> float:
-    return filetime / 1e7 - 11644473600.0
-
-
-def terminate_processes(targets: list[tuple[int, int | None]]) -> tuple[int, list[str]]:
-    """Завершує кілька процесів (групу програми): targets — (pid, create_time
-    у FILETIME або None). Процес із тим самим PID, але іншим часом створення
-    (PID уже перевикористано) не чіпаємо. Спершу м'яке terminate для всіх,
-    потім kill для тих, хто не завершився за 3 с. -> (завершено, помилки)."""
-    procs, errors = [], []
-    for pid, create_time in targets:
-        try:
-            proc = psutil.Process(pid)
-            if create_time and abs(proc.create_time() - _filetime_to_unix(create_time)) > 1.0:
-                continue
-            proc.terminate()
-            procs.append(proc)
-        except psutil.NoSuchProcess:
-            continue
-        except psutil.AccessDenied:
-            errors.append(f"PID {pid}: немає прав для завершення")
-        except Exception as exc:
-            errors.append(f"PID {pid}: {exc}")
-    gone, alive = psutil.wait_procs(procs, timeout=3)
-    killed = len(gone)
-    for proc in alive:
-        try:
-            proc.kill()
-            killed += 1
-        except psutil.NoSuchProcess:
-            killed += 1
-        except Exception as exc:
-            errors.append(f"PID {proc.pid}: {exc}")
-    return killed, errors
-
-
-def terminate_process(pid: int) -> tuple[bool, str]:
-    try:
-        proc = psutil.Process(pid)
-        proc.terminate()
-        try:
-            proc.wait(timeout=2)
-        except psutil.TimeoutExpired:
-            proc.kill()
-        return True, ""
-    except psutil.NoSuchProcess:
-        return True, ""
-    except psutil.AccessDenied:
-        return False, "Немає прав для завершення цього процесу"
-    except Exception as exc:
-        return False, str(exc)
+# Завершення процесів — лише core/process_control.py (після підтвердження користувача).
 
 
 def collect_snapshot(include_processes: bool = True) -> dict:
