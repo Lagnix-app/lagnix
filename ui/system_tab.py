@@ -248,16 +248,20 @@ class SystemTab(ctk.CTkFrame):
 
     def _load_snapshot(self):
         def worker():
+            tips = []
             try:
                 snapshot = system_info_core.collect_static_snapshot()
+                # поради теж тут: вони запускають powercfg (subprocess, ~0.3 с),
+                # що в UI-потоці підвішувало б інтерфейс
+                tips = system_info_core.build_smart_tips(snapshot)
             except Exception:
                 _logger.exception("Не вдалося зібрати інформацію про систему")
                 snapshot = None
-            self.after(0, self._apply_snapshot, snapshot)
+            self.after(0, self._apply_snapshot, snapshot, tips)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _apply_snapshot(self, snapshot):
+    def _apply_snapshot(self, snapshot, tips):
         if not self.winfo_exists():
             return
 
@@ -270,7 +274,7 @@ class SystemTab(ctk.CTkFrame):
         self._render_hardware(snapshot)
         self._render_disks(snapshot["disks"])
         self._render_monitors(snapshot["monitors"])
-        self._render_tips(system_info_core.build_smart_tips(snapshot))
+        self._render_tips(tips)
 
     def _render_hardware(self, snapshot):
         cpu = snapshot["cpu"]

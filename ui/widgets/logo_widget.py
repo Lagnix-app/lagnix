@@ -61,6 +61,12 @@ class LogoWidget(ctk.CTkFrame):
         self._trail: list[tuple[float, float]] = []
         self._after_id = None
         self._last_tick = None
+        self._paused = False
+        self._eyes_closed = None
+        # кольори шлейфу залежать лише від номера крапки — рахуємо один раз
+        self._trail_colors = [
+            theme.lerp_color(self, _TEXT_TEAL, theme.BG_PANEL, i / _TRAIL_LEN) for i in range(_TRAIL_LEN)
+        ]
 
         self._build_icon_items()
         self._build_line_items()
@@ -82,7 +88,10 @@ class LogoWidget(ctk.CTkFrame):
     def _build_line_items(self) -> None:
         c = self._line
         self._track = c.create_line(0, 0, 0, 0, fill=theme.BORDER, width=1, smooth=True)
-        self._trail_items = [c.create_oval(0, 0, 0, 0, fill=_TEXT_TEAL, outline="") for _ in range(_TRAIL_LEN)]
+        self._trail_items = [
+            c.create_oval(0, 0, 0, 0, fill=_TEXT_TEAL, outline="", state="hidden") for _ in range(_TRAIL_LEN)
+        ]
+        self._trail_shown = False
 
     def _on_line_configure(self, event) -> None:
         self._line_w = max(event.width, 40)
@@ -96,6 +105,19 @@ class LogoWidget(ctk.CTkFrame):
             except tk.TclError:
                 pass
             self._after_id = None
+
+    def set_paused(self, paused: bool) -> None:
+        """Пауза, поки вікно згорнуте чи сховане в трей (нікому показувати)."""
+        if paused == self._paused:
+            return
+        self._paused = paused
+        if paused:
+            if self._after_id is not None:
+                self.after_cancel(self._after_id)
+                self._after_id = None
+            self._last_tick = None
+        elif self._after_id is None:
+            self._tick()
 
     def _tick(self) -> None:
         if not self.winfo_exists():
@@ -146,10 +168,14 @@ class LogoWidget(ctk.CTkFrame):
 
         eye_h = 1.5 if self._blink else panel_h * 0.6
         eye_w = panel_w * 0.24
-        for dx, item, start in ((-panel_w * 0.26, self._eye_l, 110), (panel_w * 0.26, self._eye_r, -70)):
+        for dx, item in ((-panel_w * 0.26, self._eye_l), (panel_w * 0.26, self._eye_r)):
             ex = cx + dx
             c.coords(item, ex - eye_w / 2, cy - eye_h / 2, ex + eye_w / 2, cy + eye_h / 2)
-            c.itemconfigure(item, state="hidden" if self._blink else "normal", start=start)
+        if self._blink != self._eyes_closed:
+            self._eyes_closed = self._blink
+            state = "hidden" if self._blink else "normal"
+            c.itemconfigure(self._eye_l, state=state)
+            c.itemconfigure(self._eye_r, state=state)
 
     def _render_line(self) -> None:
         c = self._line
@@ -174,19 +200,11 @@ class LogoWidget(ctk.CTkFrame):
 
         for i, item in enumerate(self._trail_items):
             if i >= len(self._trail):
-                c.itemconfigure(item, state="hidden")
                 continue
             x, y = self._trail[i]
-            frac = i / _TRAIL_LEN
-            r = 3.2 * (1 - frac * 0.8)
-            color = self._fade_color(_TEXT_TEAL, theme.BG_PANEL, frac)
+            r = 3.2 * (1 - i / _TRAIL_LEN * 0.8)
             c.coords(item, x - r, y - r, x + r, y + r)
-            c.itemconfigure(item, fill=color, state="normal")
-
-    def _fade_color(self, c1: str, c2: str, t: float) -> str:
-        r1, g1, b1 = self.winfo_rgb(c1)
-        r2, g2, b2 = self.winfo_rgb(c2)
-        r = round((r1 + (r2 - r1) * t) / 256)
-        g = round((g1 + (g2 - g1) * t) / 256)
-        b = round((b1 + (b2 - b1) * t) / 256)
-        return f"#{r:02x}{g:02x}{b:02x}"
+        if len(self._trail) == _TRAIL_LEN and self._trail_shown is False:
+            for item, color in zip(self._trail_items, self._trail_colors):
+                c.itemconfigure(item, fill=color, state="normal")
+            self._trail_shown = True

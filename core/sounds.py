@@ -64,7 +64,7 @@ _hover_volume = float(_settings.get("sounds_hover_volume", 0.125))
 _mixer_ready = False
 _mixer_failed = False
 _sounds: dict = {}
-_last_hover_at = 0.0
+_last_hover_at = float("-inf")
 
 
 # ------------------------------------------------------------- синтез WAV
@@ -302,7 +302,9 @@ def _play(name: str, force: bool = False) -> None:
 
 def play_hover(force: bool = False) -> None:
     global _last_hover_at
-    now = time.monotonic()
+    # perf_counter: гарантовано високоточний годинник (monotonic() на Windows
+    # став таким лише з Python 3.13, раніше мав крок ~15.6 мс).
+    now = time.perf_counter()
     if not force and (now - _last_hover_at) < _HOVER_MIN_INTERVAL_S:
         return
     _last_hover_at = now

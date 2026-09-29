@@ -1,33 +1,38 @@
 """Віртуалізований список карток програм для вкладки «Програми».
 
-Замість сотень віджетів тримаємо невеликий пул рядків (стільки, скільки
-влазить у видиму область + запас) і при прокрутці лише перепризначаємо їм
-програми та зсуваємо через place(). Тому 70 чи 700 карток прокручуються однаково
-плавно. Наведення визначається за координатами курсора (а не Enter/Leave рядка),
-щоб підсвічування не мерехтіло при переході між дочірніми віджетами картки.
+Увесь список намальований на одному tk.Canvas (ui/widgets/canvas_list.py):
+фіксований пул рядків — стільки, скільки влазить у видиму область + запас;
+при прокрутці групи елементів лише зсуваються, а дані перепризначаються
+рядкам, що виїхали з-за краю. Фон картки, чекбокс, бейдж і кнопки —
+згладжені кешовані зображення; наведення підміняє їх миттєво.
+
+Колонки (dp від правого краю картки): дата/кнопки — 206, розмір — 112,
+бейдж магазину — 66; назва займає решту й обрізається з "…" точно під
+свою ширину (повна назва — у підказці).
 """
 
 from __future__ import annotations
 
-import tkinter as tk
-import tkinter.font as tkfont
 from datetime import date
 
-import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 from core.app_icons import IconLoader
 from core.cleanup import format_size
 from ui import theme
 from ui.widgets import aa
+from ui.widgets.canvas_list import CanvasList, Slot, card_image, checkbox_image, pill_image
 
 ROW_H = 68  # dp: крок рядків у списку
 CARD_H = 62  # dp: висота самої картки (решта — проміжок)
 ICON_DP = 32
+CARD_RADIUS = 10
 
-# ширини колонок (dp) — за ними ж рахується місце під назву
-COL_CHECK, COL_ICON, COL_BADGE, COL_SIZE, COL_RIGHT = 34, 46, 66, 112, 206
-_ROW_EXTRA_DP = 24  # відступи по краях картки
+# ширини колонок (dp)
+COL_BADGE, COL_SIZE, COL_RIGHT = 66, 112, 206
+_CHECK_X, _CHECK_DP = 14, 20
+_ICON_X = 48
+_NAME_X = 94
 
 CATEGORIES = (
     ("game", "Ігри", theme.ACCENT_BLUE),
@@ -39,8 +44,12 @@ CATEGORY_COLORS = {key: color for key, _label, color in CATEGORIES}
 STORE_COLORS = {"Steam": "#66c0f4", "Epic": "#dfe6f2", "Riot": theme.ERROR, "Rockstar": theme.WARNING}
 
 _PLACEHOLDER_COLORS = (theme.ACCENT_BLUE, theme.ACCENT_GREEN, "#c77dff", theme.WARNING, "#ff8a5c", "#5cd6c0")
-_FONT_FAMILY = "Segoe UI"
 _DELETE_HOVER = "#e04a68"
+_OPEN_HOVER = "#2d3953"
+
+# кнопки, що з'являються при наведенні: (ділянка, текст, ширина dp, правий край dp від краю картки)
+_BUTTONS = (("delete", "Видалити", 80, 14), ("open", "Відкрити папку", 112, 100))
+_BUTTON_H = 28
 
 
 # ---------------------------------------------------------------- форматування
@@ -104,460 +113,249 @@ def _placeholder_image(name: str, size_px: int) -> Image.Image:
     return aa.downscale(layer, (size_px, size_px))
 
 
-# ---------------------------------------------------------------------- підказка
-
-class _Tip:
-    def __init__(self, owner: tk.Widget):
-        self._owner = owner
-        self._win: tk.Toplevel | None = None
-
-    def show(self, text: str, x_root: int, y_root: int) -> None:
-        self.hide()
-        win = tk.Toplevel(self._owner)
-        win.wm_overrideredirect(True)
-        win.wm_geometry(f"+{x_root + 12}+{y_root + 18}")
-        tk.Label(
-            win, text=text, background="#1a1a1a", foreground="#dce4ee", font=("Segoe UI", 10),
-            padx=8, pady=4, relief="solid", borderwidth=1, wraplength=380, justify="left",
-        ).pack()
-        self._win = win
-
-    def hide(self) -> None:
-        if self._win is not None:
-            self._win.destroy()
-            self._win = None
-
-
-# -------------------------------------------------------------------------- рядок
-
-class ProgramRow(theme.PlainFrame):
-    """Картка однієї програми. Створюється один раз і перепризначається (bind_program)."""
-
-    def __init__(self, master, owner: "VirtualList"):
-        super().__init__(
-            master, corner_radius=10, fg_color=theme.BG_PANEL, border_width=1,
-            border_color=theme.BORDER, height=CARD_H,
-        )
-        self.grid_propagate(False)
-        self._owner = owner
-        self.index: int | None = None
-        self.program: dict | None = None
-        self._hovered = False
-        self._selected = False
-        self._icon_photo = None
-        self._full_name = ""
-        self._name_truncated = False
-
-        S = self._get_widget_scaling()
-        for col, width in enumerate((COL_CHECK, COL_ICON, 0, COL_BADGE, COL_SIZE, COL_RIGHT)):
-            self.grid_columnconfigure(col, weight=1 if col == 2 else 0, minsize=round(width * S))
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-
-        f = owner.fonts
-        self.check = ctk.CTkCheckBox(
-            self, text="", width=24, checkbox_width=20, checkbox_height=20, corner_radius=6, border_width=2,
-            fg_color=theme.ACCENT_GREEN, hover_color=theme.ACCENT_GREEN_DIM, border_color=theme.TEXT_DIM,
-            checkmark_color=theme.BG_MAIN, command=self._on_check,
-        )
-        self.check.grid(row=0, column=0, rowspan=2, padx=(12, 0))
-
-        self.icon_label = tk.Label(self, bd=0, highlightthickness=0, bg=theme.BG_PANEL)
-        self.icon_label.grid(row=0, column=1, rowspan=2)
-
-        self.name_label = ctk.CTkLabel(self, text="", font=f["name"], text_color=theme.TEXT_MAIN, anchor="w")
-        self.name_label.grid(row=0, column=2, sticky="sw", padx=(0, 8), pady=(6, 0))
-        self.publisher_label = ctk.CTkLabel(self, text="", font=f["small"], text_color=theme.TEXT_DIM, anchor="w")
-        self.publisher_label.grid(row=1, column=2, sticky="nw", padx=(0, 8), pady=(0, 6))
-
-        self.badge = ctk.CTkLabel(
-            self, text="", font=f["badge"], fg_color=theme.BORDER, corner_radius=6, width=50, height=20,
-        )
-        self.badge.grid(row=0, column=3, rowspan=2)
-
-        self.size_label = ctk.CTkLabel(self, text="", font=f["size"], text_color=theme.TEXT_MAIN, anchor="e")
-        self.size_label.grid(row=0, column=4, sticky="sew", padx=(0, 14), pady=(6, 0))
-        self.bar = ctk.CTkProgressBar(
-            self, width=COL_SIZE - 14, height=4, corner_radius=2, fg_color=theme.BORDER,
-            progress_color=theme.ACCENT_GREEN, border_width=0,
-        )
-        self.bar.grid(row=1, column=4, sticky="ne", padx=(0, 14), pady=(5, 0))
-
-        self.date_label = ctk.CTkLabel(self, text="", font=f["small"], text_color=theme.TEXT_DIM, anchor="e")
-        self.date_label.grid(row=0, column=5, rowspan=2, sticky="e", padx=(0, 16))
-
-        self.open_button = ctk.CTkButton(
-            self, text="Відкрити папку", width=112, height=28, corner_radius=8, font=f["small"],
-            fg_color=theme.BORDER, hover_color="#2d3953", text_color=theme.TEXT_MAIN,
-            command=lambda: owner.on_open(self.program),
-        )
-        self.delete_button = ctk.CTkButton(
-            self, text="Видалити", width=80, height=28, corner_radius=8, font=f["small"],
-            fg_color=theme.ERROR, hover_color=_DELETE_HOVER, text_color="#ffffff",
-            command=lambda: owner.on_uninstall(self.program),
-        )
-
-        self.date_label.bind("<Enter>", self._on_date_enter, add="+")
-        self.date_label.bind("<Leave>", lambda _e: owner.tip.hide(), add="+")
-        self.name_label.bind("<Enter>", self._on_name_enter, add="+")
-        self.name_label.bind("<Leave>", lambda _e: owner.tip.hide(), add="+")
-        self._bind_pointer(self)
-
-    def _bind_pointer(self, widget) -> None:
-        """Motion/Leave/Double-click з усіх вкладених віджетів — у список."""
-        widget.bind("<Motion>", self._owner.schedule_hover, add="+")
-        widget.bind("<Leave>", self._owner.schedule_hover, add="+")
-        widget.bind("<MouseWheel>", self._owner.on_wheel, add="+")
-        if not isinstance(widget, (ctk.CTkButton, ctk.CTkCheckBox)):
-            widget.bind("<Double-Button-1>", self._on_double_click, add="+")
-        for child in widget.winfo_children():
-            self._bind_pointer(child)
-
-    # ---------------------------------------------------------------- bind
-
-    def bind_program(self, index: int, program: dict, *, name_px: int, selected: bool, hovered: bool,
-                     max_size: int, icon) -> None:
-        self.index = index
-        self.program = program
-        self._full_name = program["name"]
-        shown = self._owner.truncate(self._full_name, name_px, "name")
-        self._name_truncated = shown != self._full_name
-        self.name_label.configure(text=shown)
-        self.publisher_label.configure(text=self._owner.truncate(program.get("publisher") or "—", name_px, "small"))
-
-        store = program.get("store")
-        if store:
-            self.badge.configure(text=store, text_color=STORE_COLORS.get(store, theme.TEXT_DIM))
-            self.badge.grid()
-        else:
-            self.badge.grid_remove()
-
-        self.refresh_size(program, max_size)
-        self.date_label.configure(text=relative_date(program.get("install_date")))
-        self.set_icon(icon)
-        self.open_button.configure(state="normal" if program.get("install_folder") else "disabled")
-
-        self._selected = selected
-        if selected:
-            self.check.select()
-        else:
-            self.check.deselect()
-        self._hovered = None  # примусово перемалювати стан
-        self.set_hovered(hovered)
-
-    def refresh_size(self, program: dict, max_size: int) -> None:
-        self.size_label.configure(text=size_text(program))
-        size = program["size_bytes"]
-        self.bar.configure(progress_color=CATEGORY_COLORS.get(program.get("category"), theme.ACCENT_GREEN))
-        self.bar.set(max(size / max_size, 0.02) if size and max_size else 0)
-
-    def set_icon(self, photo) -> None:
-        self._icon_photo = photo
-        self.icon_label.configure(image=photo)
-
-    # --------------------------------------------------------------- стан
-
-    def set_selected(self, selected: bool) -> None:
-        self._selected = selected
-        self._apply_state()
-
-    def set_hovered(self, hovered: bool) -> None:
-        if hovered == self._hovered:
-            return
-        self._hovered = hovered
-        self._apply_state()
-        if hovered:
-            self.date_label.grid_remove()
-            self.delete_button.place(relx=1.0, x=-14, rely=0.5, anchor="e")
-            if self.program and self.program.get("install_folder"):
-                self.open_button.place(relx=1.0, x=-100, rely=0.5, anchor="e")
-        else:
-            self.open_button.place_forget()
-            self.delete_button.place_forget()
-            self.date_label.grid()
-
-    def _apply_state(self) -> None:
-        fill = theme.BG_PANEL_LIGHT if self._hovered else theme.BG_PANEL
-        if self._hovered:
-            border = theme.ACCENT_BLUE
-        elif self._selected:
-            border = theme.ACCENT_GREEN_DIM
-        else:
-            border = theme.BORDER
-        self.configure(fg_color=fill, border_color=border)
-        self.icon_label.configure(bg=fill)
-
-    # ------------------------------------------------------------ обробники
-
-    def _on_check(self) -> None:
-        if self.program is None:
-            return
-        self._selected = bool(self.check.get())
-        self._apply_state()
-        self._owner.on_toggle(self.program, self._selected)
-
-    def _on_double_click(self, _event) -> None:
-        if self.program is not None:
-            self._owner.on_open(self.program)
-
-    def _on_date_enter(self, event) -> None:
-        d = self.program.get("install_date") if self.program else None
-        if d is not None:
-            self._owner.tip.show(f"Встановлено: {d.strftime('%d.%m.%Y')}", event.x_root, event.y_root)
-
-    def _on_name_enter(self, event) -> None:
-        if self._name_truncated and self.program:
-            version = self.program.get("version")
-            text = f"{self._full_name}\nВерсія: {version}" if version else self._full_name
-            self._owner.tip.show(text, event.x_root, event.y_root)
-
-
 # ----------------------------------------------------------------------- список
 
-class VirtualList(ctk.CTkFrame):
-    """Прокручуваний список із пулом рядків. Колбеки: on_toggle(program, checked),
-    on_open(program), on_uninstall(program)."""
+class VirtualList(CanvasList):
+    """Список програм. Колбеки: on_toggle(program, checked), on_open(program),
+    on_uninstall(program). `selected` — спільна з вкладкою множина ключів."""
+
+    wheel_step_dp = ROW_H * 1.2
+    clickable_regions = frozenset({"check", "open", "delete"})
+    sound_regions = frozenset({"open", "delete"})
 
     def __init__(self, master, *, selected: set, on_toggle, on_open, on_uninstall):
-        super().__init__(master, fg_color="transparent")
-        self.selected = selected  # спільна з вкладкою множина ключів
+        super().__init__(master, bg=theme.BG_MAIN)
+        self.selected = selected
         self.on_toggle, self.on_open, self.on_uninstall = on_toggle, on_open, on_uninstall
         self.max_size = 0
-        self.tip = _Tip(self)
-        self.fonts = {
-            "name": ctk.CTkFont(family=_FONT_FAMILY, size=13, weight="bold"),
-            "small": theme.font_small(),
-            "size": ctk.CTkFont(family=_FONT_FAMILY, size=13, weight="bold"),
-            "badge": ctk.CTkFont(family=_FONT_FAMILY, size=10, weight="bold"),
-        }
-
         self._items: list[dict] = []
-        self._pool: list[ProgramRow] = []
-        self._offset = 0.0  # dp
-        self._hover_index: int | None = None
-        self._hover_job = None
-        self._layout_job = None
-        self._last_width = 0
-        self._measure_fonts: dict = {}
-        self._trunc_cache: dict = {}
         self._photo_cache: dict = {}
         self.icons = IconLoader(self._icon_ready_threadsafe)
-
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        self.viewport = tk.Frame(self, bg=theme.BG_MAIN, bd=0, highlightthickness=0)
-        self.viewport.grid(row=0, column=0, sticky="nsew")
-        self.scrollbar = ctk.CTkScrollbar(
-            self, command=self._on_scrollbar, width=12, fg_color="transparent",
-            button_color=theme.BORDER, button_hover_color=theme.TEXT_DIM,
-        )
-        self.scrollbar.grid(row=0, column=1, sticky="ns", padx=(6, 0))
-
-        self.empty_label = ctk.CTkLabel(
-            self.viewport, text="", font=theme.font_body(), text_color=theme.TEXT_DIM,
-        )
-
-        self.viewport.bind("<Configure>", self._on_configure)
-        self.viewport.bind("<Motion>", self.schedule_hover)
-        self.viewport.bind("<Leave>", self.schedule_hover)
-        self.viewport.bind("<MouseWheel>", self.on_wheel)
-        self.bind("<Destroy>", lambda e: self.tip.hide() if e.widget is self else None)
 
     # ------------------------------------------------------------- дані
 
     def set_items(self, items: list[dict], *, keep_scroll: bool = False, empty_text: str = "") -> None:
         self._items = items
-        if not keep_scroll:
-            self._offset = 0.0
-        self.tip.hide()
-        self.empty_label.configure(text=empty_text)
-        for row in self._pool:
-            row.index = None
-        self._layout()
+        self.set_empty_text(empty_text)
+        self.set_count(len(items), keep_scroll=keep_scroll)
 
     def refresh_visible(self) -> None:
-        """Перепризначає всі видимі рядки (зміна розмірів, вибору тощо)."""
-        for row in self._pool:
-            row.index = None
-        self._layout()
+        """Перезаповнює всі видимі рядки (зміна розмірів, вибору тощо)."""
+        self.refresh()
 
     def refresh_key(self, key: str) -> None:
-        for row in self._pool:
-            if row.index is not None and row.program and row.program["key"] == key:
-                row.refresh_size(row.program, self.max_size)
+        for idx, slot in list(self._slots.items()):
+            if self._items[idx]["key"] == key:
+                self._bind_size(slot, self._items[idx])
 
     def refresh_selection(self) -> None:
-        for row in self._pool:
-            if row.index is not None and row.program:
-                selected = row.program["key"] in self.selected
-                if selected:
-                    row.check.select()
-                else:
-                    row.check.deselect()
-                row.set_selected(selected)
+        for idx, slot in list(self._slots.items()):
+            self._apply_state(slot, idx)
 
-    # ---------------------------------------------------------- геометрія
+    def row_height_dp(self, index: int) -> float:
+        return ROW_H
 
-    def _scale(self) -> float:
-        return self._get_widget_scaling()
-
-    def _view_dp(self) -> float:
-        return self.viewport.winfo_height() / self._scale()
-
-    def _total_dp(self) -> float:
-        return len(self._items) * ROW_H
-
-    def _on_configure(self, _event=None) -> None:
-        if self._layout_job is None:
-            self._layout_job = self.after(16, self._relayout)
-
-    def _relayout(self) -> None:
-        self._layout_job = None
-        width = self.viewport.winfo_width()
-        if width != self._last_width:  # від ширини залежить обрізання назв
-            self._last_width = width
-            for row in self._pool:
-                row.index = None
-        self._layout()
-
-    def _ensure_pool(self, view_dp: float) -> None:
-        needed = int(view_dp // ROW_H) + 3
-        if len(self._pool) >= needed:
-            return
-        while len(self._pool) < needed:
-            self._pool.append(ProgramRow(self.viewport, self))
-        for row in self._pool:  # змінився модуль idx % len(pool)
-            row.index = None
-            row.place_forget()
-
-    def _layout(self) -> None:
-        view = self._view_dp()
-        if view <= 1:
-            return
-        self._ensure_pool(view)
-        n = len(self._items)
-        self._offset = max(0.0, min(self._offset, max(0.0, self._total_dp() - view)))
-
-        first = int(self._offset // ROW_H)
-        last = min(n, int((self._offset + view) // ROW_H) + 1)
-        pool_n = len(self._pool)
-        name_px = self._name_px()
-
-        for idx in range(first, last):
-            row = self._pool[idx % pool_n]
-            if row.index != idx:
-                self._bind_row(row, idx, name_px)
-            row.place(x=0, y=idx * ROW_H - self._offset, relwidth=1.0)
-        for row in self._pool:
-            if row.index is not None and not first <= row.index < last:
-                row.place_forget()
-                row.index = None
-                row._hovered = False
-
-        if n:
-            self.empty_label.place_forget()
-        else:
-            self.empty_label.place(relx=0.5, rely=0.35, anchor="center")
-        self._update_scrollbar()
-        self.schedule_hover()
-
-    def _bind_row(self, row: ProgramRow, idx: int, name_px: int) -> None:
-        program = self._items[idx]
-        row.bind_program(
-            idx, program, name_px=name_px, selected=program["key"] in self.selected,
-            hovered=idx == self._hover_index, max_size=self.max_size, icon=self.icon_photo(program),
-        )
+    # ------------------------------------------------------------ геометрія
 
     def _name_px(self) -> int:
-        fixed = (COL_CHECK + COL_ICON + COL_BADGE + COL_SIZE + COL_RIGHT + _ROW_EXTRA_DP) * self._scale()
-        return max(int(self.viewport.winfo_width() - fixed), 90)
+        fixed = self.px(_NAME_X + COL_BADGE + COL_SIZE + COL_RIGHT + 8)
+        return max(self.width - fixed, self.px(60))
 
-    def truncate(self, text: str, max_px: int, kind: str) -> str:
-        cache_key = (text, max_px, kind, round(self._scale(), 3))
-        cached = self._trunc_cache.get(cache_key)
-        if cached is not None:
-            return cached
-        font = self._measure_font(kind)
-        if font.measure(text) <= max_px:
-            result = text
+    def _button_boxes(self, program: dict):
+        """(ділянка, x0, y0, x1, y1) кнопок при наведенні, px відносно рядка."""
+        h = self.px(_BUTTON_H)
+        y0 = (self.px(CARD_H) - h) // 2
+        for region, _text, w_dp, right_dp in _BUTTONS:
+            if region == "open" and not program.get("install_folder"):
+                continue
+            x1 = self.width - self.px(right_dp)
+            yield region, x1 - self.px(w_dp), y0, x1, y0 + h
+
+    # ---------------------------------------------------------- рядки пулу
+
+    def create_slot(self, slot: Slot) -> None:
+        c = self.canvas
+        base = (slot.tag, slot.base_tag)
+        opt = (slot.tag,)
+        it = slot.items
+        it["bg"] = c.create_image(0, 0, anchor="nw", tags=base)
+        it["check"] = c.create_image(0, 0, anchor="nw", tags=base)
+        it["icon"] = c.create_image(0, 0, anchor="nw", tags=base)
+        it["name"] = c.create_text(0, 0, anchor="sw", fill=theme.TEXT_MAIN, font=self.font(13, "bold"), tags=base)
+        it["publisher"] = c.create_text(0, 0, anchor="nw", fill=theme.TEXT_DIM, font=self.font(11), tags=base)
+        it["badge_bg"] = c.create_image(0, 0, anchor="center", tags=opt)
+        it["badge"] = c.create_text(0, 0, anchor="center", font=self.font(10, "bold"), tags=opt)
+        it["size"] = c.create_text(0, 0, anchor="se", fill=theme.TEXT_MAIN, font=self.font(13, "bold"), tags=base)
+        width = self.px(4)
+        it["bar_track"] = c.create_line(0, 0, 0, 0, width=width, capstyle="round", fill=theme.BORDER, tags=base)
+        it["bar"] = c.create_line(0, 0, 0, 0, width=width, capstyle="round", tags=opt)
+        it["date"] = c.create_text(0, 0, anchor="e", fill=theme.TEXT_DIM, font=self.font(11), tags=opt)
+        for region, text, _w, _r in _BUTTONS:
+            it[f"{region}_bg"] = c.create_image(0, 0, anchor="nw", tags=opt)
+            it[f"{region}_text"] = c.create_text(
+                0, 0, anchor="center", text=text, font=self.font(11),
+                fill="#ffffff" if region == "delete" else theme.TEXT_MAIN, tags=opt,
+            )
+
+    def bind_slot(self, slot: Slot, index: int) -> None:
+        program = self._items[index]
+        c = self.canvas
+        it = slot.items
+        card_h = self.px(CARD_H)
+        mid = card_h // 2
+        w = self.width
+
+        c.coords(it["check"], self.px(_CHECK_X), mid - self.px(_CHECK_DP) // 2)
+        icon_px = self.px(ICON_DP)
+        c.coords(it["icon"], self.px(_ICON_X), mid - icon_px // 2)
+        c.itemconfigure(it["icon"], image=self.icon_photo(program))
+
+        name_px = self._name_px()
+        full_name = program["name"]
+        shown = self.truncate(full_name, name_px, self.font(13, "bold"))
+        slot.data["name_truncated"] = shown != full_name
+        c.coords(it["name"], self.px(_NAME_X), mid + self.px(1))
+        c.itemconfigure(it["name"], text=shown)
+        c.coords(it["publisher"], self.px(_NAME_X), mid + self.px(3))
+        c.itemconfigure(it["publisher"], text=self.truncate(program.get("publisher") or "—", name_px, self.font(11)))
+
+        store = program.get("store")
+        if store:
+            bx = w - self.px(COL_RIGHT + COL_SIZE + COL_BADGE / 2)
+            c.coords(it["badge_bg"], bx, mid)
+            c.itemconfigure(it["badge_bg"], image=pill_image(self.px(50), self.px(20), theme.BORDER, self.px(6)),
+                            state="normal")
+            c.coords(it["badge"], bx, mid)
+            c.itemconfigure(it["badge"], text=store, fill=STORE_COLORS.get(store, theme.TEXT_DIM), state="normal")
+
+        self._bind_size(slot, program)
+        c.coords(it["date"], w - self.px(16), mid)
+        c.itemconfigure(it["date"], text=relative_date(program.get("install_date")))
+
+        for region, x0, y0, x1, y1 in self._button_boxes(program):
+            c.coords(it[f"{region}_bg"], x0, y0)
+            c.coords(it[f"{region}_text"], (x0 + x1) / 2, (y0 + y1) / 2)
+        slot.data["hovered"] = None
+        self._apply_state(slot, index)
+
+    def _bind_size(self, slot: Slot, program: dict) -> None:
+        c = self.canvas
+        it = slot.items
+        mid = self.px(CARD_H) // 2
+        right = self.width - self.px(COL_RIGHT + 14)
+        c.coords(it["size"], right, mid + self.px(1))
+        c.itemconfigure(it["size"], text=size_text(program))
+        bar_w = self.px(COL_SIZE - 14)
+        y = mid + self.px(10)
+        half = self.px(2)
+        x0, x1 = right - bar_w + half, right - half
+        c.coords(it["bar_track"], x0, y, x1, y)
+        size = program["size_bytes"]
+        frac = max(size / self.max_size, 0.02) if size and self.max_size else 0
+        if frac:
+            c.coords(it["bar"], x0, y, x0 + (x1 - x0) * min(frac, 1.0), y)
+            c.itemconfigure(it["bar"], fill=CATEGORY_COLORS.get(program.get("category"), theme.ACCENT_GREEN),
+                            state="normal")
         else:
-            lo, hi = 0, len(text)
-            while lo < hi:
-                mid = (lo + hi + 1) // 2
-                if font.measure(text[:mid].rstrip() + "…") <= max_px:
-                    lo = mid
-                else:
-                    hi = mid - 1
-            result = text[:lo].rstrip() + "…"
-        if len(self._trunc_cache) > 4000:
-            self._trunc_cache.clear()
-        self._trunc_cache[cache_key] = result
-        return result
+            c.itemconfigure(it["bar"], state="hidden")
 
-    def _measure_font(self, kind: str) -> tkfont.Font:
-        px = round((13 if kind == "name" else 11) * self._scale())
-        key = (kind, px)
-        font = self._measure_fonts.get(key)
-        if font is None:
-            font = tkfont.Font(family=_FONT_FAMILY, size=-px, weight="bold" if kind == "name" else "normal")
-            self._measure_fonts[key] = font
-        return font
-
-    # ---------------------------------------------------------- прокрутка
-
-    def _update_scrollbar(self) -> None:
-        total, view = self._total_dp(), self._view_dp()
-        if total <= view or total <= 0:
-            self.scrollbar.set(0, 1)
+    def _apply_state(self, slot: Slot, index: int) -> None:
+        """Фон картки й чекбокс за станом (наведення / вибір)."""
+        program = self._items[index]
+        hovered = self._hover[0] == index
+        selected = program["key"] in self.selected
+        region = self._hover[1] if hovered else None
+        if hovered:
+            fill, border = theme.BG_PANEL_LIGHT, theme.ACCENT_BLUE
+        elif selected:
+            fill, border = theme.BG_PANEL, theme.ACCENT_GREEN_DIM
         else:
-            self.scrollbar.set(self._offset / total, (self._offset + view) / total)
+            fill, border = theme.BG_PANEL, theme.BORDER
+        c = self.canvas
+        it = slot.items
+        c.itemconfigure(it["bg"], image=card_image(
+            max(self.width, 40), self.px(CARD_H), self.px(CARD_RADIUS), fill, border, self.bg, max(1, self.px(1)),
+        ))
+        c.itemconfigure(it["check"], image=checkbox_image(
+            self.px(_CHECK_DP), selected, region == "check", False, self.S,
+        ))
 
-    def _on_scrollbar(self, *args) -> None:
-        total, view = self._total_dp(), self._view_dp()
-        if args[0] == "moveto":
-            self._offset = float(args[1]) * total
-        elif args[0] == "scroll":
-            step = ROW_H if args[2] == "units" else view * 0.9
-            self._offset += int(args[1]) * step
-        self._layout()
+        if hovered != slot.data.get("hovered"):
+            slot.data["hovered"] = hovered
+            c.itemconfigure(it["date"], state="hidden" if hovered else "normal")
+            boxes = {b[0] for b in self._button_boxes(program)} if hovered else set()
+            for name, _text, _w, _r in _BUTTONS:
+                state = "normal" if name in boxes else "hidden"
+                c.itemconfigure(it[f"{name}_bg"], state=state)
+                c.itemconfigure(it[f"{name}_text"], state=state)
+        if hovered:
+            for name, _text, w_dp, _r in _BUTTONS:
+                normal, hover = (theme.ERROR, _DELETE_HOVER) if name == "delete" else (theme.BORDER, _OPEN_HOVER)
+                self.iset(slot, f"{name}_bg", image=pill_image(
+                    self.px(w_dp), self.px(_BUTTON_H), hover if region == name else normal, self.px(8),
+                ))
 
-    def on_wheel(self, event) -> None:
-        self._offset -= (event.delta / 120) * ROW_H * 1.2
-        self._layout()
+    # ------------------------------------------------------------- події
 
-    # ----------------------------------------------------------- наведення
+    def hover_slot(self, slot: Slot, index: int, region: str | None) -> None:
+        self._apply_state(slot, index)
 
-    def schedule_hover(self, _event=None) -> None:
-        if self._hover_job is None:
-            self._hover_job = self.after_idle(self._update_hover)
+    def hit_test(self, index: int, x: int, y: int) -> str | None:
+        if y >= self.px(CARD_H):
+            return None  # проміжок між картками
+        if x < self.px(_ICON_X - 6):
+            return "check"
+        program = self._items[index]
+        for region, x0, y0, x1, y1 in self._button_boxes(program):
+            if x0 <= x < x1 and y0 <= y < y1:
+                return region
+        if self.px(_NAME_X) <= x < self.px(_NAME_X) + self._name_px():
+            return "name"
+        if x >= self.width - self.px(COL_RIGHT):
+            return "date"
+        return "row"
 
-    def _update_hover(self) -> None:
-        self._hover_job = None
-        if not self.winfo_exists():
-            return
-        S = self._scale()
-        vp = self.viewport
-        px = vp.winfo_pointerx() - vp.winfo_rootx()
-        py = vp.winfo_pointery() - vp.winfo_rooty()
-        index = None
-        if 0 <= px < vp.winfo_width() and 0 <= py < vp.winfo_height() and vp.winfo_ismapped():
-            y = py / S + self._offset
-            if y % ROW_H < CARD_H and int(y // ROW_H) < len(self._items):
-                index = int(y // ROW_H)
-        if index == self._hover_index:
-            return
-        old, self._hover_index = self._hover_index, index
-        for row in self._pool:
-            if row.index is not None and row.index in (old, index):
-                row.set_hovered(row.index == index)
-        if index is None:
-            self.tip.hide()
+    def click(self, index: int, region: str) -> None:
+        program = self._items[index]
+        if region == "check":
+            checked = program["key"] not in self.selected
+            if checked:
+                self.selected.add(program["key"])
+            else:
+                self.selected.discard(program["key"])
+            slot = self._slots.get(index)
+            if slot is not None:
+                self._apply_state(slot, index)
+            self.on_toggle(program, checked)
+        elif region == "open":
+            self.on_open(program)
+        elif region == "delete":
+            self.on_uninstall(program)
+
+    def double_click(self, index: int, region: str) -> None:
+        if region not in ("check", "open", "delete"):
+            self.on_open(self._items[index])
+
+    def tooltip_for(self, index: int, region: str) -> str | None:
+        program = self._items[index]
+        slot = self._slots.get(index)
+        if region == "name" and slot is not None and slot.data.get("name_truncated"):
+            version = program.get("version")
+            return f"{program['name']}\nВерсія: {version}" if version else program["name"]
+        if region == "date":
+            d = program.get("install_date")
+            if d is not None:
+                return f"Встановлено: {d.strftime('%d.%m.%Y')}"
+        return None
+
+    def on_scale_changed(self) -> None:
+        self._photo_cache.clear()
 
     # -------------------------------------------------------------- іконки
 
     def icon_photo(self, program: dict):
         """PhotoImage іконки програми (реальна, якщо вже витягнута, інакше заглушка)."""
-        S = self._scale()
+        S = self.S
         ready, image = self.icons.get(program["key"])
         if not ready:
             self.icons.request(program)
@@ -577,12 +375,13 @@ class VirtualList(ctk.CTkFrame):
     def _icon_ready_threadsafe(self, key: str) -> None:
         try:
             self.after(0, self._on_icon_ready, key)
-        except (RuntimeError, tk.TclError):
+        except (RuntimeError, Exception):
             pass
 
     def _on_icon_ready(self, key: str) -> None:
         if not self.winfo_exists():
             return
-        for row in self._pool:
-            if row.index is not None and row.program and row.program["key"] == key:
-                row.set_icon(self.icon_photo(row.program))
+        for idx, slot in self._slots.items():
+            program = self._items[idx]
+            if program["key"] == key:
+                self.canvas.itemconfigure(slot.items["icon"], image=self.icon_photo(program))

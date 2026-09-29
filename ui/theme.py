@@ -17,6 +17,7 @@ AnimatedButton і AnimatedCard монкі-патчать `customtkinter.CTkButto
 
 from __future__ import annotations
 
+import sys
 import time
 import tkinter as tk
 
@@ -76,6 +77,17 @@ def robot_animation_enabled() -> bool:
     return _robot_animation_enabled
 
 
+def set_text(label, text: str, **options) -> None:
+    """label.configure(text=...), лише якщо текст чи опції змінилися: CTkLabel
+    перемальовує себе на КОЖЕН configure, навіть з тим самим текстом, а
+    фонові оновлення (Монітор, Мережа) шлють однакові значення щосекунди."""
+    key = (text, tuple(sorted(options.items())))
+    if getattr(label, "_pulse_text_key", None) == key:
+        return
+    label._pulse_text_key = key
+    label.configure(text=text, **options)
+
+
 def font_title() -> ctk.CTkFont:
     return ctk.CTkFont(family=_FONT_FAMILY, size=22, weight="bold")
 
@@ -93,38 +105,139 @@ def font_small() -> ctk.CTkFont:
 
 
 # --------------------------------------------------------------- анімація
+# Продуктивність: усі анімації (колір наведення, рамки карток, слайд вкладок,
+# кільця) крутить ОДИН спільний таймер _Ticker, а не власний after()-ланцюжок
+# кожного віджета — за кадр виконується один колбек, скільки б елементів не
+# анімувалося. На елемент — не більше однієї анімації (нова замінює стару).
+# Під час прокрутки й при швидкому русі курсора колір змінюється миттєво:
+# анімувати те, що за 50 мс зникне з-під курсора, — лише витрачати кадри.
+
+_FRAME_MS = 15
+_SCROLL_QUIET_S = 0.25  # стільки після останньої прокрутки анімації вимкнені
+_FAST_POINTER_S = 0.07  # Enter/Leave частіше за це — курсор "пролітає"
+
+_last_scroll_at = 0.0
+_last_crossing_at = 0.0
+
+
+def notify_scroll() -> None:
+    """Викликається будь-якою прокруткою: на короткий час вимикає анімації."""
+    global _last_scroll_at
+    _last_scroll_at = time.perf_counter()
+
+
+def is_scrolling() -> bool:
+    return time.perf_counter() - _last_scroll_at < _SCROLL_QUIET_S
+
+
+def _pointer_crossing_is_fast() -> bool:
+    """Реєструє перетин межі елемента курсором; True, якщо попередній був
+    щойно — тобто курсор швидко пролітає над кількома елементами."""
+    global _last_crossing_at
+    now = time.perf_counter()
+    fast = now - _last_crossing_at < _FAST_POINTER_S
+    _last_crossing_at = now
+    return fast
+
+
+def _instant() -> bool:
+    return not _animations_enabled or is_scrolling()
+
+
+def pointer_inside(widget: tk.Misc) -> bool:
+    """Чи курсор усе ще в межах віджета (Leave буває й при переході на
+    дочірній віджет — тоді стан наведення скидати не треба)."""
+    try:
+        if not widget.winfo_ismapped():
+            return False
+        px, py = widget.winfo_pointerxy()
+        x, y = widget.winfo_rootx(), widget.winfo_rooty()
+        return x <= px < x + widget.winfo_width() and y <= py < y + widget.winfo_height()
+    except tk.TclError:
+        return False
+
 
 def ease_out_cubic(x: float) -> float:
     x = max(0.0, min(1.0, x))
     return 1 - (1 - x) ** 3
 
 
-class _ColorAnimator:
-    """Плавно перетворює колір canvas-фігур/лейблів кнопки чи рамку картки
-    з поточного значення на цільове за duration секунд, ~60 кадрів/с.
+_rgb_cache: dict[str, tuple[int, int, int]] = {}
 
-    Використовує after() віджета-власника; попередня анімація на тому
-    самому об'єкті скасовується, а нова стартує з кольору, показаного
-    просто зараз — тому швидке "туди-сюди" наведення не смикається.
-    """
+
+def _rgb(owner: tk.Misc, color: str) -> tuple[int, int, int]:
+    value = _rgb_cache.get(color)
+    if value is None:
+        if color.startswith("#") and len(color) == 7:
+            value = (int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16))
+        else:  # іменовані кольори ("gray" тощо) — один раз через Tk
+            r, g, b = owner.winfo_rgb(color)
+            value = (r // 256, g // 256, b // 256)
+        _rgb_cache[color] = value
+    return value
+
+
+def lerp_color(owner: tk.Misc, c1: str, c2: str, t: float) -> str:
+    r1, g1, b1 = _rgb(owner, c1)
+    r2, g2, b2 = _rgb(owner, c2)
+    return f"#{round(r1 + (r2 - r1) * t):02x}{round(g1 + (g2 - g1) * t):02x}{round(b1 + (b2 - b1) * t):02x}"
+
+
+class _Ticker:
+    """Єдиний after()-цикл для всіх активних анімацій."""
+
+    def __init__(self):
+        self._active: dict = {}  # animator -> None (впорядкована множина)
+        self._job = None
+        self._root = None
+
+    def add(self, animator, owner: tk.Misc) -> None:
+        self._active[animator] = None
+        if self._job is None:
+            try:
+                self._root = owner._root()
+                self._job = self._root.after(_FRAME_MS, self._tick)
+            except (tk.TclError, RuntimeError):
+                self._active.pop(animator, None)
+
+    def remove(self, animator) -> None:
+        self._active.pop(animator, None)
+
+    def _tick(self) -> None:
+        self._job = None
+        now = time.perf_counter()
+        for animator in list(self._active):
+            try:
+                alive = animator._step(now)
+            except tk.TclError:  # віджет знищено посеред анімації
+                alive = False
+            if not alive:
+                self._active.pop(animator, None)
+        if self._active:
+            try:
+                self._job = self._root.after(_FRAME_MS, self._tick)
+            except (tk.TclError, RuntimeError):
+                self._active.clear()
+
+
+_ticker = _Ticker()
+ticker = _ticker
+"""Спільний таймер анімацій: ticker.add(obj, widget) викликає obj._step(now)
+щокадру, доки той повертає True (використовують і списки на Canvas)."""
+
+
+class _ColorAnimator:
+    """Плавно перетворює колір з поточного значення на цільове за duration
+    секунд. Нова анімація замінює попередню й стартує з кольору, показаного
+    просто зараз, — тому швидке "туди-сюди" наведення не смикається."""
 
     def __init__(self, owner: tk.Widget, apply_fn):
         self._owner = owner
         self._apply = apply_fn
-        self._job = None
         self._current: str | None = None
-
-    def _rgb(self, color: str) -> tuple[int, int, int]:
-        r, g, b = self._owner.winfo_rgb(color)
-        return r // 256, g // 256, b // 256
-
-    def _lerp(self, c1: str, c2: str, t: float) -> str:
-        r1, g1, b1 = self._rgb(c1)
-        r2, g2, b2 = self._rgb(c2)
-        r = round(r1 + (r2 - r1) * t)
-        g = round(g1 + (g2 - g1) * t)
-        b = round(b1 + (b2 - b1) * t)
-        return f"#{r:02x}{g:02x}{b:02x}"
+        self._start = self._target = None
+        self._t0 = 0.0
+        self._duration = 0.15
 
     def set_immediate(self, color: str) -> None:
         self.cancel()
@@ -132,53 +245,43 @@ class _ColorAnimator:
         self._apply(color)
 
     def cancel(self) -> None:
-        if self._job is not None:
-            try:
-                self._owner.after_cancel(self._job)
-            except tk.TclError:
-                pass
-            self._job = None
+        _ticker.remove(self)
 
-    def animate_to(self, target: str, duration: float = 0.15) -> None:
-        if not self._owner.winfo_exists():
-            return
-        if self._current is None or not animations_enabled():
+    def animate_to(self, target: str, duration: float = 0.15, instant: bool = False) -> None:
+        if self._current is None or instant or _instant():
             self.set_immediate(target)
             return
         if self._current == target:
+            self.cancel()
             return
-        self.cancel()
-        start_color = self._current
-        start_time = time.perf_counter()
+        self._start, self._target = self._current, target
+        self._t0 = time.perf_counter()
+        self._duration = duration
+        _ticker.add(self, self._owner)
 
-        def step():
-            if not self._owner.winfo_exists():
-                self._job = None
-                return
-            t = (time.perf_counter() - start_time) / duration
-            if t >= 1.0:
-                self._current = target
-                self._apply(target)
-                self._job = None
-                return
-            color = self._lerp(start_color, target, ease_out_cubic(t))
-            self._current = color
-            self._apply(color)
-            self._job = self._owner.after(12, step)
-
-        step()
+    def _step(self, now: float) -> bool:
+        t = (now - self._t0) / self._duration
+        if t >= 1.0:
+            self._current = self._target
+            self._apply(self._target)
+            return False
+        self._current = lerp_color(self._owner, self._start, self._target, ease_out_cubic(t))
+        self._apply(self._current)
+        return True
 
 
 class ValueAnimator:
-    """Як _ColorAnimator, але для довільного числового значення (позиція,
-    прозорість-заміна тощо). Використовується, наприклад, для індикатора
-    активної вкладки в бічному меню й переходів між вкладками."""
+    """Як _ColorAnimator, але для довільного числового значення (позиція
+    індикатора активної вкладки, слайд вкладок, відсоток кільця)."""
 
     def __init__(self, owner: tk.Widget, apply_fn):
         self._owner = owner
         self._apply = apply_fn
-        self._job = None
         self.current: float | None = None
+        self._start = self._target = 0.0
+        self._t0 = 0.0
+        self._duration = 0.2
+        self._on_done = None
 
     def set_immediate(self, value: float) -> None:
         self.cancel()
@@ -186,42 +289,31 @@ class ValueAnimator:
         self._apply(value)
 
     def cancel(self) -> None:
-        if self._job is not None:
-            try:
-                self._owner.after_cancel(self._job)
-            except tk.TclError:
-                pass
-            self._job = None
+        _ticker.remove(self)
 
     def animate_to(self, target: float, duration: float = 0.2, on_done=None) -> None:
-        if not self._owner.winfo_exists():
-            return
-        if self.current is None or not animations_enabled():
+        if self.current is None or not _animations_enabled:
             self.set_immediate(target)
             if on_done:
                 on_done()
             return
-        self.cancel()
-        start_value = self.current
-        start_time = time.perf_counter()
+        self._start, self._target = self.current, target
+        self._t0 = time.perf_counter()
+        self._duration = duration
+        self._on_done = on_done
+        _ticker.add(self, self._owner)
 
-        def step():
-            if not self._owner.winfo_exists():
-                self._job = None
-                return
-            t = (time.perf_counter() - start_time) / duration
-            if t >= 1.0:
-                self.current = target
-                self._apply(target)
-                self._job = None
-                if on_done:
-                    on_done()
-                return
-            self.current = start_value + (target - start_value) * ease_out_cubic(t)
-            self._apply(self.current)
-            self._job = self._owner.after(12, step)
-
-        step()
+    def _step(self, now: float) -> bool:
+        t = (now - self._t0) / self._duration
+        if t >= 1.0:
+            self.current = self._target
+            self._apply(self._target)
+            if self._on_done:
+                self._on_done()
+            return False
+        self.current = self._start + (self._target - self._start) * ease_out_cubic(t)
+        self._apply(self.current)
+        return True
 
 
 def _play_hover_tick() -> None:
@@ -240,6 +332,9 @@ def _play_click() -> None:
         pass
 
 
+play_click = _play_click
+
+
 # --------------------------------------------------------- AnimatedButton
 
 class AnimatedButton(ctk.CTkButton):
@@ -250,6 +345,9 @@ class AnimatedButton(ctk.CTkButton):
     колір замість миттєвої зміни. Клікова "просадка" вже була вбудована
     в CTkButton (_on_release -> _on_leave, потім через 100 мс назад до
     hover-кольору) і автоматично стає плавною разом з рештою.
+
+    Leave при переході курсора з canvas кнопки на її ж текст ігнорується
+    (курсор лишився в межах кнопки) — інакше колір і звук "блимали" б.
     """
 
     play_hover_sound = False
@@ -274,18 +372,26 @@ class AnimatedButton(ctk.CTkButton):
             pass
 
     def _on_enter(self, event=None):
+        if self._mouse_inside and event is not None:
+            return  # перехід між canvas і текстом тієї самої кнопки
         self._mouse_inside = True
         if self._hover is True and self._state == "normal":
             target = self._fg_color if self._hover_color is None else self._hover_color
-            self._color_anim.animate_to(self._apply_appearance_mode(target))
+            self._color_anim.animate_to(
+                self._apply_appearance_mode(target), instant=_pointer_crossing_is_fast(),
+            )
             if self.play_hover_sound:
                 _play_hover_tick()
 
     def _on_leave(self, event=None):
+        if event is not None and pointer_inside(self):
+            return
         self._mouse_inside = False
         self._click_animation_running = False
         target = self._bg_color if self._fg_color == "transparent" else self._fg_color
-        self._color_anim.animate_to(self._apply_appearance_mode(target))
+        self._color_anim.animate_to(
+            self._apply_appearance_mode(target), instant=_pointer_crossing_is_fast(),
+        )
 
     def _on_release(self, event=None):
         if self._mouse_inside and self._state != tk.DISABLED:
@@ -308,6 +414,12 @@ class AnimatedCard(ctk.CTkFrame):
     "transparent") панелей із заокругленням, як самостійно, так і через
     глобальний монкі-патч CTkFrame нижче. Суто розкладкові/прозорі
     контейнери (переважна більшість фреймів у проєкті) не чіпаються.
+
+    Продуктивність: Enter/Leave слухаємо на самому tk.Frame (Tk надсилає їх,
+    лише коли курсор входить у картку чи її нащадків ззовні або покидає їх
+    усі — переходи між дочірніми віджетами подій не дають), а колір рамки
+    міняємо прямо в canvas (itemconfig "border_parts"), без configure(), який
+    щоразу перебудовував би всю заокруглену фігуру.
     """
 
     def __init__(self, *args, **kwargs):
@@ -323,20 +435,116 @@ class AnimatedCard(ctk.CTkFrame):
             self._border_anim.set_immediate(self._apply_appearance_mode(self._rest_border))
         except tk.TclError:
             pass
-        self._canvas.bind("<Enter>", self._on_card_enter, add="+")
-        self._canvas.bind("<Leave>", self._on_card_leave, add="+")
+        tk.Misc.bind(self, "<Enter>", self._on_card_enter, "+")
+        tk.Misc.bind(self, "<Leave>", self._on_card_leave, "+")
 
     def _apply_border_color(self, color: str) -> None:
         try:
-            self.configure(border_color=color)
+            self._canvas.itemconfig("border_parts", fill=color, outline=color)
         except tk.TclError:
             pass
 
+    def _draw(self, no_color_updates=False):
+        super()._draw(no_color_updates)
+        # перебудова фігури (зміна розміру) скидає рамку до кольору спокою
+        anim = getattr(self, "_border_anim", None)
+        if anim is not None and anim._current is not None:
+            self._apply_border_color(anim._current)
+
     def _on_card_enter(self, _event=None) -> None:
-        self._border_anim.animate_to(ACCENT_BLUE, duration=0.18)
+        self._border_anim.animate_to(ACCENT_BLUE, duration=0.18, instant=_pointer_crossing_is_fast())
 
     def _on_card_leave(self, _event=None) -> None:
-        self._border_anim.animate_to(self._apply_appearance_mode(self._rest_border), duration=0.18)
+        if pointer_inside(self):
+            return
+        self._border_anim.animate_to(
+            self._apply_appearance_mode(self._rest_border), duration=0.18,
+            instant=_pointer_crossing_is_fast(),
+        )
+
+
+# ----------------------------------------------- швидкий скролбар і прокрутка
+
+def _scrollbar_set(self, start_value: float, end_value: float) -> None:
+    """Заміна CTkScrollbar.set: оригінал на КОЖНУ прокрутку перемальовує
+    фігуру й викликає update_idletasks() — синхронну перебудову всього вікна
+    посеред обробки колеса (~9 мс). Тут перемальовка відкладається в
+    after_idle і виконується раз за кадр, без update_idletasks()."""
+    start_value, end_value = float(start_value), float(end_value)
+    if (start_value, end_value) == (self._start_value, self._end_value):
+        return
+    self._start_value, self._end_value = start_value, end_value
+    if getattr(self, "_fast_redraw_job", None) is None:
+        try:
+            self._fast_redraw_job = self.after_idle(self._fast_redraw)
+        except tk.TclError:
+            pass
+
+
+def _scrollbar_fast_redraw(self) -> None:
+    self._fast_redraw_job = None
+    try:
+        start, end = self._get_scrollbar_values_for_minimum_pixel_size()
+        self._draw_engine.draw_rounded_scrollbar(
+            self._apply_widget_scaling(self._current_width),
+            self._apply_widget_scaling(self._current_height),
+            self._apply_widget_scaling(self._corner_radius),
+            self._apply_widget_scaling(self._border_spacing),
+            start, end, self._orientation,
+        )
+        color = self._apply_appearance_mode(self._button_hover_color if self._hover_state else self._button_color)
+        self._canvas.itemconfig("scrollbar_parts", fill=color, outline=color)
+    except tk.TclError:
+        pass
+
+
+class _SmoothWheel:
+    """Плавна прокрутка колесом для CTkScrollableFrame: замість стрибка на
+    20 px за "клік" колеса вміст доїжджає до цілі за кілька кадрів."""
+
+    def __init__(self, frame):
+        self._frame = frame
+        self._pending = 0.0  # px, ще не прокручені
+
+    def add(self, pixels: float) -> None:
+        self._pending += pixels
+        if _animations_enabled:
+            _ticker.add(self, self._frame)
+        else:
+            step = round(self._pending)
+            self._pending = 0.0
+            if step:
+                self._frame._parent_canvas.yview_scroll(step, "units")
+
+    def _step(self, _now: float) -> bool:
+        step = self._pending * 0.35
+        if abs(step) < 1:
+            step = 0 if abs(self._pending) < 0.5 else (1 if self._pending > 0 else -1)
+        step = round(step)
+        if step == 0:
+            self._pending = 0.0
+            return False
+        self._pending -= step
+        self._frame._parent_canvas.yview_scroll(step, "units")
+        notify_scroll()
+        return True
+
+
+_orig_mouse_wheel_all = ctk.CTkScrollableFrame._mouse_wheel_all
+
+
+def _scrollable_mouse_wheel_all(self, event):
+    if not self._check_if_valid_scroll(event.widget):
+        return
+    notify_scroll()
+    if sys.platform.startswith("win") and not self._shift_pressed and self._orientation == "vertical":
+        if self._parent_canvas.yview() != (0.0, 1.0):
+            wheel = getattr(self, "_smooth_wheel", None)
+            if wheel is None:
+                wheel = self._smooth_wheel = _SmoothWheel(self)
+            wheel.add(-event.delta / 6)
+        return
+    _orig_mouse_wheel_all(self, event)
 
 
 # ------------------------------------------------------------- монкі-патч
@@ -354,3 +562,7 @@ if getattr(ctk, "CTkButton", None) is not AnimatedButton:
     ctk.CTkButton = AnimatedButton
 if getattr(ctk, "CTkFrame", None) is not AnimatedCard:
     ctk.CTkFrame = AnimatedCard
+if ctk.CTkScrollbar.set is not _scrollbar_set:
+    ctk.CTkScrollbar.set = _scrollbar_set
+    ctk.CTkScrollbar._fast_redraw = _scrollbar_fast_redraw
+    ctk.CTkScrollableFrame._mouse_wheel_all = _scrollable_mouse_wheel_all

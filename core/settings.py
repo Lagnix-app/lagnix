@@ -5,6 +5,7 @@
 накопичує сама програма. Старий об'єднаний config.json мігрується
 автоматично один раз (core/migrate.py)."""
 
+import copy
 import json
 import os
 
@@ -36,22 +37,33 @@ DEFAULT_SETTINGS = {
 }
 
 
+# Кеш розібраного settings.json за (mtime, розмір): load_settings() кличуть
+# часто (Монітор — щосекунди з фонового потоку), а файл змінюється рідко.
+_cache_key = None
+_cache_data: dict | None = None
+
+
 def load_settings() -> dict:
+    global _cache_key, _cache_data
     migrate_if_needed()
 
-    if not os.path.exists(SETTINGS_PATH):
-        save_settings(DEFAULT_SETTINGS)
-        return dict(DEFAULT_SETTINGS)
-
     try:
-        with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return dict(DEFAULT_SETTINGS)
+        st = os.stat(SETTINGS_PATH)
+    except OSError:
+        save_settings(DEFAULT_SETTINGS)
+        return copy.deepcopy(DEFAULT_SETTINGS)
 
-    merged = dict(DEFAULT_SETTINGS)
-    merged.update(data)
-    return merged
+    key = (st.st_mtime_ns, st.st_size)
+    if key != _cache_key or _cache_data is None:
+        try:
+            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return copy.deepcopy(DEFAULT_SETTINGS)
+        merged = dict(DEFAULT_SETTINGS)
+        merged.update(data)
+        _cache_key, _cache_data = key, merged
+    return copy.deepcopy(_cache_data)  # копія: виклики можуть змінювати словник
 
 
 def save_settings(settings: dict) -> None:

@@ -11,7 +11,7 @@ from collections import deque
 
 import psutil
 
-from core import perf_counters
+from core import perf_counters, process_snapshot
 from core.settings import load_settings
 from core.system_processes import is_hidden
 
@@ -91,8 +91,11 @@ def prime() -> None:
     """Ініціалізує лічильники psutil, PDH і NVML, щоб перше реальне вимірювання було коректним."""
     global _prev_disk_io, _prev_net_io, _prev_io_time
     psutil.cpu_percent(interval=None)
-    for proc in psutil.process_iter(["cpu_percent"]):
-        pass
+    if process_snapshot.is_available():
+        process_snapshot.sample()
+    else:
+        for _proc in psutil.process_iter(["cpu_percent"]):
+            pass
     _prev_disk_io = psutil.disk_io_counters()
     _prev_net_io = psutil.net_io_counters()
     _prev_io_time = time.perf_counter()
@@ -320,8 +323,32 @@ def get_top_processes(limit: int = 12):
     максимум був 100%.
     """
     current_pid = os.getpid()
+    if process_snapshot.is_available():
+        try:
+            procs = [
+                p for p in process_snapshot.sample()
+                if p["pid"] != current_pid and not is_hidden(p["name"])
+            ]
+        except OSError:
+            procs = _psutil_processes(current_pid)
+    else:
+        procs = _psutil_processes(current_pid)
+
+    top_cpu = sorted(procs, key=lambda p: p["cpu_percent"], reverse=True)[:limit]
+    top_ram = sorted(procs, key=lambda p: p["memory_mb"], reverse=True)[:limit]
+
+    merged = {p["pid"]: p for p in top_ram}
+    merged.update({p["pid"]: p for p in top_cpu})
+    return list(merged.values())
+
+
+def _psutil_processes(current_pid: int) -> list[dict]:
+    """Запасний шлях (не Windows або збій NtQuerySystemInformation)."""
     procs = []
-    for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "memory_info"]):
+    # memory_percent свідомо не запитуємо: psutil рахує його через той самий
+    # memory_info() — ще один системний виклик на кожен процес. Для сортування
+    # "за RAM" досить rss.
+    for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info"]):
         try:
             info = proc.info
             pid = info["pid"]
@@ -334,18 +361,11 @@ def get_top_processes(limit: int = 12):
                 "pid": pid,
                 "name": name,
                 "cpu_percent": (info["cpu_percent"] or 0.0) / _LOGICAL_CPU_COUNT,
-                "memory_percent": info["memory_percent"] or 0.0,
                 "memory_mb": (mem_info.rss / (1024 ** 2)) if mem_info else 0.0,
             })
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-
-    top_cpu = sorted(procs, key=lambda p: p["cpu_percent"], reverse=True)[:limit]
-    top_ram = sorted(procs, key=lambda p: p["memory_percent"], reverse=True)[:limit]
-
-    merged = {p["pid"]: p for p in top_ram}
-    merged.update({p["pid"]: p for p in top_cpu})
-    return list(merged.values())
+    return procs
 
 
 def terminate_process(pid: int) -> tuple[bool, str]:
@@ -365,8 +385,12 @@ def terminate_process(pid: int) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def collect_snapshot() -> dict:
-    """Один зріз усіх метрик для вкладки «Монітор»."""
+def collect_snapshot(include_processes: bool = True) -> dict:
+    """Один зріз усіх метрик для вкладки «Монітор».
+
+    include_processes=False — коли вкладку не видно: обхід усіх процесів
+    (process_iter) найдорожча частина зрізу, а графік навантаження, який
+    має накопичувати історію й у фоні, процеси не потребує."""
     settings = load_settings()
     threshold = settings.get("temp_threshold_c", DEFAULT_TEMP_THRESHOLD_C)
 
@@ -395,6 +419,6 @@ def collect_snapshot() -> dict:
         "cpu_temp": get_cpu_temperature(),
         "temp_threshold": threshold,
         "uptime_text": get_uptime_text(),
-        "processes": get_top_processes(),
+        "processes": get_top_processes() if include_processes else None,
         **io_rates,
     }

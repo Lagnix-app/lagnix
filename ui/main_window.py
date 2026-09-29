@@ -70,6 +70,10 @@ class MainWindow(ctk.CTk):
         self._build_sidebar()
         self._build_content_area()
 
+        # згорнуте/сховане в трей вікно — фонові оновлення й анімації на паузі
+        self.bind("<Map>", self._on_root_map_change, add="+")
+        self.bind("<Unmap>", self._on_root_map_change, add="+")
+
         if self.settings.get("startup_tab_mode", "last") == "monitor":
             start_tab = TABS[0][0]
         else:
@@ -125,7 +129,7 @@ class MainWindow(ctk.CTk):
         spacer_row = len(TABS) + 1
         sidebar.grid_rowconfigure(spacer_row, weight=1)
 
-        logo = LogoWidget(sidebar)
+        logo = self._logo = LogoWidget(sidebar)
         logo.grid(row=0, column=0, padx=(6, 6), pady=(12, 12), sticky="ew")
 
         self._indicator = theme.PlainFrame(
@@ -160,13 +164,37 @@ class MainWindow(ctk.CTk):
         self.content_area.grid_rowconfigure(0, weight=1)
         self.content_area.grid_columnconfigure(0, weight=1)
 
+        # Вкладки не розміщуються, доки їх не покажуть: прихована вкладка знята
+        # з розкладки (place_forget), а не просто перекрита lift() — інакше Tk
+        # вважає її видимою (winfo_ismapped), Windows обрізає/перемальовує всі
+        # 9 накладених шарів, а перевірки "чи видно" в Моніторі не спрацьовують.
         for key, _label, frame_cls in TABS:
             frame = frame_cls(self.content_area)
-            frame.place(relx=0, rely=0, y=0, relwidth=1, relheight=1)
             self.tab_frames[key] = frame
             self._tab_anim[key] = theme.ValueAnimator(
                 frame, lambda v, f=frame: f.place_configure(y=round(v))
             )
+
+    def _on_root_map_change(self, event) -> None:
+        if event.widget is self:
+            self._update_visibility()
+
+    def _update_visibility(self) -> None:
+        """Сповіщає вкладки (on_visibility_changed(bool), якщо є) і лого про
+        те, чи їх зараз видно: поточна вкладка у не згорнутому вікні."""
+        try:
+            shown = self.state() not in ("iconic", "withdrawn")
+        except Exception:
+            shown = True
+        self._logo.set_paused(not shown)
+        for key, frame in self.tab_frames.items():
+            visible = shown and key == self._current_tab
+            if getattr(frame, "_tab_visible", None) == visible:
+                continue
+            frame._tab_visible = visible
+            hook = getattr(frame, "on_visibility_changed", None)
+            if hook is not None:
+                hook(visible)
 
     def select_tab(self, key: str) -> None:
         """Публічна навігація для кнопок з інших вкладок (напр. підказки, звіт)."""
@@ -175,10 +203,15 @@ class MainWindow(ctk.CTk):
     def _select_tab(self, key: str):
         if key == self._current_tab:
             return
-        self._current_tab = key
+        previous, self._current_tab = self._current_tab, key
 
         frame = self.tab_frames[key]
+        frame.place(relx=0, rely=0, y=_TAB_SLIDE_OFFSET, relwidth=1, relheight=1)
         frame.lift()
+        if previous is not None:
+            self._tab_anim[previous].cancel()
+            self.tab_frames[previous].place_forget()
+        self._update_visibility()
         anim = self._tab_anim[key]
         anim.set_immediate(_TAB_SLIDE_OFFSET)
         anim.animate_to(0, duration=0.2)

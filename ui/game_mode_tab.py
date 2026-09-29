@@ -8,9 +8,83 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 from core import game_mode as game_mode_core
+from ui import theme
+from ui.widgets.canvas_list import CanvasList, card_image, checkbox_image
 
 GAME_CHECK_INTERVAL_SEC = 2.0
 PROFILE_NAMES = ("Гра", "Стрім", "Робота")
+
+
+_CHECK_ROW_DP = 30
+_CHECK_DP = 18
+
+
+class ProcessCheckList(CanvasList):
+    """Список процесів із чекбоксами на одному Canvas (замість сотні
+    CTkCheckBox у CTkScrollableFrame). Клік по всьому рядку перемикає пункт,
+    як клік по тексту CTkCheckBox; системні процеси — недоступні."""
+
+    wheel_step_dp = _CHECK_ROW_DP * 3
+    clickable_regions = frozenset({"row"})
+
+    def __init__(self, master, on_toggle):
+        super().__init__(master, bg=theme.BG_PANEL, scrollbar_gap=4)
+        self._on_toggle = on_toggle
+        self.items: list[dict] = []  # {"name", "label", "checked", "protected"}
+
+    def set_items(self, items: list[dict]) -> None:
+        self.items = items
+        self.set_count(len(items), keep_scroll=True)
+
+    def row_height_dp(self, index: int) -> float:
+        return _CHECK_ROW_DP
+
+    def create_slot(self, slot) -> None:
+        c = self.canvas
+        base = (slot.tag, slot.base_tag)
+        slot.items["bg"] = c.create_image(0, 0, anchor="nw", tags=(slot.tag,))
+        slot.items["check"] = c.create_image(0, 0, anchor="w", tags=base)
+        slot.items["label"] = c.create_text(0, 0, anchor="w", font=self.font(13), tags=base)
+
+    def bind_slot(self, slot, index: int) -> None:
+        item = self.items[index]
+        mid = self.px(_CHECK_ROW_DP) // 2
+        c = self.canvas
+        c.coords(slot.items["check"], self.px(6), mid)
+        x = self.px(6 + _CHECK_DP + 10)
+        c.coords(slot.items["label"], x, mid)
+        c.itemconfigure(
+            slot.items["label"], text=self.truncate(item["label"], max(self.width - x - self.px(6), 40), self.font(13)),
+            fill=theme.TEXT_DIM if item["protected"] else theme.TEXT_MAIN,
+        )
+
+    def hover_slot(self, slot, index: int, region) -> None:
+        item = self.items[index]
+        hovered = region is not None and not item["protected"]
+        c = self.canvas
+        if hovered:
+            c.itemconfigure(slot.items["bg"], state="normal", image=card_image(
+                max(self.width, 20), self.px(_CHECK_ROW_DP), self.px(8),
+                theme.BG_PANEL_LIGHT, theme.BG_PANEL_LIGHT, theme.BG_PANEL,
+            ))
+        else:
+            c.itemconfigure(slot.items["bg"], state="hidden")
+        c.itemconfigure(slot.items["check"], image=checkbox_image(
+            self.px(_CHECK_DP), item["checked"], hovered, item["protected"], self.S,
+        ))
+
+    def hit_test(self, index: int, x: int, y: int):
+        return "disabled" if self.items[index]["protected"] else "row"
+
+    def click(self, index: int, region: str) -> None:
+        if region != "row":
+            return
+        item = self.items[index]
+        item["checked"] = not item["checked"]
+        slot = self.slot_for(index)
+        if slot is not None:
+            self.hover_slot(slot, index, region)
+        self._on_toggle(item["name"], item["checked"])
 
 
 class GameModeTab(ctk.CTkFrame):
@@ -118,8 +192,8 @@ class GameModeTab(ctk.CTkFrame):
             header_row, text="Оновити", width=90, command=self._refresh_process_list,
         ).grid(row=0, column=1, sticky="e")
 
-        self.process_scroll = ctk.CTkScrollableFrame(panel, fg_color="transparent")
-        self.process_scroll.grid(row=1, column=0, padx=6, pady=(0, 12), sticky="nsew")
+        self.process_list = ProcessCheckList(panel, on_toggle=self._on_process_toggle)
+        self.process_list.grid(row=1, column=0, padx=(12, 8), pady=(0, 12), sticky="nsew")
 
     def _build_games_panel(self):
         panel = ctk.CTkFrame(self, corner_radius=10)
@@ -201,32 +275,25 @@ class GameModeTab(ctk.CTkFrame):
     # ------------------------------------------------------------- процеси
 
     def _refresh_process_list(self) -> None:
-        for child in self.process_scroll.winfo_children():
-            child.destroy()
-
         profile_name = self.profile_var.get()
         selected = set(self.state["profiles"].get(profile_name, {}).get("processes", []))
 
+        items = []
         for proc in game_mode_core.get_running_process_names():
             name = proc["name"]
             label = name if proc["count"] <= 1 else f"{name} ({proc['count']})"
             if proc["protected"]:
                 label += " (системний)"
+            items.append({
+                "name": name, "label": label, "protected": proc["protected"],
+                "checked": name in selected and not proc["protected"],
+            })
+        self.process_list.set_items(items)
 
-            var = tk.BooleanVar(value=(name in selected and not proc["protected"]))
-            checkbox = ctk.CTkCheckBox(
-                self.process_scroll, text=label, variable=var,
-                command=lambda n=name, v=var: self._on_process_toggle(n, v),
-            )
-            checkbox.pack(fill="x", padx=6, pady=2, anchor="w")
-
-            if proc["protected"]:
-                checkbox.configure(state="disabled")
-
-    def _on_process_toggle(self, name: str, var: tk.BooleanVar) -> None:
+    def _on_process_toggle(self, name: str, checked: bool) -> None:
         profile_name = self.profile_var.get()
         processes = self.state["profiles"][profile_name].setdefault("processes", [])
-        if var.get():
+        if checked:
             if name not in processes:
                 processes.append(name)
         else:
@@ -366,7 +433,7 @@ class GameModeTab(ctk.CTkFrame):
 
     def _safe_update_detect_label(self, text: str) -> None:
         if self.winfo_exists():
-            self.game_detect_label.configure(text=text)
+            theme.set_text(self.game_detect_label, text)  # щодві секунди — зазвичай той самий текст
 
     def _on_destroy(self, event) -> None:
         if event.widget is self:

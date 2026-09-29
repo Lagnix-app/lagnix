@@ -149,8 +149,13 @@ class UsageBar(ctk.CTkFrame):
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, W - 1, H - 1), radius=H / 2, fill=255)
         layer = Image.new("RGB", (W, H), aa.rgb(theme.BG_PANEL))
         layer.paste(bars, (0, 0), mask)
-        self._photo = ImageTk.PhotoImage(aa.downscale(layer, (w, h)))
-        self.canvas.itemconfigure(self._image_item, image=self._photo)
+        img = aa.downscale(layer, (w, h))
+        if self._photo is not None and self._size == (w, h):
+            self._photo.paste(img)  # той самий PhotoImage — без нового об'єкта Tk
+        else:
+            self._photo = ImageTk.PhotoImage(img)
+            self._size = (w, h)
+            self.canvas.itemconfigure(self._image_item, image=self._photo)
 
 
 # --------------------------------------------------------------------------- вкладка
@@ -271,7 +276,7 @@ class ProgramsTab(ctk.CTkFrame):
             on_open=self._open_install_folder, on_uninstall=self._uninstall_one,
         )
         self.list.grid(row=3, column=0, padx=(20, 14), pady=(0, 10), sticky="nsew")
-        self.list.empty_label.configure(text="Завантаження…")
+        self.list.set_empty_text("Завантаження…")
 
     def _build_footer(self):
         footer = ctk.CTkFrame(self, corner_radius=14)

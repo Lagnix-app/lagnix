@@ -18,10 +18,10 @@ from core.settings import load_settings
 from core.system_processes import is_protected
 from ui import theme
 from ui.widgets import aa
+from ui.widgets.canvas_list import CanvasList, card_image, pill_image
 
 DEFAULT_UPDATE_INTERVAL_SEC = 1.0
 GRAPH_POINTS = 60
-PROCESS_ROW_COUNT = 10
 
 RING_SIZE = 128
 RING_THICKNESS = 10
@@ -117,13 +117,13 @@ class RingGauge(ctk.CTkFrame):
         self._unavailable = False
         self._target = max(0.0, min(percent, 100.0))
         self._percent_anim.animate_to(self._target, duration=0.3)
-        self.subtitle_label.configure(text=subtitle)
+        theme.set_text(self.subtitle_label, subtitle)
 
     def set_unavailable(self, subtitle: str) -> None:
         self._unavailable = True
         self._target = 0.0
         self._percent_anim.animate_to(0.0, duration=0.3)
-        self.subtitle_label.configure(text=subtitle)
+        theme.set_text(self.subtitle_label, subtitle)
 
     def _on_percent_step(self, value: float) -> None:
         now = time.perf_counter()
@@ -185,7 +185,7 @@ class InfoTile(ctk.CTkFrame):
             widget.bind("<Leave>", self._on_leave)
 
     def set_value(self, text: str) -> None:
-        self.value_label.configure(text=text, text_color=theme.TEXT_MAIN)
+        theme.set_text(self.value_label, text, text_color=theme.TEXT_MAIN)
 
     def set_tooltip(self, text: str | None) -> None:
         self._tooltip_text = text
@@ -419,100 +419,110 @@ def _fill_gradient(width: int, height: int, top_alpha: float) -> Image.Image:
 
 # ----------------------------------------------------------------- processes
 
-class ProcessRow(ctk.CTkFrame):
-    """Рядок процесу: іконка-мітка, назва, CPU %, RAM (МБ), дія — кнопка
-    «Завершити» з'являється лише при наведенні на рядок."""
+_PROC_ROW_DP = 32
+_KILL_W, _KILL_H = 84, 24
+# праві краї колонок (dp від правого краю таблиці): CPU, RAM, дія
+_COL_CPU_R, _COL_RAM_R, _COL_ACTION_W = 6 + 90 + 10 + 80 + 10, 6 + 90 + 10, 90
+
+
+class ProcessList(CanvasList):
+    """Рядки процесів на одному Canvas: мітка-крапка, назва, CPU %, RAM (МБ);
+    кнопка «Завершити» з'являється лише при наведенні на рядок. Щосекундне
+    оновлення міняє лише текст/кольори, що справді змінилися (iset)."""
+
+    wheel_step_dp = _PROC_ROW_DP * 3
+    clickable_regions = frozenset({"kill"})
+    sound_regions = frozenset({"kill"})
 
     def __init__(self, master, on_terminate):
-        super().__init__(master, fg_color="transparent")
+        super().__init__(master, bg=theme.BG_PANEL, scrollbar_gap=4)
         self._on_terminate = on_terminate
-        self.pid = None
-        self.protected = False
-        self._hide_job = None
+        self.rows: list[dict] = []
 
-        self.grid_columnconfigure(0, weight=1)
-
-        name_frame = ctk.CTkFrame(self, fg_color="transparent")
-        name_frame.grid(row=0, column=0, sticky="ew", padx=(6, 8), pady=4)
-        self._dot_scale = self._get_widget_scaling()
-        self._dot = tk.Label(
-            name_frame, image=self._dot_image(theme.ACCENT_BLUE), bg=theme.BG_PANEL, bd=0, highlightthickness=0,
-        )
-        self._dot.pack(side="left", padx=(2, 8))
-        self.name_label = ctk.CTkLabel(name_frame, text="Завантаження…", anchor="w", text_color=theme.TEXT_DIM)
-        self.name_label.pack(side="left", fill="x", expand=True)
-
-        self.cpu_label = ctk.CTkLabel(self, text="", width=56, anchor="e")
-        self.cpu_label.grid(row=0, column=1, sticky="e", padx=(0, 10))
-
-        self.ram_label = ctk.CTkLabel(self, text="", width=80, anchor="e")
-        self.ram_label.grid(row=0, column=2, sticky="e", padx=(0, 10))
-
-        self.action_frame = ctk.CTkFrame(self, fg_color="transparent", width=90)
-        self.action_frame.grid(row=0, column=3, sticky="e", padx=(0, 6))
-        self.action_frame.grid_propagate(False)
-
-        self.kill_button = ctk.CTkButton(
-            self.action_frame, text="Завершити", width=84, height=24,
-            fg_color="#a8283f", hover_color=theme.ERROR, command=self._handle_click,
-        )
-        self.tag_label = ctk.CTkLabel(
-            self.action_frame, text="системний", text_color=theme.TEXT_DIM, font=theme.font_small(),
-        )
-
-        for widget in (self, name_frame, self.name_label, self.cpu_label, self.ram_label, self.action_frame, self.kill_button):
-            widget.bind("<Enter>", self._on_hover_enter)
-            widget.bind("<Leave>", self._on_hover_leave)
-
-    def _dot_image(self, color: str):
-        return aa.dot_image(color, 8, theme.BG_PANEL, self._dot_scale)
-
-    def update_data(self, pid: int, name: str, cpu_percent: float, memory_mb: float, protected: bool) -> None:
-        self.pid = pid
-        self.protected = protected
-        self.name_label.configure(text=name, text_color=theme.TEXT_MAIN)
-        self.cpu_label.configure(text=f"{cpu_percent:.1f}%")
-        self.ram_label.configure(text=f"{memory_mb:.0f} МБ")
-
-        dot_color = theme.ERROR if cpu_percent >= 50 else (theme.WARNING if cpu_percent >= 20 else theme.ACCENT_BLUE)
-        self._dot.configure(image=self._dot_image(dot_color))
-
-        self.kill_button.pack_forget()
-        if protected:
-            self.tag_label.pack(side="right")
+    def set_processes(self, rows: list[dict]) -> None:
+        count_changed = len(rows) != len(self.rows)
+        self.rows = rows
+        if count_changed:
+            self.set_count(len(rows), keep_scroll=True)
         else:
-            self.tag_label.pack_forget()
+            self.update_visible()
 
-    def clear(self) -> None:
-        self.pid = None
-        self.protected = False
-        self.name_label.configure(text="Завантаження…", text_color=theme.TEXT_DIM)
-        self.cpu_label.configure(text="")
-        self.ram_label.configure(text="")
-        self._dot.configure(image=self._dot_image(theme.BORDER))
-        self.tag_label.pack_forget()
-        self.kill_button.pack_forget()
+    def row_height_dp(self, index: int) -> float:
+        return _PROC_ROW_DP
 
-    def _on_hover_enter(self, _event=None) -> None:
-        if self._hide_job is not None:
-            try:
-                self.after_cancel(self._hide_job)
-            except Exception:
-                pass
-            self._hide_job = None
-        if self.pid is not None and not self.protected:
-            self.kill_button.pack(side="right")
+    def _kill_box(self):
+        h = self.px(_KILL_H)
+        y0 = (self.px(_PROC_ROW_DP) - h) // 2
+        x1 = self.width - self.px(6)
+        return x1 - self.px(_KILL_W), y0, x1, y0 + h
 
-    def _on_hover_leave(self, _event=None) -> None:
-        self._hide_job = self.after(80, self._hide_kill_button)
+    def create_slot(self, slot) -> None:
+        c = self.canvas
+        base = (slot.tag, slot.base_tag)
+        opt = (slot.tag,)
+        it = slot.items
+        it["bg"] = c.create_image(0, 0, anchor="nw", tags=opt)
+        it["dot"] = c.create_image(0, 0, anchor="w", tags=base)
+        it["name"] = c.create_text(0, 0, anchor="w", font=self.font(13), tags=base)
+        it["cpu"] = c.create_text(0, 0, anchor="e", fill=theme.TEXT_MAIN, font=self.font(13), tags=base)
+        it["ram"] = c.create_text(0, 0, anchor="e", fill=theme.TEXT_MAIN, font=self.font(13), tags=base)
+        it["tag"] = c.create_text(0, 0, anchor="e", text="системний", fill=theme.TEXT_DIM,
+                                  font=self.font(11), tags=opt)
+        it["kill_bg"] = c.create_image(0, 0, anchor="nw", tags=opt)
+        it["kill"] = c.create_text(0, 0, anchor="center", text="Завершити", fill="#ffffff",
+                                   font=self.font(12), tags=opt)
 
-    def _hide_kill_button(self) -> None:
-        self._hide_job = None
-        self.kill_button.pack_forget()
+    def bind_slot(self, slot, index: int) -> None:
+        p = self.rows[index]
+        w = self.width
+        mid = self.px(_PROC_ROW_DP) // 2
+        self.icoords(slot, "dot", self.px(8), mid)
+        cpu = p["cpu_percent"]
+        dot_color = theme.ERROR if cpu >= 50 else (theme.WARNING if cpu >= 20 else theme.ACCENT_BLUE)
+        self.iset(slot, "dot", image=aa.dot_image(dot_color, 8, theme.BG_PANEL, self.S))
+        name_x = self.px(26)
+        name_w = w - self.px(_COL_CPU_R + 56 + 8) - name_x
+        self.icoords(slot, "name", name_x, mid)
+        self.iset(slot, "name", text=self.truncate(p["name"], max(name_w, self.px(40)), self.font(13)),
+                  fill=theme.TEXT_MAIN)
+        self.icoords(slot, "cpu", w - self.px(_COL_CPU_R), mid)
+        self.iset(slot, "cpu", text=f"{cpu:.1f}%")
+        self.icoords(slot, "ram", w - self.px(_COL_RAM_R), mid)
+        self.iset(slot, "ram", text=f"{p['memory_mb']:.0f} МБ")
+        self.icoords(slot, "tag", w - self.px(10), mid)
+        self.icoords(slot, "bg", 0, 0)
+        x0, y0, x1, y1 = self._kill_box()
+        self.icoords(slot, "kill_bg", x0, y0)
+        self.icoords(slot, "kill", (x0 + x1) / 2, (y0 + y1) / 2)
 
-    def _handle_click(self) -> None:
-        if self.pid is not None:
-            self._on_terminate(self.pid, self.name_label.cget("text"))
+    def hover_slot(self, slot, index: int, region) -> None:
+        p = self.rows[index]
+        hovered = region is not None
+        protected = p["protected"]
+        if hovered:
+            self.iset(slot, "bg", image=card_image(
+                max(self.width, 20), self.px(_PROC_ROW_DP), self.px(8),
+                theme.BG_PANEL_LIGHT, theme.BG_PANEL_LIGHT, theme.BG_PANEL,
+            ))
+        self.iset(slot, "bg", state="normal" if hovered else "hidden")
+        self.iset(slot, "tag", state="normal" if protected else "hidden")
+        show_kill = hovered and not protected
+        self.iset(slot, "kill_bg", state="normal" if show_kill else "hidden",
+                  image=pill_image(self.px(_KILL_W), self.px(_KILL_H),
+                                   theme.ERROR if region == "kill" else "#a8283f", self.px(6)))
+        self.iset(slot, "kill", state="normal" if show_kill else "hidden")
+
+    def hit_test(self, index: int, x: int, y: int):
+        if not self.rows[index]["protected"]:
+            x0, y0, x1, y1 = self._kill_box()
+            if x0 <= x < x1 and y0 <= y < y1:
+                return "kill"
+        return "row"
+
+    def click(self, index: int, region: str) -> None:
+        if region == "kill":
+            p = self.rows[index]
+            self._on_terminate(p["pid"], p["name"])
 
 
 class ProcessTable(ctk.CTkFrame):
@@ -537,14 +547,11 @@ class ProcessTable(ctk.CTkFrame):
         ctk.CTkLabel(columns, text="Процес", text_color=theme.TEXT_DIM, font=theme.font_small()).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(columns, text="CPU", text_color=theme.TEXT_DIM, font=theme.font_small(), width=56, anchor="e").grid(row=0, column=1, sticky="e", padx=(0, 10))
         ctk.CTkLabel(columns, text="RAM", text_color=theme.TEXT_DIM, font=theme.font_small(), width=80, anchor="e").grid(row=0, column=2, sticky="e", padx=(0, 10))
-        ctk.CTkLabel(columns, text="", width=90).grid(row=0, column=3, sticky="e", padx=(0, 6))
+        ctk.CTkLabel(columns, text="", width=_COL_ACTION_W).grid(row=0, column=3, sticky="e", padx=(0, 6))
 
-        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll.pack(fill="both", expand=True, padx=10, pady=(2, 14))
-
-        self.rows = [ProcessRow(self.scroll, on_terminate=on_terminate) for _ in range(PROCESS_ROW_COUNT)]
-        for row in self.rows:
-            row.pack(fill="x", pady=1)
+        self.list = ProcessList(self, on_terminate)
+        self.list.pack(fill="both", expand=True, padx=(16, 8), pady=(2, 14))
+        self.list.set_empty_text("Завантаження…")
 
     def _on_toggle(self, value: str) -> None:
         self._sort_key = "cpu" if value == "За CPU" else "ram"
@@ -557,16 +564,10 @@ class ProcessTable(ctk.CTkFrame):
 
     def _render(self, processes: list[dict]) -> None:
         key = (lambda p: p["cpu_percent"]) if self._sort_key == "cpu" else (lambda p: p["memory_mb"])
-        ordered = sorted(processes, key=key, reverse=True)[:PROCESS_ROW_COUNT]
-        for i, row in enumerate(self.rows):
-            if i < len(ordered):
-                p = ordered[i]
-                row.update_data(
-                    pid=p["pid"], name=p["name"], cpu_percent=p["cpu_percent"],
-                    memory_mb=p["memory_mb"], protected=is_protected(p["name"]),
-                )
-            else:
-                row.clear()
+        ordered = sorted(processes, key=key, reverse=True)
+        for p in ordered:
+            p["protected"] = is_protected(p["name"])
+        self.list.set_processes(ordered)
 
 
 # ------------------------------------------------------------- status robot
@@ -608,7 +609,15 @@ class StatusRobot(ctk.CTkFrame):
 
         self._show()
         self.bind("<Destroy>", self._on_destroy)
-        self._tick()
+
+    def set_active(self, active: bool) -> None:
+        """Кліпання працює лише на видимій вкладці."""
+        if active and self._after_id is None:
+            self._last_tick = None
+            self._tick()
+        elif not active and self._after_id is not None:
+            self.after_cancel(self._after_id)
+            self._after_id = None
 
     def _set_scaling(self, *args, **kwargs):
         super()._set_scaling(*args, **kwargs)
@@ -649,7 +658,7 @@ class StatusRobot(ctk.CTkFrame):
             return
         self._mood = mood
         self._show()
-        self.phrase_label.configure(text=phrase, text_color=theme.TEXT_MAIN)
+        theme.set_text(self.phrase_label, phrase, text_color=theme.TEXT_MAIN)
 
     def _tick(self) -> None:
         if not self.winfo_exists():
@@ -681,6 +690,10 @@ class MonitorTab(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
 
         self._stop_event = threading.Event()
+        # Поки вкладку не видно, потік не обходить процеси, а UI лише дописує
+        # історію графіка; останній зріз застосовується повністю при показі.
+        self._visible = False
+        self._last_data: dict | None = None
 
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=1)
@@ -768,7 +781,7 @@ class MonitorTab(ctk.CTkFrame):
 
         while not self._stop_event.is_set():
             try:
-                data = monitor_core.collect_snapshot()
+                data = monitor_core.collect_snapshot(include_processes=self._visible)
             except Exception as exc:
                 _logger.exception("Помилка збору даних монітора")
                 data = {"error": str(exc)}
@@ -790,13 +803,30 @@ class MonitorTab(ctk.CTkFrame):
 
     # --------------------------------------------------------------- apply
 
+    def on_visibility_changed(self, visible: bool) -> None:
+        self._visible = visible
+        self.status_robot.set_active(visible)
+        if visible and self._last_data is not None:
+            # зріз із фону — без процесів: таблиця оновиться наступним зрізом
+            self._render_snapshot(self._last_data, push_graph=False)
+
     def _apply_snapshot(self, data: dict):
         if not self.winfo_exists():
             return
 
         if "error" in data:
-            self.warning_label.configure(text=f" ⚠ Помилка збору даних монітора: {data['error']}")
+            theme.set_text(self.warning_label, f" ⚠ Помилка збору даних монітора: {data['error']}")
             return
+
+        self._last_data = data
+        if not self._visible:
+            # лише накопичуємо історію графіка — нічого не перемальовуємо
+            gpu = data["gpu"]
+            self.graph.push(data["cpu_percent"], gpu["load_percent"] if gpu else None, data["ram_percent"])
+            return
+        self._render_snapshot(data)
+
+    def _render_snapshot(self, data: dict, push_graph: bool = True):
 
         threshold = data["temp_threshold"]
         warnings = []
@@ -853,11 +883,15 @@ class MonitorTab(ctk.CTkFrame):
         )
         self.tile_uptime.set_value(data["uptime_text"])
 
-        self.warning_label.configure(text=(" ⚠ " + "  |  ".join(warnings)) if warnings else "")
+        theme.set_text(self.warning_label, (" ⚠ " + "  |  ".join(warnings)) if warnings else "")
 
-        self.graph.push(data["cpu_percent"], gpu["load_percent"] if gpu else None, data["ram_percent"])
+        if push_graph:
+            self.graph.push(data["cpu_percent"], gpu["load_percent"] if gpu else None, data["ram_percent"])
+        else:
+            self.graph._schedule_redraw()
 
-        self.process_table.update_processes(data["processes"])
+        if data["processes"] is not None:
+            self.process_table.update_processes(data["processes"])
 
         self._update_status_robot(data, warnings)
 

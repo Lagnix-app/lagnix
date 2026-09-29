@@ -11,6 +11,7 @@ import customtkinter as ctk
 
 from core import network as network_core
 from core import settings as app_settings
+from ui import theme
 from ui.widgets.cleaner_bot import CleanerBotAnimation
 
 GRAPH_POINTS = 60
@@ -110,7 +111,10 @@ class PingGraph(ctk.CTkFrame):
 
         self.canvas = tk.Canvas(self, height=height, bg="#1a1a1a", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
+        self._dirty = False
         self.canvas.bind("<Configure>", lambda _e: self._redraw())
+        # прихована вкладка лише накопичує історію; перемальовуємо при показі
+        self.canvas.bind("<Map>", lambda _e: self._dirty and self._redraw())
 
     def push(self, value: float | None) -> None:
         self.history.append(value)
@@ -121,6 +125,10 @@ class PingGraph(ctk.CTkFrame):
         self._redraw()
 
     def _redraw(self) -> None:
+        if not self.canvas.winfo_ismapped():
+            self._dirty = True
+            return
+        self._dirty = False
         self.canvas.delete("all")
         width = self.canvas.winfo_width()
         height = self.canvas.winfo_height()
@@ -182,9 +190,9 @@ class PingCard(ctk.CTkFrame):
 
     def apply(self, latency: float | None, stats: dict) -> None:
         if latency is None:
-            self.value_label.configure(text="таймаут", text_color="#ff5c7a")
+            theme.set_text(self.value_label, "таймаут", text_color="#ff5c7a")
         else:
-            self.value_label.configure(text=f"{latency:.0f} мс", text_color=("gray10", "gray90"))
+            theme.set_text(self.value_label, f"{latency:.0f} мс", text_color=("gray10", "gray90"))
         self.graph.push(latency)
 
         avg = f"{stats['avg']:.0f} мс" if stats["avg"] is not None else "—"
@@ -193,14 +201,14 @@ class PingCard(ctk.CTkFrame):
         loss_text = f"{loss:.0f}%"
         loss_color = "#ff5c7a" if loss > 0 else "gray"
 
-        self.stats_label.configure(
-            text=f"Середній: {avg}  ·  Джитер: {jitter}  ·  Втрати: {loss_text}",
+        theme.set_text(
+            self.stats_label, f"Середній: {avg}  ·  Джитер: {jitter}  ·  Втрати: {loss_text}",
             text_color=loss_color,
         )
 
     def reset(self, idle_text: str = "Середній: —  ·  Джитер: —  ·  Втрати: —") -> None:
-        self.value_label.configure(text="—", text_color=("gray10", "gray90"))
-        self.stats_label.configure(text=idle_text, text_color="gray")
+        theme.set_text(self.value_label, "—", text_color=("gray10", "gray90"))
+        theme.set_text(self.stats_label, idle_text, text_color="gray")
         self.graph.clear()
 
 
