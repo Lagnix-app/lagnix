@@ -813,20 +813,28 @@ class MonitorTab(ctk.CTkFrame):
         cpu_temp = data["cpu_temp"]
 
         if gpu is None:
-            self.ring_gpu.set_unavailable("недоступно (nvidia-smi не знайдено)")
+            self.ring_gpu.set_unavailable("недоступно (GPU не знайдено)")
             self.ring_vram.set_unavailable("недоступно")
             self.tile_gpu_temp.set_value("н/д")
-            self.tile_gpu_temp.set_tooltip("Відеокарта NVIDIA не знайдена або nvidia-smi недоступний — підтримується лише NVIDIA.")
+            self.tile_gpu_temp.set_tooltip("Відеокарту не знайдено: немає ні лічильників Windows «GPU Engine», ні NVML/nvidia-smi.")
         else:
             self.ring_gpu.set_value(gpu["load_percent"], gpu["name"])
-            vram_percent = (gpu["mem_used_mb"] / gpu["mem_total_mb"] * 100.0) if gpu["mem_total_mb"] else 0.0
-            self.ring_vram.set_value(
-                vram_percent, f"{gpu['mem_used_mb'] / 1024:.1f} з {gpu['mem_total_mb'] / 1024:.1f} ГБ",
-            )
-            self.tile_gpu_temp.set_value(f"{gpu['temperature_c']:.0f}°C")
-            self.tile_gpu_temp.set_tooltip(None)
-            if gpu["temperature_c"] > threshold:
-                warnings.append(f"GPU перегрівається: {gpu['temperature_c']:.0f}°C (поріг {threshold}°C)")
+            if gpu["mem_total_mb"]:
+                vram_percent = gpu["mem_used_mb"] / gpu["mem_total_mb"] * 100.0
+                self.ring_vram.set_value(
+                    vram_percent, f"{gpu['mem_used_mb'] / 1024:.1f} з {gpu['mem_total_mb'] / 1024:.1f} ГБ",
+                )
+            else:
+                self.ring_vram.set_unavailable("недоступно")
+            temp = gpu["temperature_c"]
+            if temp is None:
+                self.tile_gpu_temp.set_value("н/д")
+                self.tile_gpu_temp.set_tooltip("Температура GPU доступна лише для відеокарт NVIDIA.")
+            else:
+                self.tile_gpu_temp.set_value(f"{temp:.0f}°C")
+                self.tile_gpu_temp.set_tooltip(None)
+                if temp > threshold:
+                    warnings.append(f"GPU перегрівається: {temp:.0f}°C (поріг {threshold}°C)")
 
         if cpu_temp is None:
             self.tile_cpu_temp.set_value("н/д")
