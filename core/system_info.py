@@ -79,22 +79,41 @@ def _cpu_model_name() -> str:
 
 
 def get_cpu_info() -> dict:
-    freq_ghz = None
+    """freq_ghz — базова частота (реєстр «~MHz», як на Моніторі); поточну вкладка
+    бере з живого зрізу Монітора (current_cpu_freq_ghz)."""
+    base_mhz = None
     try:
-        freq_info = psutil.cpu_freq()
-        if freq_info:
-            value = freq_info.max or freq_info.current
-            if value:
-                freq_ghz = round(value / 1000, 2)
+        base_mhz = monitor_core._get_cpu_base_mhz()
     except Exception:
-        freq_ghz = None
+        base_mhz = None
 
     return {
         "model": _cpu_model_name(),
         "cores_physical": psutil.cpu_count(logical=False) or None,
         "cores_logical": psutil.cpu_count(logical=True) or None,
-        "freq_ghz": freq_ghz,
+        "freq_ghz": round(base_mhz / 1000, 2) if base_mhz else None,
     }
+
+
+def current_cpu_freq_ghz(monitor_snapshot: dict | None = None) -> float | None:
+    """Поточна частота CPU тим самим способом, що й на Моніторі: базова ×
+    «% Processor Performance» (згладжена). Без зрізу Монітора — psutil."""
+    if monitor_snapshot and monitor_snapshot.get("cpu_freq_ghz"):
+        return monitor_snapshot["cpu_freq_ghz"]
+    try:
+        return monitor_core.get_cpu_freq_ghz(None)
+    except Exception:
+        return None
+
+
+def format_cpu_freq(base_ghz: float | None, current_ghz: float | None) -> str | None:
+    """«3.60 ГГц базова · 4.42 ГГц зараз»."""
+    parts = []
+    if base_ghz:
+        parts.append(f"{base_ghz:.2f} ГГц базова")
+    if current_ghz:
+        parts.append(f"{current_ghz:.2f} ГГц зараз")
+    return " · ".join(parts) or None
 
 
 # --------------------------------------------------------- WMI/PowerShell
@@ -105,7 +124,16 @@ _cim_cache: dict | None = None
 _CIM_SCRIPT = r"""
 $ErrorActionPreference = 'SilentlyContinue'
 $gpu = Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion,DriverDate
-$ramSpeed = (Get-CimInstance Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty Speed)
+$ram = Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity,Speed,ConfiguredClockSpeed,SMBIOSMemoryType,PartNumber,Manufacturer,DeviceLocator,BankLabel
+$slots = (Get-CimInstance Win32_PhysicalMemoryArray | Measure-Object -Property MemoryDevices -Sum).Sum
+$mons = @()
+foreach ($m in (Get-CimInstance -Namespace root\wmi WmiMonitorID)) {
+    $mons += [PSCustomObject]@{
+        Instance = $m.InstanceName
+        Name = (($m.UserFriendlyName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join '')
+        Maker = (($m.ManufacturerName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join '')
+    }
+}
 $disks = @()
 foreach ($vol in (Get-Volume | Where-Object { $_.DriveLetter })) {
     $media = 'Unknown'
@@ -116,7 +144,7 @@ foreach ($vol in (Get-Volume | Where-Object { $_.DriveLetter })) {
     } catch {}
     $disks += [PSCustomObject]@{ Letter = $vol.DriveLetter; Media = $media }
 }
-[PSCustomObject]@{ Gpu = @($gpu); RamSpeed = $ramSpeed; Disks = @($disks) } | ConvertTo-Json -Depth 4 -Compress
+[PSCustomObject]@{ Gpu = @($gpu); Ram = @($ram); Slots = $slots; Monitors = @($mons); Disks = @($disks) } | ConvertTo-Json -Depth 4 -Compress
 """
 
 
@@ -145,7 +173,7 @@ def _parse_wmi_date(value):
 
 
 def _run_static_cim_query() -> dict:
-    result = {"gpus": [], "ram_speed_mhz": None, "disks": []}
+    result = {"gpus": [], "ram_modules": [], "ram_slots": None, "monitors": [], "disks": []}
     try:
         raw = subprocess.check_output(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", _CIM_SCRIPT],
@@ -174,9 +202,27 @@ def _run_static_cim_query() -> dict:
             "driver_date": _parse_wmi_date(entry.get("DriverDate")),
         })
 
-    ram_speed = data.get("RamSpeed")
-    if isinstance(ram_speed, (int, float)) and ram_speed > 0:
-        result["ram_speed_mhz"] = int(ram_speed)
+    for entry in data.get("Ram") or []:
+        entry = entry or {}
+        result["ram_modules"].append({
+            "capacity_gb": (entry.get("Capacity") or 0) / (1024 ** 3),
+            "speed": _positive_int(entry.get("Speed")),
+            "configured": _positive_int(entry.get("ConfiguredClockSpeed")),
+            "type": _positive_int(entry.get("SMBIOSMemoryType")),
+            "part": str(entry.get("PartNumber") or "").strip(),
+            "maker": str(entry.get("Manufacturer") or "").strip(),
+            "locator": f"{entry.get('BankLabel') or ''} {entry.get('DeviceLocator') or ''}".strip(),
+        })
+    result["ram_slots"] = _positive_int(data.get("Slots"))
+
+    for entry in data.get("Monitors") or []:
+        entry = entry or {}
+        if entry.get("Instance"):
+            result["monitors"].append({
+                "instance": str(entry["Instance"]),
+                "name": str(entry.get("Name") or "").strip(),
+                "maker": str(entry.get("Maker") or "").strip(),
+            })
 
     for entry in data.get("Disks") or []:
         entry = entry or {}
@@ -188,6 +234,10 @@ def _run_static_cim_query() -> dict:
             })
 
     return result
+
+
+def _positive_int(value) -> int | None:
+    return int(value) if isinstance(value, (int, float)) and value > 0 else None
 
 
 def _query_static_cim() -> dict:
@@ -262,16 +312,136 @@ def driver_page_url(gpu_model: str) -> str | None:
 
 # ------------------------------------------------------------------ RAM
 
+_RAM_TYPES = {24: "DDR3", 26: "DDR4", 34: "DDR5", 35: "LPDDR5", 30: "LPDDR4"}
+# стандартні частоти JEDEC «без XMP»: пам'ять, що працює на них, найімовірніше
+# стартувала з профілем за замовчуванням
+_JEDEC_DEFAULT_MAX = {"DDR3": 1333, "DDR4": 2400, "DDR5": 4800}
+_RATED_IN_PART = re.compile(
+    r"(?<!\d)(1600|1866|2133|2400|2666|2933|3000|3200|3333|3466|3600|3733|3866|4000|4133|4266|4400|"
+    r"4600|4800|5200|5600|6000|6200|6400|6600|6800|7200|7600|8000|8200)(?!\d)"
+)
+# у маркуванні частоту часто пишуть скорочено: F4-3200C16 -> 3200, BL2K8G32C16 -> 3200
+_RATED_SHORT = re.compile(r"(?<=[A-Z])(21|24|26|29|30|32|36|40|44|48|52|56|60|64|72)(?=C\d)")
+# Kingston: KVR26N19S8, KF432C16BB, KF560C40; Crucial: CT8G4DFRA32A, CT16G5C48B
+_RATED_VENDOR = re.compile(r"^(?:KVR|KF[45]?|CT\d+G\d[A-Z0-9]*?)(21|24|26|29|30|32|36|40|48|52|56|60|64)(?=[A-Z]|$)")
+
+
+def _rated_speed_from_part(part: str) -> int | None:
+    """Номінал (XMP/EXPO) з маркування модуля: WMI повертає лише частоту JEDEC."""
+    part = (part or "").upper()
+    match = _RATED_IN_PART.search(part)
+    if match:
+        return int(match.group(1))
+    match = _RATED_SHORT.search(part) or _RATED_VENDOR.search(part)
+    if match:
+        short = int(match.group(1))
+        return {21: 2133, 24: 2400, 26: 2666, 29: 2933}.get(short, short * 100)
+    return None
+
+
+def _ram_channels(modules: list[dict]) -> str | None:
+    """"dual" / "single" / None (невідомо) — за «ChannelA/B» у розташуванні модулів."""
+    if not modules:
+        return None
+    if len(modules) == 1:
+        return "single"
+    channels = {m.group(1).upper() for mod in modules
+                for m in [re.search(r"channel\s*([a-z])", mod["locator"], re.IGNORECASE)] if m}
+    if len(channels) >= 2:
+        return "dual"
+    if len(channels) == 1:
+        return "single"
+    return None
+
+
 def get_ram_info() -> dict:
+    """Обсяг/зайнятість (psutil) + модулі з WMI: speed_mhz — фактична робоча
+    частота (ConfiguredClockSpeed), jedec_mhz — базова з SPD (Speed), rated_mhz —
+    номінал модулів із маркування (XMP/DOCP/EXPO), якщо розпізнано."""
     mem = psutil.virtual_memory()
     cim = _query_static_cim()
+    modules = cim.get("ram_modules") or []
+    configured = [m["configured"] for m in modules if m["configured"]]
+    jedec = [m["speed"] for m in modules if m["speed"]]
+    rated = [r for r in (_rated_speed_from_part(m["part"]) for m in modules) if r]
+    types = [_RAM_TYPES.get(m["type"]) for m in modules if _RAM_TYPES.get(m["type"])]
+    makers = sorted({m["maker"] for m in modules if m["maker"] and m["maker"].lower() not in ("unknown", "undefined")})
+    jedec_mhz = min(jedec) if jedec else None
+    speed_mhz = min(configured) if configured else jedec_mhz
     return {
         "total_gb": mem.total / (1024 ** 3),
         "used_gb": mem.used / (1024 ** 3),
         "free_gb": mem.available / (1024 ** 3),
         "percent": mem.percent,
-        "speed_mhz": cim.get("ram_speed_mhz"),
+        "speed_mhz": speed_mhz,
+        "jedec_mhz": jedec_mhz,
+        "rated_mhz": max(max(rated) if rated else 0, jedec_mhz or 0) or None,
+        "type": types[0] if types else None,
+        "modules": [round(m["capacity_gb"]) for m in modules if m["capacity_gb"]],
+        "makers": makers,
+        "slots": cim.get("ram_slots"),
+        "channels": _ram_channels(modules),
     }
+
+
+def ram_xmp_off(ram: dict) -> bool:
+    """Пам'ять працює на стандартній частоті JEDEC, хоча модулі розраховані на більшу:
+    найімовірніше, у BIOS вимкнено XMP/DOCP/EXPO."""
+    speed, rated = ram.get("speed_mhz"), ram.get("rated_mhz")
+    limit = _JEDEC_DEFAULT_MAX.get(ram.get("type") or "", 2400)
+    return bool(speed and rated and speed <= limit and rated > speed + 50)
+
+
+def format_ram_modules(ram: dict) -> str | None:
+    """«2 × 8 ГБ DDR4 (Kingston) · 2 з 4 слотів»."""
+    modules = ram.get("modules") or []
+    if not modules:
+        return None
+    if len(set(modules)) == 1:
+        text = f"{len(modules)} × {modules[0]} ГБ"
+    else:
+        text = " + ".join(f"{m} ГБ" for m in modules)
+    if ram.get("type"):
+        text += f" {ram['type']}"
+    if ram.get("makers"):
+        text += f" ({', '.join(ram['makers'])})"
+    if ram.get("slots") and ram["slots"] >= len(modules):
+        text += f" · {len(modules)} з {ram['slots']} слотів"
+    return text
+
+
+def format_ram_speed(ram: dict) -> str | None:
+    """«3200 МГц зараз · номінал модулів 3600 МГц · базова 2400 МГц»."""
+    speed, rated, jedec = ram.get("speed_mhz"), ram.get("rated_mhz"), ram.get("jedec_mhz")
+    if not speed:
+        return None
+    parts = [f"{speed} МГц зараз"]
+    if rated and rated > speed:
+        parts.append(f"номінал модулів {rated} МГц")
+    if jedec and jedec != speed and jedec != rated:
+        parts.append(f"базова {jedec} МГц")
+    return " · ".join(parts)
+
+
+def format_ram_channels(ram: dict) -> str | None:
+    channels = ram.get("channels")
+    if channels == "dual":
+        return "Двоканальний режим ✓"
+    if channels == "single":
+        return "Одноканальний режим"
+    return None
+
+
+XMP_HELP_TEXT = (
+    "Як увімкнути XMP / DOCP / EXPO:\n\n"
+    "1. Перезавантаж ПК і під час старту тисни Del (іноді F2) — відкриється BIOS.\n"
+    "2. Знайди пункт XMP (Intel), DOCP (ASUS на AMD) або EXPO (AMD DDR5). Зазвичай він "
+    "на головному екрані або в розділі Ai Tweaker / OC / Extreme Tweaker.\n"
+    "3. Вибери Profile 1 (XMP I / Profile 1).\n"
+    "4. Збережи й вийди: F10 → Yes.\n\n"
+    "Якщо після цього ПК не стартує — зачекай: плата сама повернеться до безпечних "
+    "налаштувань після кількох спроб. Або спробуй нижчу частоту в тому ж меню."
+)
 
 
 # -------------------------------------------------------------- Windows
@@ -289,6 +459,37 @@ def _format_uptime(seconds: float) -> str:
     return " ".join(parts)
 
 
+_EDITIONS = {
+    "core": "Home", "coren": "Home N", "coresinglelanguage": "Home Single Language",
+    "corecountryspecific": "Home China", "professional": "Pro", "professionaln": "Pro N",
+    "professionaleducation": "Pro Education", "professionalworkstation": "Pro for Workstations",
+    "enterprise": "Enterprise", "enterprisen": "Enterprise N", "enterprises": "Enterprise LTSC",
+    "education": "Education", "educationn": "Education N", "iotenterprise": "IoT Enterprise",
+    "iotenterprises": "IoT Enterprise LTSC", "serverstandard": "Server Standard",
+}
+
+
+def windows_version_name(product_name: str, edition_id: str, build, display_version: str) -> str:
+    """«Windows 11 Pro 25H2». ProductName у реєстрі Windows 11 досі «Windows 10 …»,
+    тож покоління визначаємо за збіркою (>= 22000 — Windows 11), редакцію — за EditionID."""
+    try:
+        build_no = int(str(build).split(".")[0])
+    except (TypeError, ValueError):
+        build_no = 0
+    edition = _EDITIONS.get(str(edition_id or "").lower())
+    if edition is None:  # невідома редакція — хвіст ProductName («Windows 10 Pro» -> «Pro»)
+        match = re.match(r"Windows\s+\d+\s+(.+)", product_name or "")
+        edition = match.group(1).strip() if match else (edition_id or "")
+    if build_no >= 22000:
+        base = "Windows 11"
+    elif build_no >= 10240:
+        base = "Windows 10"
+    else:
+        base = (product_name or "Windows").strip()
+        edition = ""
+    return " ".join(part for part in (base, edition, display_version) if part) or UNKNOWN
+
+
 def get_windows_info() -> dict:
     product_name, display_version, build, ubr = "Windows", "", "", ""
     try:
@@ -302,13 +503,14 @@ def get_windows_info() -> dict:
                     return default
 
             product_name = _val("ProductName", "Windows")
+            edition_id = _val("EditionID", "")
             display_version = _val("DisplayVersion") or _val("ReleaseId", "")
-            build = _val("CurrentBuildNumber", "")
+            build = _val("CurrentBuild", "") or _val("CurrentBuildNumber", "")
             ubr = _val("UBR", "")
     except OSError:
-        pass
+        edition_id = ""
 
-    version_text = f"{product_name} {display_version}".strip() if product_name else UNKNOWN
+    version_text = windows_version_name(product_name, edition_id, build, display_version)
     build_text = f"{build}.{ubr}" if build and ubr != "" else (str(build) if build else UNKNOWN)
 
     uptime_text = UNKNOWN
@@ -359,10 +561,27 @@ def get_disks_info() -> list[dict]:
             "total_gb": usage.total / (1024 ** 3),
             "free_gb": usage.free / (1024 ** 3),
             "free_percent": usage.free / usage.total * 100,
+            "used_gb": usage.used / (1024 ** 3),
+            "used_percent": usage.used / usage.total * 100,
         })
 
     result.sort(key=lambda d: d["letter"])
     return result
+
+
+def format_disk_usage(disk: dict) -> str:
+    """«Зайнято 304 з 465 ГБ (65%) · вільно 161 ГБ» — ті самі числа, що на смужці."""
+    return (f"Зайнято {disk['used_gb']:.0f} з {disk['total_gb']:.0f} ГБ ({disk['used_percent']:.0f}%) · "
+            f"вільно {disk['free_gb']:.0f} ГБ")
+
+
+def disk_bar_color(used_percent: float) -> str:
+    """Колір смужки: зелений, жовтий > 80%, червоний > 90%."""
+    if used_percent > 90:
+        return "#ff5c7a"
+    if used_percent > 80:
+        return "#e0a52f"
+    return "#2ee59d"
 
 
 # ------------------------------------------------------------- монітори
@@ -419,15 +638,57 @@ class _DISPLAY_DEVICEW(ctypes.Structure):
 
 _DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x00000001
 _ENUM_CURRENT_SETTINGS = -1
+_EDD_GET_DEVICE_INTERFACE_NAME = 0x00000001
+
+# PNP-коди виробників з EDID -> назва бренду
+_PNP_BRANDS = {
+    "ACR": "Acer", "ACI": "ASUS", "AUS": "ASUS", "AOC": "AOC", "APP": "Apple", "AUO": "AU Optronics",
+    "BNQ": "BenQ", "BOE": "BOE", "CMN": "Innolux", "DEL": "Dell", "DELL": "Dell", "ENC": "Eizo",
+    "EIZ": "Eizo", "GBT": "Gigabyte", "GSM": "LG", "LGD": "LG Display", "HKC": "HKC", "HPN": "HP",
+    "HWP": "HP", "IVM": "iiyama", "LEN": "Lenovo", "MSI": "MSI", "MEI": "Panasonic", "NEC": "NEC",
+    "PHL": "Philips", "SAM": "Samsung", "SDC": "Samsung Display", "SEC": "Samsung", "SHP": "Sharp",
+    "SNY": "Sony", "VSC": "ViewSonic", "XMI": "Xiaomi", "KTC": "KTC", "HSD": "HannStar", "MZI": "Digital Projection",
+}
 
 
-def _monitor_display_name(user32, adapter_device_name: str, fallback: str) -> str:
-    """DeviceString адаптера — це назва відеокарти, не монітора; реальну (хай і
-    загальну, на кшталт "Generic PnP Monitor") назву дає вкладений виклик
-    EnumDisplayDevicesW із іменем адаптера."""
+def _edid_monitor_name(edid: dict | None) -> str | None:
+    """«LG W2343» з UserFriendlyName і ManufacturerName (WmiMonitorID)."""
+    if not edid or not edid.get("name"):
+        return None
+    name, maker = edid["name"], edid.get("maker", "")
+    brand = _PNP_BRANDS.get(maker.upper(), maker)
+    if brand and not name.lower().startswith(brand.lower()):
+        return f"{brand} {name}"
+    return name
+
+
+def _edid_for_device(interface_id: str, edid_list: list[dict]) -> dict | None:
+    r"""Запис WmiMonitorID для монітора: DeviceID інтерфейсу
+    «\\?\DISPLAY#GSM5701#5&36a4e963&0&UID4354#{…}» відповідає InstanceName
+    «DISPLAY\GSM5701\5&36a4e963&0&UID4354_0»."""
+    parts = interface_id.lstrip("\\?").split("#")
+    if len(parts) < 3:
+        return None
+    path = "\\".join(parts[:3]).upper()
+    for edid in edid_list:
+        instance = edid["instance"].upper()
+        if instance == path or instance.startswith(path + "_"):
+            return edid
+    model = parts[1].upper()  # запасний варіант — за кодом моделі
+    same = [e for e in edid_list if f"\\{model}\\" in e["instance"].upper()]
+    return same[0] if len(same) == 1 else None
+
+
+def _monitor_display_name(user32, adapter_device_name: str, fallback: str, edid_list: list[dict]) -> str:
+    """Справжня модель з EDID (WmiMonitorID), інакше назва драйвера монітора
+    (часто лише «Generic PnP Monitor»). DeviceString адаптера — це відеокарта,
+    тому монітор — вкладений виклик EnumDisplayDevicesW з іменем адаптера."""
     monitor = _DISPLAY_DEVICEW()
     monitor.cb = ctypes.sizeof(_DISPLAY_DEVICEW)
-    if user32.EnumDisplayDevicesW(adapter_device_name, 0, ctypes.byref(monitor), 0):
+    if user32.EnumDisplayDevicesW(adapter_device_name, 0, ctypes.byref(monitor), _EDD_GET_DEVICE_INTERFACE_NAME):
+        name = _edid_monitor_name(_edid_for_device(monitor.DeviceID, edid_list))
+        if name:
+            return name
         if monitor.DeviceString:
             return monitor.DeviceString
     return fallback
@@ -435,6 +696,7 @@ def _monitor_display_name(user32, adapter_device_name: str, fallback: str) -> st
 
 def get_monitors_info() -> list[dict]:
     monitors: list[dict] = []
+    edid_list = _query_static_cim().get("monitors") or []
     try:
         user32 = ctypes.windll.user32
         index = 0
@@ -465,7 +727,7 @@ def get_monitors_info() -> list[dict]:
                     max_hz = max(max_hz, mode.dmDisplayFrequency)
                 mode_index += 1
 
-            name = _monitor_display_name(user32, device.DeviceName, f"Монітор {len(monitors) + 1}")
+            name = _monitor_display_name(user32, device.DeviceName, f"Монітор {len(monitors) + 1}", edid_list)
             monitors.append({
                 "name": name,
                 "width": width,
@@ -508,6 +770,27 @@ def build_smart_tips(snapshot: dict) -> list[dict]:
                 ),
                 "action": "open_display_settings",
             })
+
+    ram = snapshot["ram"]
+    if ram_xmp_off(ram):
+        tips.append({
+            "id": "ram_xmp",
+            "text": (
+                f"Пам'ять працює на {ram['speed_mhz']} МГц, а модулі розраховані на {ram['rated_mhz']} МГц. "
+                "Ймовірно, у BIOS вимкнено XMP/DOCP — увімкнення може дати +5–15% FPS у іграх."
+            ),
+            "action": "xmp_help",
+            "button": "Як увімкнути",
+        })
+    if ram.get("channels") == "single" and len(ram.get("modules") or []) == 1:
+        tips.append({
+            "id": "ram_single",
+            "text": (
+                "Встановлено один модуль пам'яті — вона працює в одноканальному режимі. Другий такий "
+                "самий модуль у парний слот (зазвичай A2 + B2) увімкне двоканальний режим — це помітно "
+                "додає FPS, особливо з вбудованою графікою."
+            ),
+        })
 
     gpu = snapshot["gpu"]
     driver_date = gpu.get("driver_date")
@@ -745,8 +1028,9 @@ def build_system_info_text(snapshot: dict) -> str:
     cpu_line = f"Процесор: {cpu['model']}"
     if core_bits:
         cpu_line += f", {' / '.join(core_bits)}"
-    if cpu.get("freq_ghz"):
-        cpu_line += f", {cpu['freq_ghz']} ГГц"
+    freq = format_cpu_freq(cpu.get("freq_ghz"), cpu.get("current_ghz"))
+    if freq:
+        cpu_line += f", {freq}"
 
     gpu_line = f"Відеокарта: {gpu['model']}"
     if gpu.get("memory_mb"):
@@ -756,8 +1040,9 @@ def build_system_info_text(snapshot: dict) -> str:
         gpu_line += f" від {gpu['driver_date'].strftime('%d.%m.%Y')}"
 
     ram_line = f"Оперативна пам'ять: {ram['total_gb']:.1f} ГБ"
-    if ram.get("speed_mhz"):
-        ram_line += f", {ram['speed_mhz']} МГц"
+    for extra in (format_ram_modules(ram), format_ram_speed(ram), format_ram_channels(ram)):
+        if extra:
+            ram_line += f", {extra}"
     ram_line += f", зайнято {ram['used_gb']:.1f} ГБ ({ram['percent']:.0f}%)"
 
     lines = [
@@ -769,10 +1054,7 @@ def build_system_info_text(snapshot: dict) -> str:
     ]
 
     for disk in snapshot["disks"]:
-        lines.append(
-            f"Диск {disk['letter']} ({disk['type']}): {disk['free_gb']:.0f} / {disk['total_gb']:.0f} ГБ "
-            f"вільно ({disk['free_percent']:.0f}%)"
-        )
+        lines.append(f"Диск {disk['letter']} ({disk['type']}): {format_disk_usage(disk)}")
     for mon in snapshot["monitors"]:
         lines.append(
             f"Монітор «{mon['name']}»: {mon['width']}x{mon['height']}, {mon['current_hz']} Гц "

@@ -13,6 +13,7 @@ import customtkinter as ctk
 from core import game_mode as game_mode_core
 from core import system_info as system_info_core
 from core.logging_setup import get_logger
+from ui import theme
 from ui.widgets.cleaner_bot import CleanerBotAnimation
 
 _logger = get_logger(__name__)
@@ -32,16 +33,25 @@ class InfoCard(ctk.CTkFrame):
             justify="left", anchor="w", wraplength=360,
         )
         self.body_label.pack(padx=14, pady=(0, 14), anchor="w")
+        # перенос рядків — за шириною картки, а не фіксовані 360 dp
+        tk.Misc.bind(self, "<Configure>", self._fit_wrap, "+")
+
+    def _fit_wrap(self, event) -> None:
+        wrap = max(round(event.width / self._get_widget_scaling()) - 32, 160)
+        if self.body_label.cget("wraplength") != wrap:
+            self.body_label.configure(wraplength=wrap)
 
     def set_lines(self, lines: list[str]) -> None:
-        self.body_label.configure(text="\n".join(lines), text_color=("gray10", "gray90"))
+        # set_text пропускає однаковий текст: частота CPU оновлюється кожні 1.5 с
+        theme.set_text(self.body_label, "\n".join(lines), text_color=("gray10", "gray90"))
 
     def set_error(self, text: str = "Недоступно") -> None:
-        self.body_label.configure(text=text, text_color="gray")
+        theme.set_text(self.body_label, text, text_color="gray")
 
 
 class DiskCard(ctk.CTkFrame):
-    """Картка диска: тип, смужка заповнення (червона при <10% вільно), обсяг."""
+    """Картка диска: тип, смужка зайнятого місця (жовта > 80%, червона > 90%) і
+    підпис із тими самими числами, що на смужці."""
 
     def __init__(self, master, disk: dict):
         super().__init__(master, corner_radius=10)
@@ -53,21 +63,22 @@ class DiskCard(ctk.CTkFrame):
         )
         ctk.CTkLabel(top, text=disk["type"], text_color="gray", font=ctk.CTkFont(size=11)).pack(side="right")
 
-        low_space = disk["free_percent"] < 10
-        bar = ctk.CTkProgressBar(self, height=10, progress_color="#ff5c7a" if low_space else "#2ee59d")
-        bar.set(max(0.0, min(1.0, 1 - disk["free_percent"] / 100)))
+        used = disk["used_percent"]
+        color = system_info_core.disk_bar_color(used)
+        bar = ctk.CTkProgressBar(self, height=10, progress_color=color)
+        bar.set(max(0.0, min(1.0, used / 100)))
         bar.pack(fill="x", padx=14, pady=(4, 6))
 
         ctk.CTkLabel(
             self,
-            text=f"{disk['free_gb']:.0f} ГБ вільно з {disk['total_gb']:.0f} ГБ ({disk['free_percent']:.0f}%)",
-            text_color="#ff5c7a" if low_space else "gray",
+            text=system_info_core.format_disk_usage(disk),
+            text_color=color if used > 80 else "gray",
             font=ctk.CTkFont(size=11),
         ).pack(padx=14, pady=(0, 12), anchor="w")
 
 
 class TipCard(ctk.CTkFrame):
-    """Жовта картка розумної підказки з кнопкою «Як виправити»."""
+    """Жовта картка розумної підказки з кнопкою дії («Як виправити» або tip["button"])."""
 
     def __init__(self, master, tip: dict, on_fix):
         super().__init__(master, corner_radius=10, fg_color="#3a2f14", border_width=1, border_color="#e0a52f")
@@ -83,7 +94,7 @@ class TipCard(ctk.CTkFrame):
 
         if tip.get("action"):
             ctk.CTkButton(
-                row, text="Як виправити", width=130, height=28, font=ctk.CTkFont(size=12),
+                row, text=tip.get("button", "Як виправити"), width=130, height=28, font=ctk.CTkFont(size=12),
                 fg_color="#e0a52f", hover_color="#f0c060", text_color="#151c2c",
                 command=lambda t=tip: on_fix(t),
             ).grid(row=0, column=1, padx=(10, 0))
@@ -99,6 +110,9 @@ class SystemTab(ctk.CTkFrame):
         self._report_after_id = None
         self._report_started_at = 0.0
         self._last_report_text = ""
+        self._visible = False
+        self._freq_after_id = None
+        self._cpu_current_ghz = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -121,6 +135,35 @@ class SystemTab(ctk.CTkFrame):
         # self.after() ще до реального старту mainloop (Python 3.13+
         # кидає на це непіймане RuntimeError, і потік мовчки гине).
         self.after(0, self._load_snapshot)
+
+    def on_visibility_changed(self, visible: bool) -> None:
+        """Поточна частота CPU оновлюється, лише поки вкладку видно."""
+        self._visible = visible
+        if visible and self._freq_after_id is None:
+            self._tick_cpu_freq()
+        elif not visible and self._freq_after_id is not None:
+            self.after_cancel(self._freq_after_id)
+            self._freq_after_id = None
+
+    def _tick_cpu_freq(self) -> None:
+        self._freq_after_id = None
+        if not self.winfo_exists() or not self._visible:
+            return
+        self._update_cpu_freq()
+        self._freq_after_id = self.after(1500, self._tick_cpu_freq)
+
+    def _monitor_snapshot(self):
+        tab = getattr(self.winfo_toplevel(), "tab_frames", {}).get("monitor")
+        return tab.latest_snapshot() if tab is not None else None
+
+    def _update_cpu_freq(self) -> None:
+        """«3.60 ГГц базова · 4.42 ГГц зараз»: поточна — зі зрізу Монітора (той самий
+        лічильник «% Processor Performance», що й там)."""
+        if self._snapshot is None:
+            return
+        self._cpu_current_ghz = system_info_core.current_cpu_freq_ghz(self._monitor_snapshot())
+        self._snapshot["cpu"]["current_ghz"] = self._cpu_current_ghz
+        self.cpu_card.set_lines(self._cpu_lines(self._snapshot["cpu"]))
 
     # ------------------------------------------------------------------ UI
 
@@ -276,19 +319,25 @@ class SystemTab(ctk.CTkFrame):
         self._render_monitors(snapshot["monitors"])
         self._render_tips(tips)
 
-    def _render_hardware(self, snapshot):
-        cpu = snapshot["cpu"]
+    @staticmethod
+    def _cpu_lines(cpu: dict) -> list[str]:
         core_bits = []
         if cpu.get("cores_physical"):
             core_bits.append(f"{cpu['cores_physical']} ядер")
         if cpu.get("cores_logical"):
             core_bits.append(f"{cpu['cores_logical']} потоків")
-        cpu_lines = [cpu["model"]]
+        lines = [cpu["model"]]
         if core_bits:
-            cpu_lines.append(" / ".join(core_bits))
-        if cpu.get("freq_ghz"):
-            cpu_lines.append(f"{cpu['freq_ghz']:.2f} ГГц")
-        self.cpu_card.set_lines(cpu_lines)
+            lines.append(" / ".join(core_bits))
+        freq = system_info_core.format_cpu_freq(cpu.get("freq_ghz"), cpu.get("current_ghz"))
+        if freq:
+            lines.append(freq)
+        return lines
+
+    def _render_hardware(self, snapshot):
+        cpu = snapshot["cpu"]
+        cpu["current_ghz"] = system_info_core.current_cpu_freq_ghz(self._monitor_snapshot())
+        self.cpu_card.set_lines(self._cpu_lines(cpu))
 
         gpu = snapshot["gpu"]
         gpu_lines = [gpu["model"]]
@@ -302,16 +351,21 @@ class SystemTab(ctk.CTkFrame):
 
         ram = snapshot["ram"]
         ram_lines = [f"Всього: {ram['total_gb']:.1f} ГБ"]
-        if ram.get("speed_mhz"):
-            ram_lines.append(f"Частота: {ram['speed_mhz']} МГц")
-        ram_lines.append(f"Зайнято: {ram['used_gb']:.1f} ГБ ({ram['percent']:.0f}%)")
-        ram_lines.append(f"Вільно: {ram['free_gb']:.1f} ГБ")
+        modules = system_info_core.format_ram_modules(ram)
+        if modules:
+            ram_lines.append(f"Модулі: {modules}")
+        speed = system_info_core.format_ram_speed(ram)
+        if speed:
+            ram_lines.append(f"Частота: {speed}")
+        channels = system_info_core.format_ram_channels(ram)
+        if channels:
+            ram_lines.append(channels)
+        ram_lines.append(f"Зайнято: {ram['used_gb']:.1f} ГБ ({ram['percent']:.0f}%) · вільно {ram['free_gb']:.1f} ГБ")
         self.ram_card.set_lines(ram_lines)
 
         windows = snapshot["windows"]
         self.windows_card.set_lines([
-            windows["version"],
-            f"Збірка {windows['build']}",
+            f"{windows['version']} (збірка {windows['build']})",
             f"Час роботи: {windows['uptime_text']}",
         ])
 
@@ -340,10 +394,10 @@ class SystemTab(ctk.CTkFrame):
 
         for i, mon in enumerate(monitors):
             card = InfoCard(self.monitors_frame, mon["name"] or f"Монітор {i + 1}")
-            lines = [f"{mon['width']}×{mon['height']}", f"Поточна частота: {mon['current_hz']} Гц"]
-            if mon["max_hz"] and mon["max_hz"] > mon["current_hz"]:
-                lines.append(f"Максимальна: {mon['max_hz']} Гц")
-            card.set_lines(lines)
+            freq = f"Частота: {mon['current_hz']} Гц зараз"
+            if mon["max_hz"]:
+                freq += f" · максимум {mon['max_hz']} Гц"
+            card.set_lines([f"{mon['width']}×{mon['height']}", freq])
             card.grid(row=i // 2, column=i % 2, padx=6, pady=6, sticky="nsew")
 
     def _render_tips(self, tips):
@@ -379,6 +433,8 @@ class SystemTab(ctk.CTkFrame):
             self._open_uri("ms-settings:windowsupdate")
         elif action == "switch_to_balanced":
             self._switch_power_plan()
+        elif action == "xmp_help":
+            messagebox.showinfo("XMP / DOCP / EXPO", system_info_core.XMP_HELP_TEXT, parent=self)
 
     def _open_uri(self, uri: str):
         try:
@@ -514,6 +570,7 @@ class SystemTab(ctk.CTkFrame):
         if self._snapshot is None:
             messagebox.showinfo("Інфо", "Дані про систему ще завантажуються.", parent=self)
             return
+        self._snapshot["cpu"]["current_ghz"] = system_info_core.current_cpu_freq_ghz(self._monitor_snapshot())
         text = system_info_core.build_system_info_text(self._snapshot)
         self.clipboard_clear()
         self.clipboard_append(text)
@@ -529,4 +586,10 @@ class SystemTab(ctk.CTkFrame):
             except tk.TclError:
                 pass
             self._report_after_id = None
+        if self._freq_after_id is not None:
+            try:
+                self.after_cancel(self._freq_after_id)
+            except tk.TclError:
+                pass
+            self._freq_after_id = None
         self._report_stop_event.set()
