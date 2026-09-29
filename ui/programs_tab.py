@@ -34,36 +34,6 @@ SORT_LABELS = {
 SORT_DEFAULT_DESC = {"size": True, "name": False, "date": True}
 
 
-# ------------------------------------------------------------------- іконки-піктограми
-
-def _glyph(kind: str, color: str, size_dp: float, scale: float) -> Image.Image:
-    """Згладжена піктограма (лупа / оновлення) з прозорим тлом."""
-    px = max(8, round(size_dp * scale))
-    layer = aa.new_layer(px, px, "RGBA", (0, 0, 0, 0))
-    p = aa.Painter(layer, scale)
-    S = size_dp
-    fill = aa.rgb(color, 255)
-    if kind == "search":
-        p.ellipse(S * .14, S * .14, S * .60, S * .60, outline=fill, width=S * .11)
-        p.line([(S * .56, S * .56), (S * .86, S * .86)], fill=fill, width=S * .13)
-    else:  # refresh: дуга майже в коло зі стрілкою на кінці
-        import math
-        cx = cy = S / 2
-        r = S * .34
-        p.arc(cx - r, cy - r, cx + r, cy + r, start=40, extent=270, fill=fill, width=S * .11, round_caps=False)
-        end = math.radians(310)
-        tip_base = (cx + r * math.cos(end), cy - r * math.sin(end))
-        tx, ty = -math.sin(end), -math.cos(end)  # напрям руху кінця дуги
-        nx, ny = -ty, tx
-        head, half = S * .24, S * .17
-        p.polygon([
-            (tip_base[0] + tx * head, tip_base[1] + ty * head),
-            (tip_base[0] + nx * half, tip_base[1] + ny * half),
-            (tip_base[0] - nx * half, tip_base[1] - ny * half),
-        ], fill=fill)
-    return aa.downscale(layer, (px, px))
-
-
 # ------------------------------------------------------------------- діаграма місця
 
 class UsageBar(ctk.CTkFrame):
@@ -221,7 +191,7 @@ class ProgramsTab(ctk.CTkFrame):
         search_box = ctk.CTkFrame(line, corner_radius=10, fg_color=theme.BG_PANEL_LIGHT, height=38)
         search_box.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         search_box.grid_columnconfigure(1, weight=1)
-        self._search_icon = ctk.CTkImage(_glyph("search", theme.TEXT_DIM, 16, S), size=(16, 16))
+        self._search_icon = ctk.CTkImage(aa.glyph("search", theme.TEXT_DIM, 16, S), size=(16, 16))
         ctk.CTkLabel(search_box, image=self._search_icon, text="", width=16).grid(row=0, column=0, padx=(12, 0), pady=6)
         self.search_entry = ctk.CTkEntry(
             search_box, placeholder_text="Пошук за назвою або видавцем", border_width=0,
@@ -230,7 +200,7 @@ class ProgramsTab(ctk.CTkFrame):
         self.search_entry.grid(row=0, column=1, sticky="ew", padx=(4, 8), pady=2)
         self.search_entry.bind("<KeyRelease>", self._on_search_key)
 
-        self._refresh_icon = ctk.CTkImage(_glyph("refresh", theme.TEXT_MAIN, 18, S), size=(18, 18))
+        self._refresh_icon = ctk.CTkImage(aa.glyph("refresh", theme.TEXT_MAIN, 18, S), size=(18, 18))
         self.refresh_button = ctk.CTkButton(
             line, text="", image=self._refresh_icon, width=38, height=38, corner_radius=10,
             fg_color=theme.BG_PANEL_LIGHT, hover_color=theme.BORDER, command=self._load,

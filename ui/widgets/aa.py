@@ -149,3 +149,30 @@ def dot_image(color: str, size_dp: float, bg: str, scale: float):
         photo = ImageTk.PhotoImage(downscale(img, (px, px)))
         _dot_cache[key] = photo
     return photo
+
+
+def glyph(kind: str, color: str, size_dp: float, scale: float) -> Image.Image:
+    """Згладжена піктограма (лупа / оновлення) з прозорим тлом."""
+    px = max(8, round(size_dp * scale))
+    layer = new_layer(px, px, "RGBA", (0, 0, 0, 0))
+    p = Painter(layer, scale)
+    S = size_dp
+    fill = rgb(color, 255)
+    if kind == "search":
+        p.ellipse(S * .14, S * .14, S * .60, S * .60, outline=fill, width=S * .11)
+        p.line([(S * .56, S * .56), (S * .86, S * .86)], fill=fill, width=S * .13)
+    else:  # refresh: дуга майже в коло зі стрілкою на кінці
+        cx = cy = S / 2
+        r = S * .34
+        p.arc(cx - r, cy - r, cx + r, cy + r, start=40, extent=270, fill=fill, width=S * .11, round_caps=False)
+        end = math.radians(310)
+        tip_base = (cx + r * math.cos(end), cy - r * math.sin(end))
+        tx, ty = -math.sin(end), -math.cos(end)  # напрям руху кінця дуги
+        nx, ny = -ty, tx
+        head, half = S * .24, S * .17
+        p.polygon([
+            (tip_base[0] + tx * head, tip_base[1] + ty * head),
+            (tip_base[0] + nx * half, tip_base[1] + ny * half),
+            (tip_base[0] - nx * half, tip_base[1] - ny * half),
+        ], fill=fill)
+    return downscale(layer, (px, px))

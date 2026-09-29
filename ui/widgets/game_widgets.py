@@ -520,19 +520,23 @@ class ChipBoard(CanvasBox):
 # ================================================================= ігри
 
 _GAME_ROW_DP, _GAME_CARD_DP, _GAME_ICON_DP = 54, 48, 30
+_GROUP_ROW_DP = 34
 _SW_W, _SW_H = 40, 22
 
 
 class GamesList(CanvasList):
-    """Знайдені ігри: іконка, назва, платформа, перемикач «вмикати режим автоматично»."""
+    """Знайдені ігри: іконка, назва, платформа, перемикач «вмикати режим автоматично».
+    Рядок із "group" — заголовок групи «Інше» (клік — згорнути/розгорнути)."""
 
     wheel_step_dp = _GAME_ROW_DP * 2
-    clickable_regions = frozenset({"switch"})
+    clickable_regions = frozenset({"switch", "group"})
+    sound_regions = frozenset({"group"})
 
-    def __init__(self, master, on_toggle):
+    def __init__(self, master, on_toggle, on_group=None):
         super().__init__(master, bg=theme.BG_PANEL, scrollbar_gap=4)
         self._on_toggle = on_toggle
-        self.items: list[dict] = []  # key, name, platform, exe, auto, running
+        self._on_group = on_group
+        self.items: list[dict] = []  # key, name, platform, exe, auto, running | group, expanded
         self.icons = IconCache(self, _GAME_ICON_DP, self.update_visible)
         self._hover_fill = theme.lerp_color(self, theme.BG_PANEL_LIGHT, "#ffffff", 0.05)
 
@@ -545,7 +549,7 @@ class GamesList(CanvasList):
             self.set_count(len(items), keep_scroll=True)
 
     def row_height_dp(self, index: int) -> float:
-        return _GAME_ROW_DP
+        return _GROUP_ROW_DP if self.items[index].get("group") else _GAME_ROW_DP
 
     def on_scale_changed(self) -> None:
         self.icons.clear_scaled()
@@ -561,15 +565,27 @@ class GamesList(CanvasList):
         it["run"] = c.create_text(0, 0, anchor="nw", font=self.font(11, "bold"), fill=theme.ACCENT_GREEN, tags=(slot.tag,))
         it["switch"] = c.create_image(0, 0, anchor="e", tags=base)
         it["auto"] = c.create_text(0, 0, anchor="e", font=self.font(11), fill=theme.TEXT_DIM, text="Авто", tags=base)
+        it["group"] = c.create_text(0, 0, anchor="w", font=self.font(12, "bold"), fill=theme.TEXT_DIM, tags=(slot.tag,))
 
     def _card_box(self):
         return self.px(_GAME_CARD_DP)
 
+    def _bind_group(self, slot, item: dict) -> None:
+        c = self.canvas
+        for name in ("bg", "name", "sub", "switch", "auto"):
+            c.itemconfigure(slot.items[name], state="hidden")
+        mid = self.px(_GROUP_ROW_DP) // 2 + self.px(2)
+        arrow = "▾" if item["expanded"] else "▸"
+        self.icoords(slot, "group", self.px(4), mid)
+        self.iset(slot, "group", text=f"{arrow}  {item['name']}  ·  {item['count']}", state="normal")
+
     def bind_slot(self, slot, index: int) -> None:
         item = self.items[index]
+        if item.get("group"):
+            self._bind_group(slot, item)
+            return
         w, card = self.width, self.px(_GAME_CARD_DP)
         mid = card // 2
-        sw_w, sw_h = self.px(_SW_W), self.px(_SW_H)
         self.icoords(slot, "bg", 0, 0)
         photo = self.icons.get(item.get("exe"), self.S)
         if photo is not None:
@@ -595,6 +611,9 @@ class GamesList(CanvasList):
 
     def hover_slot(self, slot, index: int, region) -> None:
         item = self.items[index]
+        if item.get("group"):
+            self.iset(slot, "group", fill=theme.TEXT_MAIN if region else theme.TEXT_DIM)
+            return
         self.iset(slot, "bg", image=card_image(
             max(self.width, 20), self.px(_GAME_CARD_DP), self.px(10),
             self._hover_fill if region else theme.BG_PANEL_LIGHT, theme.BORDER, theme.BG_PANEL,
@@ -610,12 +629,18 @@ class GamesList(CanvasList):
         return x1 - w - self.px(6), y0 - self.px(6), x1 + self.px(4), y0 + h + self.px(6)
 
     def hit_test(self, index: int, x: int, y: int):
+        if self.items[index].get("group"):
+            return "group"
         if y >= self.px(_GAME_CARD_DP):
             return None  # проміжок між картками
         x0, y0, x1, y1 = self._switch_box()
         return "switch" if x0 <= x < x1 and y0 <= y < y1 else "row"
 
     def click(self, index: int, region: str) -> None:
+        if region == "group":
+            if self._on_group is not None:
+                self._on_group()
+            return
         if region != "switch":
             return
         item = self.items[index]
@@ -631,6 +656,9 @@ class GamesList(CanvasList):
 
     def tooltip_for(self, index: int, region: str):
         item = self.items[index]
+        if region == "group":
+            return ("Blender, Wallpaper Engine, SteamVR, редактори та інші не-ігри (за типом програми в Steam).\n"
+                    "Самі режим не вмикають і сесію не записують, доки не ввімкнеш їм «Авто».")
         if region == "switch":
             return "Вмикати «Ігровий режим» автоматично, коли ця гра запуститься, і вимикати після виходу"
         return f"{item['name']}\n{item['platform']}\n{item.get('folder', '')}"

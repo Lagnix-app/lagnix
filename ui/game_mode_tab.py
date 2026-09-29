@@ -14,11 +14,13 @@ import customtkinter as ctk
 from core import game_mode as game_mode_core
 from core import game_scanner, game_sessions, power_plans, process_info, smart_apps
 from core import monitor as monitor_core
+from core.system_processes import is_protected
 from core.logging_setup import get_logger
 from ui import theme
-from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, card_image, checkbox_image
+from ui.widgets import aa
+from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, Tooltip, card_image, checkbox_image
 from ui.widgets.game_widgets import (
-    BigSwitch, ChipBoard, GamesList, GameRobot, ScrollPage, SessionsList,
+    BigSwitch, ChipBoard, GamesList, GameRobot, IconCache, ScrollPage, SessionsList,
     fmt_mem, fmt_pct, fmt_temp,
 )
 
@@ -47,14 +49,29 @@ def _fmt_freed(mb: float) -> str:
 
 # ======================================================= ручний вибір процесів
 
+_WINDOWS_DIR = os.path.normcase(os.environ.get("SystemRoot", r"C:\Windows")) + os.sep
+_DEFENDER_DIR = os.path.normcase(r"\Windows Defender" + os.sep)
+
+
+def _is_system_group(group: dict) -> bool:
+    """Системна група: відомий системний процес, exe з теки Windows / Windows Defender
+    або шлях не читається навіть з правами адміністратора (служби ядра)."""
+    if process_info.kind_for(group["name"]) == process_info.SYSTEM:
+        return True
+    path = group.get("exe_path")
+    if not path:
+        return True
+    path = os.path.normcase(path)
+    return path.startswith(_WINDOWS_DIR) or _DEFENDER_DIR in path
+
 _CHECK_ROW_DP = 30
 _CHECK_DP = 18
+_CHECK_ICON_DP = 16
 
 
 class ProcessCheckList(CanvasList):
-    """Список процесів із чекбоксами на одному Canvas (замість сотні
-    CTkCheckBox у CTkScrollableFrame). Клік по всьому рядку перемикає пункт,
-    як клік по тексту CTkCheckBox; системні процеси — недоступні."""
+    """Групи процесів (як на «Моніторі») із чекбоксами на одному Canvas. Клік по
+    всьому рядку перемикає групу — тобто всі її exe; системні — недоступні."""
 
     wheel_step_dp = _CHECK_ROW_DP * 3
     clickable_regions = frozenset({"row"})
@@ -62,7 +79,9 @@ class ProcessCheckList(CanvasList):
     def __init__(self, master, on_toggle):
         super().__init__(master, bg=theme.BG_PANEL, scrollbar_gap=4)
         self._on_toggle = on_toggle
-        self.items: list[dict] = []  # {"name", "label", "checked", "protected"}
+        # {"key", "name" (exe кореня), "names" (exe для закриття), "label", "checked", "protected", "pid", "exe_path"}
+        self.items: list[dict] = []
+        self.icons = IconCache(self, _CHECK_ICON_DP, self.update_visible)
 
     def set_items(self, items: list[dict]) -> None:
         self.items = items
@@ -71,11 +90,15 @@ class ProcessCheckList(CanvasList):
     def row_height_dp(self, index: int) -> float:
         return _CHECK_ROW_DP
 
+    def on_scale_changed(self) -> None:
+        self.icons.clear_scaled()
+
     def create_slot(self, slot) -> None:
         c = self.canvas
         base = (slot.tag, slot.base_tag)
         slot.items["bg"] = c.create_image(0, 0, anchor="nw", tags=(slot.tag,))
         slot.items["check"] = c.create_image(0, 0, anchor="w", tags=base)
+        slot.items["icon"] = c.create_image(0, 0, anchor="w", tags=(slot.tag,))
         slot.items["label"] = c.create_text(0, 0, anchor="w", font=self.font(13), tags=base)
         slot.items["badge_bg"] = c.create_image(0, 0, anchor="w", tags=(slot.tag,))
         slot.items["badge"] = c.create_text(0, 0, anchor="center", font=self.font(10, "bold"), tags=(slot.tag,))
@@ -83,9 +106,15 @@ class ProcessCheckList(CanvasList):
     def bind_slot(self, slot, index: int) -> None:
         item = self.items[index]
         mid = self.px(_CHECK_ROW_DP) // 2
-        c = self.canvas
-        c.coords(slot.items["check"], self.px(6), mid)
+        self.icoords(slot, "check", self.px(6), mid)
         x = self.px(6 + _CHECK_DP + 10)
+        photo = self.icons.get(item.get("exe_path"), self.S)
+        if photo is not None:
+            self.icoords(slot, "icon", x, mid)
+            self.iset(slot, "icon", image=photo, state="normal")
+        else:
+            self.iset(slot, "icon", state="hidden")
+        x += self.px(_CHECK_ICON_DP + 8)
         kind = process_info.kind_for(item["name"])
         badge_w = 0
         if kind:
@@ -93,15 +122,17 @@ class ProcessCheckList(CanvasList):
             photo, badge_w = self.badge_image(text, color)
         font = self.font(13)
         shown = self.truncate(item["label"], max(self.width - x - self.px(14) - badge_w, 40), font)
-        c.coords(slot.items["label"], x, mid)
-        c.itemconfigure(slot.items["label"], text=shown,
-                        fill=theme.TEXT_DIM if item["protected"] else theme.TEXT_MAIN)
+        self.icoords(slot, "label", x, mid)
+        self.iset(slot, "label", text=shown, fill=theme.TEXT_DIM if item["protected"] else theme.TEXT_MAIN)
         if kind:
             bx = x + self.text_width(shown, font) + self.px(8)
-            c.coords(slot.items["badge_bg"], bx, mid)
-            c.itemconfigure(slot.items["badge_bg"], image=photo, state="normal")
-            c.coords(slot.items["badge"], bx + badge_w / 2, mid)
-            c.itemconfigure(slot.items["badge"], text=text, fill=color, state="normal")
+            self.icoords(slot, "badge_bg", bx, mid)
+            self.iset(slot, "badge_bg", image=photo, state="normal")
+            self.icoords(slot, "badge", bx + badge_w / 2, mid)
+            self.iset(slot, "badge", text=text, fill=color, state="normal")
+        else:
+            self.iset(slot, "badge_bg", state="hidden")
+            self.iset(slot, "badge", state="hidden")
 
     def hover_slot(self, slot, index: int, region) -> None:
         item = self.items[index]
@@ -122,20 +153,24 @@ class ProcessCheckList(CanvasList):
         return "disabled" if self.items[index]["protected"] else "row"
 
     def row_identity(self, index: int):
-        return self.items[index]["name"]
+        return self.items[index]["key"]
 
     def tooltip_for(self, index: int, region: str):
         item = self.items[index]
-        return process_info.tooltip_text(item["name"], item.get("pid"))
+        text = process_info.tooltip_text(item["name"], item.get("pid"))
+        if len(item["names"]) > 1:
+            text += "\n\nЗакриваються разом: " + ", ".join(item["names"])
+        return text
 
     def click(self, index: int, region: str) -> None:
         if region != "row":
             return
         item = self.items[index]
-        if not item["checked"] and process_info.is_anticheat(item["name"]):
+        anticheat = [n for n in item["names"] if process_info.is_anticheat(n)]
+        if not item["checked"] and anticheat:
             if not messagebox.askyesno(
                 "Античит",
-                f"«{item['name']}» — античит.\n\n{process_info.ANTICHEAT_WARNING}\n\n"
+                f"«{anticheat[0]}» — античит.\n\n{process_info.ANTICHEAT_WARNING}\n\n"
                 "Усе одно закривати його під час увімкнення профілю?",
                 parent=self,
             ):
@@ -144,7 +179,7 @@ class ProcessCheckList(CanvasList):
         slot = self.slot_for(index)
         if slot is not None:
             self.hover_slot(slot, index, region)
-        self._on_toggle(item["name"], item["checked"])
+        self._on_toggle(item["names"], item["checked"])
 
 
 # ================================================================== вкладка
@@ -168,6 +203,8 @@ class GameModeTab(ctk.CTkFrame):
         self._note = ""
         self._monitor_tab = None
         self._advanced_built = False
+        self._others_expanded = False
+        self._process_groups: list[dict] = []
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -206,26 +243,36 @@ class GameModeTab(ctk.CTkFrame):
         return card
 
     def _build_hero(self, inner) -> None:
+        """Робот ліворуч, праворуч — перемикач зі станом і підсумок: картка не вища за робота."""
         card = self._card(inner, 1)
+        card.grid_columnconfigure(0, weight=0)
+        card.grid_columnconfigure(1, weight=1)
         self.robot = GameRobot(card)
-        self.robot.pack(pady=(20, 4))
-        self.switch = BigSwitch(card, self._on_switch_clicked)
-        self.switch.pack(pady=(6, 8))
-        ctk.CTkLabel(card, text="Ігровий режим", font=theme.font_header()).pack()
-        self.status_label = ctk.CTkLabel(card, text="", font=ctk.CTkFont(size=14, weight="bold"))
-        self.status_label.pack(pady=(2, 6))
+        self.robot.grid(row=0, column=0, padx=(20, 16), pady=12)
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.grid(row=0, column=1, padx=(0, 24), pady=12, sticky="ew")
+        body.grid_columnconfigure(1, weight=1)
+        self.switch = BigSwitch(body, self._on_switch_clicked)
+        self.switch.grid(row=0, column=0, rowspan=2, padx=(0, 14), sticky="w")
+        ctk.CTkLabel(body, text="Ігровий режим", font=theme.font_header(), anchor="w").grid(
+            row=0, column=1, sticky="sw")
+        self.status_label = ctk.CTkLabel(body, text="", font=ctk.CTkFont(size=14, weight="bold"), anchor="w")
+        self.status_label.grid(row=1, column=1, sticky="nw")
         self.summary_label = ctk.CTkLabel(
-            card, text="", font=theme.font_body(), text_color=theme.TEXT_MAIN, wraplength=560, justify="center",
+            body, text="", font=theme.font_body(), text_color=theme.TEXT_MAIN, wraplength=560,
+            justify="left", anchor="w",
         )
-        self.summary_label.pack(padx=24)
+        self.summary_label.grid(row=2, column=0, columnspan=2, pady=(10, 0), sticky="w")
         self.note_label = ctk.CTkLabel(
-            card, text="", font=theme.font_small(), text_color=theme.WARNING, wraplength=560, justify="center",
+            body, text="", font=theme.font_small(), text_color=theme.WARNING, wraplength=560,
+            justify="left", anchor="w",
         )
-        self.note_label.pack(padx=24, pady=(6, 20))
-        tk.Misc.bind(card, "<Configure>", lambda e: self._fit_wrap(e.width), "+")
+        self.note_label.grid(row=3, column=0, columnspan=2, pady=(4, 0), sticky="w")
+        self.note_label.grid_remove()
+        tk.Misc.bind(body, "<Configure>", lambda e: self._fit_wrap(e.width), "+")
 
     def _fit_wrap(self, width_px: int) -> None:
-        wrap = max(round(width_px / self._get_widget_scaling()) - 80, 200)
+        wrap = max(round(width_px / self._get_widget_scaling()) - 8, 200)
         for label in (self.summary_label, self.note_label):
             if label.cget("wraplength") != wrap:
                 label.configure(wraplength=wrap)
@@ -250,8 +297,33 @@ class GameModeTab(ctk.CTkFrame):
         self.restore_button.grid_remove()
 
     def _small_button(self, parent, text: str, command, width: int = 90, **options):
-        return ctk.CTkButton(parent, text=text, width=width, height=28, font=theme.font_small(),
-                             command=command, **options)
+        """Другорядна кнопка (як «Оновити»/сортування на «Програмах»): темна, без яскравої заливки."""
+        style = {"fg_color": theme.BG_PANEL_LIGHT, "hover_color": theme.BORDER, "text_color": theme.TEXT_MAIN}
+        style.update(options)
+        return ctk.CTkButton(parent, text=text, width=width, height=26, corner_radius=8,
+                             font=theme.font_small(), command=command, **style)
+
+    def _icon_button(self, parent, command, tip: str):
+        """Квадратна кнопка «оновити» з піктограмою й підказкою."""
+        if not hasattr(self, "_refresh_icon"):
+            S = self._get_widget_scaling()
+            self._refresh_icon = ctk.CTkImage(aa.glyph("refresh", theme.TEXT_MAIN, 16, S), size=(16, 16))
+        button = self._small_button(parent, "", command, width=26, image=self._refresh_icon)
+        tooltip = Tooltip(button)
+        button.bind("<Enter>", lambda _e: tooltip.schedule(tip), add="+")
+        button.bind("<Leave>", lambda _e: tooltip.hide(), add="+")
+        button.bind("<ButtonPress-1>", lambda _e: tooltip.hide(), add="+")
+        return button
+
+    def _menu(self, parent, variable, values: list[str], command, width: int = 240):
+        """Випадний список у стилі решти програми (темний, фіксованої ширини)."""
+        return ctk.CTkOptionMenu(
+            parent, variable=variable, values=values, command=command, width=width, height=30,
+            corner_radius=8, fg_color=theme.BG_PANEL_LIGHT, button_color=theme.BG_PANEL_LIGHT,
+            button_hover_color=theme.BORDER, dropdown_fg_color=theme.BG_PANEL,
+            dropdown_hover_color=theme.BORDER, text_color=theme.TEXT_MAIN,
+            dropdown_text_color=theme.TEXT_MAIN, font=theme.font_body(), dynamic_resizing=False,
+        )
 
     def _build_games_card(self, inner) -> None:
         card = self._card(inner, 3, column=0, columnspan=1)
@@ -261,11 +333,14 @@ class GameModeTab(ctk.CTkFrame):
         header.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(header, text="Ігри", font=theme.font_header()).grid(row=0, column=0, sticky="w")
         self.games_info = ctk.CTkLabel(header, text="Шукаю ігри…", font=theme.font_small(), text_color=theme.TEXT_DIM)
-        self.games_info.grid(row=0, column=1, padx=(8, 8), sticky="e")
-        self._small_button(header, "Усі", lambda: self._set_all_auto(True), width=46).grid(row=0, column=2, padx=(0, 4))
-        self._small_button(header, "Жодної", lambda: self._set_all_auto(False), width=60).grid(row=0, column=3, padx=(0, 4))
-        self._small_button(header, "Оновити", self._rescan_games, width=72).grid(row=0, column=4)
-        self.games_list = GamesList(card, on_toggle=self._on_game_toggle)
+        self.games_info.grid(row=0, column=1, padx=(8, 10), sticky="e")
+        ctk.CTkLabel(header, text="Авто:", font=theme.font_small(), text_color=theme.TEXT_DIM).grid(
+            row=0, column=2, padx=(0, 4))
+        self._small_button(header, "усі", lambda: self._set_all_auto(True), width=34).grid(row=0, column=3, padx=(0, 4))
+        self._small_button(header, "жодної", lambda: self._set_all_auto(False), width=52).grid(
+            row=0, column=4, padx=(0, 8))
+        self._icon_button(header, self._rescan_games, "Шукати ігри знову").grid(row=0, column=5)
+        self.games_list = GamesList(card, on_toggle=self._on_game_toggle, on_group=self._toggle_other_group)
         self.games_list.canvas.configure(width=10, height=round(_LIST_HEIGHT_DP * self._get_widget_scaling()))
         self.games_list.grid(row=1, column=0, padx=(12, 8), pady=(0, 6), sticky="nsew")
         self.games_list.set_empty_text("Шукаю встановлені ігри…")
@@ -434,6 +509,10 @@ class GameModeTab(ctk.CTkFrame):
             note = ("Ноутбук працює від батареї: «PulseFPS Ultra» швидко її розряджає й автоматично "
                     "не вмикається. Вручну — спитаю підтвердження.")
         theme.set_text(self.note_label, note)
+        if note:
+            self.note_label.grid()
+        else:
+            self.note_label.grid_remove()
 
         excluded = self.state.get("excluded_apps", [])
         if excluded and not active:
@@ -650,13 +729,27 @@ class GameModeTab(ctk.CTkFrame):
 
     def _refresh_games_list(self) -> None:
         auto = set(self.state.get("auto_games", []))
-        items = [{"key": g["key"], "name": g["name"], "platform": g["platform"], "exe": g["exe"],
-                  "folder": g["folder"], "auto": g["key"] in auto, "running": g["key"] in self._running_game_keys}
-                 for g in self._games]
+
+        def row(g: dict) -> dict:
+            return {"key": g["key"], "name": g["name"], "platform": g["platform"], "exe": g["exe"],
+                    "folder": g["folder"], "auto": g["key"] in auto, "running": g["key"] in self._running_game_keys}
+        games = [row(g) for g in self._games if g.get("kind", "game") == "game"]
+        others = [row(g) for g in self._games if g.get("kind", "game") != "game"]
+        items = list(games)
+        if others:
+            items.append({"key": "__other__", "group": True, "name": "Інше (не ігри)", "count": len(others),
+                          "expanded": self._others_expanded})
+            if self._others_expanded:
+                items += others
         self.games_list.set_empty_text("Ігор Steam, Epic, Riot, Battle.net, EA чи Ubisoft не знайдено")
         self.games_list.set_items(items)
-        enabled = sum(1 for i in items if i["auto"])
-        theme.set_text(self.games_info, f"{len(items)} знайдено · авто: {enabled}" if items else "")
+        enabled = sum(1 for i in games if i["auto"])
+        theme.set_text(self.games_info, f"{len(games)} {_plural(len(games), 'гра', 'гри', 'ігор')} · "
+                                        f"авто: {enabled}" if games else "")
+
+    def _toggle_other_group(self) -> None:
+        self._others_expanded = not self._others_expanded
+        self._refresh_games_list()
 
     def _on_game_toggle(self, key: str, enabled: bool) -> None:
         with self._lock:
@@ -670,7 +763,10 @@ class GameModeTab(ctk.CTkFrame):
 
     def _set_all_auto(self, enabled: bool) -> None:
         with self._lock:
-            self.state["auto_games"] = [g["key"] for g in self._games] if enabled else []
+            other_keys = {g["key"] for g in self._games if g.get("kind", "game") != "game"}
+            others = [k for k in self.state.get("auto_games", []) if k in other_keys]
+            games = [g["key"] for g in self._games if g.get("kind", "game") == "game"] if enabled else []
+            self.state["auto_games"] = games + others  # «Інше» кнопки «усі/жодної» не чіпають
             self._save()
         self._refresh_games_list()
 
@@ -681,6 +777,8 @@ class GameModeTab(ctk.CTkFrame):
         auto = set(self.state.get("auto_games", []))
         table = {}
         for game in self._games:
+            if game.get("kind", "game") != "game" and game["key"] not in auto:
+                continue  # Blender, Wallpaper Engine… — не гра, сесію не пишемо
             exes = set(game["exe_names"])
             for exe in exes:
                 table.setdefault(exe, (game["name"], game["key"], game["key"] in auto, exes))
@@ -813,26 +911,24 @@ class GameModeTab(ctk.CTkFrame):
         left.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(left, text="Профіль", font=theme.font_body()).grid(row=0, column=0, sticky="w")
         self.profile_var = tk.StringVar(value=self.state["active_profile"])
-        ctk.CTkOptionMenu(left, variable=self.profile_var, values=list(PROFILE_NAMES),
-                          command=self._on_profile_selected).grid(row=1, column=0, pady=(2, 10), sticky="ew")
+        self._menu(left, self.profile_var, list(PROFILE_NAMES), self._on_profile_selected).grid(
+            row=1, column=0, pady=(2, 10), sticky="w")
         ctk.CTkLabel(left, text="План живлення профілю", font=theme.font_body()).grid(row=2, column=0, sticky="w")
         self._plan_choices = game_mode_core.plan_choices()
         self.power_plan_var = tk.StringVar()
-        self.power_plan_menu = ctk.CTkOptionMenu(
-            left, variable=self.power_plan_var, values=list(self._plan_choices),
-            command=self._on_power_plan_selected,
-        )
-        self.power_plan_menu.grid(row=3, column=0, pady=(2, 12), sticky="ew")
-        self._small_button(left, "Видалити план PulseFPS Ultra", self._on_delete_ultra, width=10,
-                           fg_color="#a8283f", hover_color=theme.ERROR).grid(row=4, column=0, pady=(0, 6), sticky="ew")
-        self._small_button(left, "Повернути звичайний план", self._on_restore_plan, width=10,
-                           fg_color=theme.BG_PANEL_LIGHT, hover_color=theme.ACCENT_BLUE_DIM).grid(
-            row=5, column=0, pady=(0, 6), sticky="ew")
+        self.power_plan_menu = self._menu(left, self.power_plan_var, list(self._plan_choices),
+                                          self._on_power_plan_selected)
+        self.power_plan_menu.grid(row=3, column=0, pady=(2, 10), sticky="w")
+        self._small_button(left, "Повернути звичайний план", self._on_restore_plan, width=10).grid(
+            row=4, column=0, pady=(0, 2), sticky="w")
+        self._small_button(left, "Видалити план PulseFPS Ultra…", self._on_delete_ultra, width=10,
+                           fg_color="transparent", hover_color=theme.BG_PANEL_LIGHT, text_color=theme.ERROR).grid(
+            row=5, column=0, pady=(0, 6), sticky="w")
         self.adv_result = ctk.CTkLabel(left, text="", font=theme.font_small(), text_color=theme.TEXT_DIM,
                                        wraplength=300, justify="left", anchor="w")
         self.adv_result.grid(row=6, column=0, sticky="ew")
 
-        # --- ручний вибір процесів
+        # --- ручний вибір процесів (групи, як на «Моніторі»)
         right = ctk.CTkFrame(body, fg_color="transparent")
         right.grid(row=0, column=1, padx=(10, 0), sticky="nsew")
         right.grid_columnconfigure(0, weight=1)
@@ -842,10 +938,16 @@ class GameModeTab(ctk.CTkFrame):
         head.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(head, text="Процеси для закриття (вручну)", font=theme.font_body()).grid(
             row=0, column=0, sticky="w")
-        self._small_button(head, "Оновити", self._refresh_process_list, width=72).grid(row=0, column=1)
+        self.show_system_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(head, text="Показати системні", variable=self.show_system_var,
+                        command=self._render_process_list, font=theme.font_small(), text_color=theme.TEXT_DIM,
+                        checkbox_width=16, checkbox_height=16, border_width=2, corner_radius=4).grid(
+            row=0, column=1, padx=(8, 8))
+        self._icon_button(head, self._refresh_process_list, "Оновити список процесів").grid(row=0, column=2)
         self.process_list = ProcessCheckList(right, on_toggle=self._on_process_toggle)
         self.process_list.canvas.configure(width=10, height=round(230 * S))
         self.process_list.grid(row=1, column=0, sticky="nsew")
+        self.process_list.set_empty_text("Збираю процеси…")
 
         # --- ігри вручну
         games = ctk.CTkFrame(body, fg_color="transparent")
@@ -862,10 +964,11 @@ class GameModeTab(ctk.CTkFrame):
         entry_row = ctk.CTkFrame(games, fg_color="transparent")
         entry_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         entry_row.grid_columnconfigure(0, weight=1)
-        self.game_entry = ctk.CTkEntry(entry_row, placeholder_text="назва.exe")
+        self.game_entry = ctk.CTkEntry(entry_row, placeholder_text="назва.exe", height=26)
         self.game_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self._small_button(entry_row, "Огляд...", self._browse_game).grid(row=0, column=1, padx=(0, 6))
-        self._small_button(entry_row, "Додати", self._add_game).grid(row=0, column=2)
+        self._small_button(entry_row, "Додати", self._add_game, fg_color=theme.ACCENT_BLUE_DIM,
+                           hover_color=theme.ACCENT_BLUE).grid(row=0, column=2)
         list_row = ctk.CTkFrame(games, fg_color="transparent")
         list_row.grid(row=2, column=0, sticky="ew")
         list_row.grid_columnconfigure(0, weight=1)
@@ -875,7 +978,7 @@ class GameModeTab(ctk.CTkFrame):
         )
         self.games_listbox.grid(row=0, column=0, sticky="ew")
         self._small_button(list_row, "Видалити", self._remove_selected_game, width=90,
-                           fg_color="#a8283f", hover_color=theme.ERROR).grid(row=0, column=1, padx=(8, 0), sticky="n")
+                           hover_color="#a8283f").grid(row=0, column=1, padx=(8, 0), sticky="n")
 
         self._advanced_built = True
         self._load_profile_into_ui()
@@ -891,7 +994,7 @@ class GameModeTab(ctk.CTkFrame):
             self.state["active_profile"] = value
             self._save()
         self._load_profile_into_ui()
-        self._refresh_process_list()
+        self._render_process_list()
         self._render()
 
     def _on_power_plan_selected(self, value: str) -> None:
@@ -950,24 +1053,62 @@ class GameModeTab(ctk.CTkFrame):
     # --- ручні процеси профілю
 
     def _refresh_process_list(self) -> None:
-        selected = set(self._profile().get("processes", []))
+        threading.Thread(target=self._load_process_groups, daemon=True).start()
+
+    def _load_process_groups(self) -> None:
+        try:
+            groups = monitor_core.get_process_groups()
+        except Exception:
+            _logger.exception("Не вдалося зібрати процеси")
+            return
+        self._post(self._apply_process_groups, groups)
+
+    def _apply_process_groups(self, groups: list[dict]) -> None:
+        self._process_groups = groups
+        self._render_process_list()
+
+    def _render_process_list(self) -> None:
+        """Групи процесів, злиті за назвою (кілька вікон однієї програми — один рядок).
+        Системні приховані, поки не ввімкнено «Показати системні»."""
+        if not self._advanced_built or not self.winfo_exists():
+            return
+        selected = {p.lower() for p in self._profile().get("processes", [])}
+        show_system = self.show_system_var.get()
+        merged: dict[str, dict] = {}
+        for group in self._process_groups:
+            item = merged.get(group["title"].lower())
+            if item is None:
+                item = merged[group["title"].lower()] = {
+                    "key": group["title"].lower(), "title": group["title"], "name": group["name"],
+                    "pid": group["pid"], "exe_path": group.get("exe_path"), "names": [], "count": 0,
+                    "system": True,
+                }
+            item["count"] += len(group["members"])
+            item["system"] = item["system"] and _is_system_group(group)
+            for m in group["members"]:
+                if not is_protected(m["name"]) and m["name"] not in item["names"]:
+                    item["names"].append(m["name"])
         items = []
-        for proc in game_mode_core.get_running_process_names():
-            name = proc["name"]
-            label = name if proc["count"] <= 1 else f"{name} ({proc['count']})"
-            items.append({
-                "name": name, "label": label, "protected": proc["protected"], "pid": proc.get("pid"),
-                "checked": name in selected and not proc["protected"],
-            })
+        for item in merged.values():
+            if item["system"] and not show_system:
+                continue
+            item["protected"] = not item["names"]
+            item["checked"] = not item["protected"] and any(n.lower() in selected for n in item["names"])
+            item["label"] = item["title"] if item["count"] <= 1 else f"{item['title']} ({item['count']})"
+            items.append(item)
+        items.sort(key=lambda i: (not i["checked"], i["title"].lower()))
+        self.process_list.set_empty_text("Процесів не знайдено")
         self.process_list.set_items(items)
 
-    def _on_process_toggle(self, name: str, checked: bool) -> None:
+    def _on_process_toggle(self, names: list[str], checked: bool) -> None:
         with self._lock:
             processes = self._profile().setdefault("processes", [])
-            if checked and name not in processes:
-                processes.append(name)
-            elif not checked and name in processes:
-                processes.remove(name)
+            lower = {p.lower(): p for p in processes}
+            for name in names:
+                if checked and name.lower() not in lower:
+                    processes.append(name)
+                elif not checked and name.lower() in lower:
+                    processes.remove(lower[name.lower()])
             self._save()
         self._render()
 
