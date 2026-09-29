@@ -1,43 +1,67 @@
-"""Логіка вкладки «Ігровий режим»: профілі, керування процесами та планами живлення."""
+"""Логіка «Ігрового режиму»: закриття фонових програм, план живлення, стан у data.json.
+
+Що робить увімкнення:
+  1. закриває розумний список фонових програм (core/smart_apps.py) і
+     процеси, вручну позначені в профілі («Розширені»);
+  2. запам'ятовує поточний план живлення й вмикає «PulseFPS Ultra»
+     (або інший, обраний у профілі);
+  3. запам'ятовує закриті програми, щоб при вимкненні запропонувати
+     відкрити саме їх.
+Вимкнення повертає збережений план. Функції activate/deactivate лише змінюють
+переданий state — записує його на диск викликач. Прапорець is_active зберігається на
+диску: якщо PulseFPS аварійно закрився під час режиму, при наступному
+запуску вкладка запропонує повернути попередній план.
+"""
 
 import os
-import re
-import subprocess
 
 import psutil
 
+from core import power_plans, process_snapshot, smart_apps
 from core.app_data import load_data, update_data
+from core.logging_setup import get_logger
 from core.system_processes import is_hidden, is_protected
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_logger = get_logger(__name__)
 _CURRENT_PID = os.getpid()
 
 POWER_PLANS = {
-    "Збалансований": "381b4222-f694-41f0-9685-ff5bb260df2e",
-    "Висока продуктивність": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+    "Збалансований": power_plans.BALANCED_GUID,
+    "Висока продуктивність": power_plans.HIGH_PERFORMANCE_GUID,
     "Економія енергії": "a1841308-3541-4fab-bc81-f71556f20b4a",
 }
-HIGH_PERFORMANCE_GUID = POWER_PLANS["Висока продуктивність"]
+HIGH_PERFORMANCE_GUID = power_plans.HIGH_PERFORMANCE_GUID
+
+# У профілі план живлення — GUID, порожній рядок ("Без змін") або цей маркер:
+# «PulseFPS Ultra», який створюється при першому вмиканні.
+ULTRA = "ultra"
+SCHEMA_VERSION = 2
 
 DEFAULT_PROFILES = {
-    "Гра": {"processes": [], "power_plan": HIGH_PERFORMANCE_GUID},
-    "Стрім": {"processes": [], "power_plan": HIGH_PERFORMANCE_GUID},
+    "Гра": {"processes": [], "power_plan": ULTRA},
+    "Стрім": {"processes": [], "power_plan": ULTRA},
     "Робота": {"processes": [], "power_plan": POWER_PLANS["Збалансований"]},
 }
 
 DEFAULT_GAME_MODE = {
+    "schema": SCHEMA_VERSION,
     "profiles": DEFAULT_PROFILES,
     "active_profile": "Гра",
-    "games": [],
+    "games": [],            # вручну додані exe (автоперемикання, як раніше)
+    "auto_games": [],       # ключі знайдених ігор із увімкненим автоперемиканням
+    "excluded_apps": [],    # назви exe, які користувач прибрав із розумного списку
+    "closed_apps": [],      # [{title, name, exe_path, memory_mb}] — закриті під час режиму
+    "freed_mb": 0,
+    "plan_name": None,      # який план увімкнено режимом (для показу)
+    "ultra_guid": None,
     "previous_power_plan": None,
     "is_active": False,
 }
 
 
 def load_game_mode() -> dict:
-    """Завантажує стан ігрового режиму з data.json, доповнюючи типовими профілями."""
-    data = load_data()
-    saved = data.get("game_mode", {})
+    """Стан із data.json, доповнений типовими значеннями (і мігрований зі старої схеми)."""
+    saved = load_data().get("game_mode", {})
 
     profiles = {name: dict(defaults) for name, defaults in DEFAULT_PROFILES.items()}
     for name, profile in saved.get("profiles", {}).items():
@@ -46,18 +70,26 @@ def load_game_mode() -> dict:
         else:
             profiles[name] = profile
 
-    return {
-        "profiles": profiles,
-        "active_profile": saved.get("active_profile", DEFAULT_GAME_MODE["active_profile"]),
-        "games": list(saved.get("games", [])),
-        "previous_power_plan": saved.get("previous_power_plan"),
-        "is_active": saved.get("is_active", False),
-    }
+    if saved.get("schema", 1) < SCHEMA_VERSION:
+        # раніше типовим планом «Гри» й «Стріму» була «Висока продуктивність»
+        for name in ("Гра", "Стрім"):
+            if profiles[name].get("power_plan") == HIGH_PERFORMANCE_GUID:
+                profiles[name]["power_plan"] = ULTRA
+
+    state = {key: (list(v) if isinstance(v, list) else v) for key, v in DEFAULT_GAME_MODE.items()}
+    for key in state:
+        if key in saved:
+            state[key] = saved[key]
+    state["profiles"] = profiles
+    state["schema"] = SCHEMA_VERSION
+    return state
 
 
 def save_game_mode(state: dict) -> None:
     update_data("game_mode", state)
 
+
+# --------------------------------------------------------------- процеси
 
 def get_running_process_names() -> list[dict]:
     """Унікальні (за назвою) запущені процеси, без прихованих. name/count/protected/pid
@@ -87,7 +119,14 @@ def get_running_process_names() -> list[dict]:
 
 
 def get_running_process_name_set() -> set[str]:
-    """Множина назв (у нижньому регістрі) усіх запущених процесів, окрім поточного."""
+    """Множина назв (у нижньому регістрі) усіх запущених процесів, окрім поточного.
+    Швидкий шлях — один системний виклик без CPU-стану (~3 мс), psutil — запасний."""
+    if process_snapshot.is_available():
+        try:
+            return {p["name"].lower() for p in process_snapshot.sample(track_cpu=False)
+                    if p["pid"] != _CURRENT_PID and p["name"] != "—"}
+        except OSError:
+            pass
     names = set()
     for proc in psutil.process_iter(["pid", "name"]):
         try:
@@ -108,6 +147,8 @@ def terminate_by_names(names: list[str]) -> list[tuple[str, bool, str]]:
     """Завершує запущені процеси з переданими назвами (крім прихованих/захищених/себе)."""
     targets = {n.lower() for n in names}
     results = []
+    if not targets:
+        return results
 
     for proc in psutil.process_iter(["pid", "name"]):
         try:
@@ -139,75 +180,117 @@ def terminate_by_names(names: list[str]) -> list[tuple[str, bool, str]]:
     return results
 
 
+# ---------------------------------------------------------- плани живлення
+
 def get_active_power_scheme() -> str | None:
     """GUID активного плану живлення, або None, якщо не вдалося визначити."""
-    try:
-        raw = subprocess.check_output(
-            ["powercfg", "/getactivescheme"],
-            stderr=subprocess.STDOUT,
-            timeout=3,
-            creationflags=_NO_WINDOW,
-        ).decode("utf-8", errors="ignore")
-    except (subprocess.SubprocessError, OSError):
-        return None
-
-    match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F-]{27})", raw)
-    return match.group(1).lower() if match else None
+    return power_plans.get_active_scheme()
 
 
 def set_active_power_scheme(guid: str) -> tuple[bool, str]:
-    if not guid:
-        return True, ""
-
-    try:
-        result = subprocess.run(
-            ["powercfg", "/setactive", guid],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=3,
-            creationflags=_NO_WINDOW,
-        )
-        if result.returncode != 0:
-            return False, result.stderr.decode("utf-8", errors="ignore").strip()
-        return True, ""
-    except (subprocess.SubprocessError, OSError) as exc:
-        return False, str(exc)
+    return power_plans.set_active_scheme(guid)
 
 
 def power_plan_name(guid: str | None) -> str:
+    """Назва плану для показу: Ultra, стандартні, «Без змін» або «Інший план»."""
+    if guid == ULTRA:
+        return power_plans.ULTRA_NAME
     for name, plan_guid in POWER_PLANS.items():
         if guid and plan_guid.lower() == guid.lower():
             return name
     return "Без змін" if not guid else "Інший план"
 
 
-def activate_profile(state: dict, profile_name: str) -> tuple[dict, list[tuple[str, bool, str]]]:
-    """Закриває позначені процеси профілю та вмикає його план живлення."""
-    profile = state["profiles"].get(profile_name, {"processes": [], "power_plan": ""})
+def plan_choices() -> dict[str, str]:
+    """Назва -> значення профілю (маркер Ultra / GUID / "" для «Без змін»)."""
+    choices = {power_plans.ULTRA_NAME: ULTRA}
+    choices.update(POWER_PLANS)
+    choices["Без змін"] = ""
+    return choices
 
-    terminate_results = terminate_by_names(profile.get("processes", []))
 
-    previous_guid = get_active_power_scheme()
-    target_guid = profile.get("power_plan") or ""
-    if target_guid:
-        set_active_power_scheme(target_guid)
+def _resolve_plan(state: dict, plan: str, auto: bool) -> tuple[str | None, str | None, str]:
+    """(GUID для увімкнення або None, назва, повідомлення). Ultra на батареї
+    автоматично не вмикається."""
+    if not plan:
+        return None, None, ""
+    if plan != ULTRA:
+        return plan, power_plan_name(plan), ""
+    if auto and power_plans.on_battery():
+        return None, None, "Ноутбук працює від батареї — «PulseFPS Ultra» автоматично не вмикається."
+    guid, error = power_plans.ensure_ultra(state.get("ultra_guid"))
+    if guid:
+        state["ultra_guid"] = guid
+        return guid, power_plans.ULTRA_NAME, ""
+    return None, None, error
 
-    state["previous_power_plan"] = previous_guid
+
+# --------------------------------------------------- увімкнення/вимкнення
+
+def activate(state: dict, profile_name: str, game_platforms: set[str], auto: bool = False,
+             plan_override: str | None = None) -> dict:
+    """Вмикає режим, змінюючи `state` (зберігає його ВИКЛИКАЧ — операція довга,
+    а стан читають кілька потоків). auto=True — режим вмикається сам (гра
+    запустилась): «PulseFPS Ultra» на батареї тоді пропускається. plan_override —
+    значення плану замість профільного ("" = не чіпати план).
+    -> звіт: closed [{title, name, exe_path, memory_mb}], freed_mb, errors, plan_name, plan_error."""
+    profile = state["profiles"].get(profile_name, {"processes": [], "power_plan": ULTRA})
+    excluded = {n.lower() for n in state.get("excluded_apps", [])}
+
+    apps = smart_apps.compute_suggestions(excluded, game_platforms)
+    closed, errors = smart_apps.close_apps(apps)
+    for name, success, error in terminate_by_names(profile.get("processes", [])):
+        if success:
+            closed.append({"title": name, "name": name, "exe_path": None, "memory_mb": 0})
+        else:
+            errors.append(f"{name}: {error}")
+
+    if not state.get("is_active"):  # повторне вмикання не має затирати справжній «попередній» план
+        current = power_plans.get_active_scheme()
+        if current and current == (state.get("ultra_guid") or "").lower():
+            current = power_plans.BALANCED_GUID  # Ultra лишився активним після збою — не «повертаємось» на нього
+        state["previous_power_plan"] = current
+    plan = profile.get("power_plan", "") if plan_override is None else plan_override
+    guid, plan_name, plan_error = _resolve_plan(state, plan, auto)
+    if guid:
+        ok, message = power_plans.set_active_scheme(guid)
+        if not ok:
+            plan_name, plan_error = None, message or "Не вдалося переключити план живлення."
+
     state["is_active"] = True
     state["active_profile"] = profile_name
-    save_game_mode(state)
+    state["closed_apps"] = [c for c in closed if c.get("exe_path")]
+    state["freed_mb"] = sum(c.get("memory_mb", 0) for c in closed)
+    state["plan_name"] = plan_name
+    return {"closed": closed, "freed_mb": state["freed_mb"], "errors": errors,
+            "plan_name": plan_name, "plan_error": plan_error}
 
-    return state, terminate_results
 
+def deactivate(state: dict) -> list[dict]:
+    """Вимикає режим, повертає попередній план (state зберігає виклик­ач).
+    -> закриті програми для пропозиції «відкрити знову»."""
+    previous = state.get("previous_power_plan")
+    if previous:  # якщо план видалили — «Збалансований»
+        power_plans.set_active_scheme(normal_plan_target(previous))
 
-def deactivate_profile(state: dict) -> dict:
-    """Повертає попередній план живлення, збережений під час активації."""
-    previous_guid = state.get("previous_power_plan")
-    if previous_guid:
-        set_active_power_scheme(previous_guid)
-
+    closed = list(state.get("closed_apps", []))
     state["is_active"] = False
     state["previous_power_plan"] = None
-    save_game_mode(state)
+    state["closed_apps"] = []
+    state["freed_mb"] = 0
+    state["plan_name"] = None
+    return closed
 
-    return state
+
+def normal_plan_target(previous: str | None) -> str:
+    """Куди повертати «звичайний» план: збережений попередній (якщо ще існує), інакше «Збалансований»."""
+    return previous if previous and power_plans.scheme_exists(previous) else power_plans.BALANCED_GUID
+
+
+def drop_ultra_from_profiles(state: dict) -> None:
+    """Після видалення плану профілі, що на нього вказували, переходять на «Високу
+    продуктивність» — щоб наступне увімкнення не створило його мовчки знову."""
+    state["ultra_guid"] = None
+    for profile in state["profiles"].values():
+        if profile.get("power_plan") == ULTRA:
+            profile["power_plan"] = HIGH_PERFORMANCE_GUID

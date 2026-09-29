@@ -1236,6 +1236,10 @@ class MonitorTab(ctk.CTkFrame):
         else:
             self.status_robot.set_mood("happy", "Все чудово, система в нормі")
 
+    def latest_snapshot(self) -> dict | None:
+        """Останній зріз метрик (для підсумків ігрових сесій); оновлюється й на прихованій вкладці."""
+        return self._last_data
+
     def _game_tab(self):
         return getattr(self.winfo_toplevel(), "tab_frames", {}).get("game_mode")
 

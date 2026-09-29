@@ -17,6 +17,7 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
+import threading
 import time
 from ctypes import wintypes
 
@@ -71,6 +72,7 @@ _buffer_size = 512 * 1024
 _prev: dict = {}  # (pid, create_time) -> cpu_time_100ns
 _prev_time: float | None = None
 _CPU_COUNT = os.cpu_count() or 1
+_lock = threading.Lock()  # буфер і стан CPU спільні для потоків (Монітор, Ігровий режим)
 
 
 def is_available() -> bool:
@@ -93,16 +95,23 @@ def _query_raw():
     raise OSError("NtQuerySystemInformation: буфер замалий")
 
 
-def sample() -> list[dict]:
+def sample(track_cpu: bool = True) -> list[dict]:
+    with _lock:
+        return _sample_locked(track_cpu)
+
+
+def _sample_locked(track_cpu: bool) -> list[dict]:
     """Усі процеси: pid, ppid, name, create_time (FILETIME, 100 нс), cpu_percent
     (0..100 на всю систему) і memory_mb — private working set, тобто те саме, що
     колонка «Пам'ять» у Диспетчері завдань (rss/Working Set рахує ще й спільні
     сторінки DLL, тож для Edge виходить майже вдвічі більше).
-    Перший виклик дає cpu_percent = 0."""
+    Перший виклик дає cpu_percent = 0. track_cpu=False — «разовий» знімок для
+    інших вкладок (назви, RAM): він не чіпає стан, з якого рахується CPU %,
+    тож не збиває показники Монітора; cpu_percent у ньому = 0."""
     global _prev, _prev_time
     buf = _query_raw()
     now = time.perf_counter()
-    elapsed = None if _prev_time is None else now - _prev_time
+    elapsed = None if (_prev_time is None or not track_cpu) else now - _prev_time
     base = ctypes.addressof(buf)
     offset = 0
     current: dict = {}
@@ -130,5 +139,6 @@ def sample() -> list[dict]:
         if not info.NextEntryOffset:
             break
         offset += info.NextEntryOffset
-    _prev, _prev_time = current, now
+    if track_cpu:
+        _prev, _prev_time = current, now
     return out

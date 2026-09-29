@@ -322,14 +322,20 @@ def get_process_overview() -> tuple[list[dict], list[dict], float | None]:
     return procs, process_groups.group_processes(procs), compression
 
 
-def _all_processes() -> list[dict]:
+def get_process_groups() -> list[dict]:
+    """Групи процесів (як у Моніторі) для інших вкладок: не чіпає стан обчислення
+    CPU %, тож можна викликати з довільного потоку, не збиваючи Монітор."""
+    return process_groups.group_processes(_all_processes(track_cpu=False))
+
+
+def _all_processes(track_cpu: bool = True) -> list[dict]:
     """Усі процеси (крім ядра ОС і самого PulseFPS): pid, ppid, create_time,
     name, cpu_percent (нормований на всі ядра, максимум 100%), memory_mb."""
     current_pid = os.getpid()
     if process_snapshot.is_available():
         try:
             procs = [
-                p for p in process_snapshot.sample()
+                p for p in process_snapshot.sample(track_cpu)
                 if p["pid"] != current_pid and not is_hidden(p["name"])
             ]
         except OSError:
