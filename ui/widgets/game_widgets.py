@@ -615,10 +615,17 @@ class SessionsList(CanvasList):
 class ScrollPage(ctk.CTkFrame):
     """Вертикально прокручувана сторінка для кількох карток: canvas + одне вікно
     (create_window) із вмістом `self.inner`. Колесо миші прокручує сторінку,
-    якщо курсор не над віртуалізованим списком (той прокручується сам)."""
+    якщо курсор не над віртуалізованим списком (той прокручується сам).
 
-    def __init__(self, master):
+    fill_height=True — вміст розтягується на всю висоту, поки вміщується (ваги
+    рядків grid працюють як без прокрутки), а на невисокому вікні прокручується;
+    смуга прокрутки тоді видна лише при переповненні. Зміна потрібної висоти
+    вмісту подій не дає — власник викликає fit_height() після змін розкладки."""
+
+    def __init__(self, master, fill_height: bool = False):
         super().__init__(master, fg_color="transparent", corner_radius=0)
+        self._fill = fill_height
+        self._fill_h = 0
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
         S = self._get_widget_scaling()
@@ -636,9 +643,31 @@ class ScrollPage(ctk.CTkFrame):
 
     def _on_canvas_configure(self, event) -> None:
         self.canvas.itemconfigure(self._window, width=event.width)
+        self.fit_height()
 
     def _on_inner_configure(self, _event) -> None:
-        self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), self.inner.winfo_reqheight()))
+        if self._fill:
+            self.fit_height()
+        else:
+            self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), self.inner.winfo_reqheight()))
+
+    def fit_height(self) -> None:
+        """Режим fill_height: висота вмісту = max(висота вікна, потрібна висота)."""
+        if not self._fill:
+            return
+        view_h = self.canvas.winfo_height()
+        need = self.inner.winfo_reqheight()
+        height = max(view_h, need)
+        if height != self._fill_h:
+            self._fill_h = height
+            self.canvas.itemconfigure(self._window, height=height)
+            self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), height))
+            if height <= view_h:
+                self.canvas.yview_moveto(0)
+        if need > view_h > 1:
+            self.scrollbar.grid()
+        else:
+            self.scrollbar.grid_remove()
 
     def _overflow(self) -> bool:
         return self.inner.winfo_reqheight() > self.canvas.winfo_height()

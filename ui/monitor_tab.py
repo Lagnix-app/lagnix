@@ -22,6 +22,7 @@ from ui import theme
 from ui.widgets import aa
 from ui.widgets import robot as robot_view
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, card_image, pill_image
+from ui.widgets.game_widgets import ScrollPage
 
 DEFAULT_UPDATE_INTERVAL_SEC = 1.0
 # «Бракує оперативної пам'яті»: зайнято понад 85% RAM або Windows уже
@@ -29,7 +30,8 @@ DEFAULT_UPDATE_INTERVAL_SEC = 1.0
 LOW_RAM_PERCENT = 85
 LOW_RAM_COMPRESSION_MB = 1024
 GRAPH_POINTS = 60
-GRAPH_MIN_DP = 120  # мінімальна висота графіка; решту він ділить з таблицею процесів
+TABLE_MIN_DP = 200  # мінімальна висота картки таблиці процесів
+GRAPH_MIN_DP = 220  # мінімальна висота полотна графіка; решту висоти він ділить з таблицею процесів
 
 RING_SIZE = 128
 RING_THICKNESS = 10
@@ -296,6 +298,7 @@ class LoadGraph(ctk.CTkFrame):
     SERIES = (("cpu", "CPU", theme.ACCENT_BLUE), ("gpu", "GPU", "#c77dff"), ("ram", "RAM", theme.ACCENT_GREEN),
               ("temp", "Темп. CPU °C", "#ffb454"))
     NO_FILL = frozenset({"temp"})  # температура — лише лінія, без заливки
+    OPTIONAL = frozenset({"gpu", "temp"})  # у легенді лише поки є дані (немає GPU / датчика CPU)
     FILL_ALPHA = 0.42  # прозорість заливки біля лінії (далі згасає до 0 донизу)
     LINE_WIDTH = 2.0
     PAD = 4  # dp: відступ по вертикалі, щоб лінія на 0%/100% не обрізалась
@@ -312,9 +315,12 @@ class LoadGraph(ctk.CTkFrame):
         legend.pack(side="right")
         self._hidden: set[str] = set()
         self._legend_labels = {}
+        self._legend_items = {}
         for key, label, color in self.SERIES:
             item = ctk.CTkFrame(legend, fg_color="transparent")
-            item.pack(side="left", padx=(14, 0))
+            if key not in self.OPTIONAL:
+                item.pack(side="left", padx=(14, 0))  # необов'язкові — з'являться з першими даними
+            self._legend_items[key] = item
             dot = tk.Label(
                 item, image=aa.dot_image(color, 10, theme.BG_PANEL, self._scale),
                 bg=theme.BG_PANEL, bd=0, highlightthickness=0, cursor="hand2",
@@ -384,8 +390,22 @@ class LoadGraph(ctk.CTkFrame):
             self.history["temp"].clear()
         else:
             self.history["temp"].append(max(0.0, min(temp, 100.0)))
+        for key in self.OPTIONAL:
+            self._show_legend(key, bool(self.history[key]))
         self._dirty = True
         self._redraw()
+
+    def _show_legend(self, key: str, shown: bool) -> None:
+        item = self._legend_items[key]
+        if shown == bool(item.winfo_manager()):
+            return
+        if shown:
+            # зберігаємо порядок SERIES: пакуємо перед першим видимим наступним пунктом
+            keys = [k for k, _l, _c in self.SERIES]
+            after = [self._legend_items[k] for k in keys[keys.index(key) + 1:] if self._legend_items[k].winfo_manager()]
+            item.pack(side="left", padx=(14, 0), **({"before": after[0]} if after else {}))
+        else:
+            item.pack_forget()
 
     def _schedule_redraw(self) -> None:
         # Configure приходить пачками при зміні розміру вікна — зливаємо в один кадр
@@ -917,9 +937,16 @@ class MonitorTab(ctk.CTkFrame):
         self._visible = False
         self._last_data: dict | None = None
 
-        self.grid_columnconfigure(0, weight=3)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(3, weight=1)
+        # сторінка на всю висоту вкладки; якщо вікно надто низьке для кілець,
+        # плиток, графіка й таблиці з їхніми мінімумами — прокручується
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.page = ScrollPage(self, fill_height=True)
+        self.page.grid(row=0, column=0, sticky="nsew")
+        body = self._body = self.page.inner
+        body.grid_columnconfigure(0, weight=3)
+        body.grid_columnconfigure(1, weight=1)
+        body.grid_rowconfigure(3, weight=1)
 
         self._build_header()
         self._build_rings()
@@ -941,16 +968,16 @@ class MonitorTab(ctk.CTkFrame):
     # ------------------------------------------------------------------ UI
 
     def _build_header(self):
-        label = ctk.CTkLabel(self, text="Монітор", font=theme.font_title())
+        label = ctk.CTkLabel(self._body, text="Монітор", font=theme.font_title())
         label.grid(row=0, column=0, columnspan=2, padx=20, pady=(20, 4), sticky="w")
 
         self.warning_label = ctk.CTkLabel(
-            self, text="", text_color=theme.ERROR, font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
+            self._body, text="", text_color=theme.ERROR, font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
         )
         self.warning_label.grid(row=1, column=0, columnspan=2, padx=20, pady=(0, 4), sticky="ew")
 
     def _build_rings(self):
-        rings_frame = ctk.CTkFrame(self, fg_color="transparent")
+        rings_frame = ctk.CTkFrame(self._body, fg_color="transparent")
         rings_frame.grid(row=2, column=0, columnspan=2, padx=20, pady=(6, 10), sticky="ew")
         rings_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
@@ -964,7 +991,7 @@ class MonitorTab(ctk.CTkFrame):
         self.ring_vram.grid(row=0, column=3, padx=6, sticky="nsew")
 
     def _build_main_and_sidebar(self):
-        main = ctk.CTkFrame(self, fg_color="transparent")
+        main = ctk.CTkFrame(self._body, fg_color="transparent")
         main.grid(row=3, column=0, padx=(20, 10), pady=(0, 20), sticky="nsew")
         main.grid_columnconfigure(0, weight=1)
         # графік і таблиця процесів ділять висоту, що лишилася — на
@@ -988,12 +1015,27 @@ class MonitorTab(ctk.CTkFrame):
 
         self.graph = LoadGraph(main)
         self.graph.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
+        # вагу рядки ділять лише понад мінімум: на невисокому вікні графік не
+        # схлопується до заголовка (полотно не нижче GRAPH_MIN_DP), стискається таблиця
+        self._main = main
+        tk.Misc.bind(self.graph, "<Configure>", lambda _e: self._fit_graph_row(), "+")
+        self.after_idle(self._fit_graph_row)
 
         self.process_table = ProcessTable(main, on_terminate=self._confirm_terminate)
         self.process_table.grid(row=2, column=0, sticky="nsew")
 
-        self.status_robot = StatusRobot(self)
+        self.status_robot = StatusRobot(self._body)
         self.status_robot.grid(row=3, column=1, padx=(10, 20), pady=(0, 20), sticky="new")
+
+    def _fit_graph_row(self) -> None:
+        """Мінімуми рядків: графік — не нижче GRAPH_MIN_DP, таблиця — TABLE_MIN_DP;
+        понад них висоту ділять ваги (2 : 3), а бракне — сторінка прокручується."""
+        S = self._get_widget_scaling()
+        mins = {1: self.graph.winfo_reqheight() + round(10 * S), 2: round(TABLE_MIN_DP * S)}
+        for row, minsize in mins.items():
+            if self._main.grid_rowconfigure(row, "minsize") != minsize:
+                self._main.grid_rowconfigure(row, minsize=minsize)
+        self.page.fit_height()
 
     def _layout_tiles(self) -> None:
         """5 плиток в один ряд, якщо кожна вміщує свій підпис і найширше
@@ -1016,6 +1058,7 @@ class MonitorTab(ctk.CTkFrame):
                 row=row, column=col, sticky="nsew",
                 padx=(0 if col == 0 else 6, 0 if col == columns - 1 else 6), pady=(0 if row == 0 else 12, 0),
             )
+        self.after_idle(self.page.fit_height)  # плитки перейшли на інший ряд — інша потрібна висота
 
     # -------------------------------------------------------------- worker
 
@@ -1052,6 +1095,8 @@ class MonitorTab(ctk.CTkFrame):
     def on_visibility_changed(self, visible: bool) -> None:
         self._visible = visible
         self.status_robot.set_active(visible)
+        if visible:
+            self.after_idle(self.page.fit_height)
         if visible and self._last_data is not None:
             # зріз із фону — без процесів: таблиця оновиться наступним зрізом
             self._render_snapshot(self._last_data, push_graph=False)
