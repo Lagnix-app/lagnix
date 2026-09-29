@@ -34,6 +34,8 @@ DEFAULT_SETTINGS = {
     "close_action": "exit",
     # Чи згорнуті пояснення (пінг/джитер/втрати) на вкладці «Мережа».
     "network_help_collapsed": False,
+    # «Монітор»: процеси згруповані за програмами (як у Диспетчері завдань).
+    "monitor_group_processes": True,
 }
 
 

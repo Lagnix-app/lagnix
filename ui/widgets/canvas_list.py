@@ -340,6 +340,7 @@ class CanvasList(theme.PlainFrame):
         self.width = 0
         self._height = 0
         self._hover: tuple = (None, None)
+        self._tip_identity = None
         self._pressed: tuple | None = None
         self._layout_job = None
         self._fonts: dict = {}
@@ -353,6 +354,7 @@ class CanvasList(theme.PlainFrame):
         c = self.canvas
         c.bind("<Configure>", self._on_configure)
         c.bind("<Motion>", self._on_motion)
+        c.bind("<Enter>", self._on_motion)  # курсор міг зайти без руху (напр. після прокрутки сторінки)
         c.bind("<Leave>", self._on_leave)
         c.bind("<ButtonPress-1>", self._on_press)
         c.bind("<ButtonRelease-1>", self._on_release)
@@ -386,6 +388,11 @@ class CanvasList(theme.PlainFrame):
 
     def tooltip_for(self, index: int, region: str) -> str | None:
         return None
+
+    def row_identity(self, index: int):
+        """Що саме зараз у рядку index (напр. PID). Якщо при оновленні даних під
+        курсором опинився інший елемент — підказка перебудовується."""
+        return index
 
     def row_height_dp(self, index: int) -> float:
         raise NotImplementedError
@@ -493,6 +500,9 @@ class CanvasList(theme.PlainFrame):
             self.hover_slot(slot, idx, self._hover[1] if self._hover[0] == idx else None)
             if slot.y:
                 c.move(slot.tag, 0, slot.y)
+        hover_idx = self._hover[0]
+        if hover_idx is not None and self.row_identity(hover_idx) != self._tip_identity:
+            self._schedule_tooltip()  # під курсором тепер інший рядок (дані пересортувались)
 
     def remeasure(self) -> None:
         """Висоти рядків могли змінитися (напр. інший текст із переносом)."""
@@ -682,10 +692,16 @@ class CanvasList(theme.PlainFrame):
             if slot is not None:
                 self.hover_slot(slot, idx, region)
         self.canvas.configure(cursor="hand2" if region in self.clickable_regions else "")
+        self._schedule_tooltip()
+
+    def _schedule_tooltip(self) -> None:
         self.tooltip.hide()
+        idx, region = self._hover
+        self._tip_identity = None
         if idx is not None and not self._scrolling:
             text = self.tooltip_for(idx, region)
             if text:
+                self._tip_identity = self.row_identity(idx)
                 self.tooltip.schedule(text)
 
     def _on_motion(self, event) -> None:

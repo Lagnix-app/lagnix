@@ -94,8 +94,11 @@ def _query_raw():
 
 
 def sample() -> list[dict]:
-    """Усі процеси: pid, name, cpu_percent (0..100 на всю систему), memory_mb
-    (робочий набір, як psutil rss). Перший виклик дає cpu_percent = 0."""
+    """Усі процеси: pid, ppid, name, create_time (FILETIME, 100 нс), cpu_percent
+    (0..100 на всю систему) і memory_mb — private working set, тобто те саме, що
+    колонка «Пам'ять» у Диспетчері завдань (rss/Working Set рахує ще й спільні
+    сторінки DLL, тож для Edge виходить майже вдвічі більше).
+    Перший виклик дає cpu_percent = 0."""
     global _prev, _prev_time
     buf = _query_raw()
     now = time.perf_counter()
@@ -118,9 +121,11 @@ def sample() -> list[dict]:
         if pid:
             out.append({
                 "pid": pid,
+                "ppid": info.InheritedFromUniqueProcessId or 0,
+                "create_time": info.CreateTime,
                 "name": name or "—",
                 "cpu_percent": max(0.0, min(cpu, 100.0)),
-                "memory_mb": info.WorkingSetSize / (1024 ** 2),
+                "memory_mb": info.WorkingSetPrivateSize / (1024 ** 2),
             })
         if not info.NextEntryOffset:
             break

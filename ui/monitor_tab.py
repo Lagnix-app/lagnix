@@ -6,6 +6,7 @@ import random
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from collections import deque
 from tkinter import messagebox
 
@@ -15,7 +16,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageTk
 from core import monitor as monitor_core
 from core import process_info
 from core.logging_setup import get_logger
-from core.settings import load_settings
+from core.app_icons import IconLoader
+from core.settings import load_settings, update_setting
 from core.system_processes import is_protected
 from ui import theme
 from ui.widgets import aa
@@ -27,6 +29,7 @@ DEFAULT_UPDATE_INTERVAL_SEC = 1.0
 LOW_RAM_PERCENT = 85
 LOW_RAM_COMPRESSION_MB = 1024
 GRAPH_POINTS = 60
+GRAPH_MIN_DP = 120  # мінімальна висота графіка; решту він ділить з таблицею процесів
 
 RING_SIZE = 128
 RING_THICKNESS = 10
@@ -43,9 +46,14 @@ def _level_color(percent: float) -> str:
 
 
 def _fmt_rate(mb_per_s: float) -> str:
+    """Не довше за «999 МБ/с»: так плитки вміщуються в один ряд."""
     if mb_per_s < 1.0:
         return f"{mb_per_s * 1024:.0f} КБ/с"
-    return f"{mb_per_s:.1f} МБ/с"
+    if mb_per_s < 100.0:
+        return f"{mb_per_s:.1f} МБ/с"
+    if mb_per_s < 1000.0:
+        return f"{mb_per_s:.0f} МБ/с"
+    return f"{mb_per_s / 1024:.1f} ГБ/с"
 
 
 # ----------------------------------------------------------------- ring gauge
@@ -168,20 +176,28 @@ class RingGauge(ctk.CTkFrame):
 
 # -------------------------------------------------------------------- tiles
 
+_TILE_VALUE_SIZE = 14
+
+
 class InfoTile(ctk.CTkFrame):
     """Компактна плитка: температура, диск, мережа, час роботи."""
 
-    def __init__(self, master, title: str):
+    def __init__(self, master, title: str, widest_value: str):
         super().__init__(master, corner_radius=10)
         self._tooltip_win = None
         self._tooltip_text = None
+        self._title = title
+        # найширше можливе значення — ширину плитки рахуємо за ним, а не за
+        # поточним текстом, щоб розкладка не "стрибала" щосекунди
+        self._widest_value = widest_value
 
         ctk.CTkLabel(
             self, text=title, text_color=theme.TEXT_DIM, font=theme.font_small(), anchor="w",
         ).pack(padx=12, pady=(10, 0), fill="x")
 
         self.value_label = ctk.CTkLabel(
-            self, text="—", font=theme.font_header(), anchor="w", justify="left",
+            self, text="—", font=ctk.CTkFont(family="Segoe UI", size=_TILE_VALUE_SIZE, weight="bold"),
+            anchor="w", justify="left",
         )
         self.value_label.pack(padx=12, pady=(2, 10), anchor="w")
 
@@ -191,6 +207,22 @@ class InfoTile(ctk.CTkFrame):
 
     def set_value(self, text: str) -> None:
         theme.set_text(self.value_label, text, text_color=theme.TEXT_MAIN)
+
+    def required_width(self) -> int:
+        """Мінімальна ширина плитки (px), за якої ні підпис, ні значення не обрізаються."""
+        S = self._get_widget_scaling()
+        cached = getattr(self, "_required", None)
+        if cached is not None and cached[0] == S:
+            return cached[1]
+        small = tkfont.Font(family="Segoe UI", size=-round(11 * S))
+        header = tkfont.Font(family="Segoe UI", size=-round(_TILE_VALUE_SIZE * S), weight="bold")
+        text_w = max(
+            small.measure(self._title),
+            max(header.measure(line) for line in self._widest_value.split("\n")),
+        )
+        width = text_w + round(28 * S)
+        self._required = (S, width)
+        return width
 
     def set_tooltip(self, text: str | None) -> None:
         self._tooltip_text = text
@@ -255,7 +287,9 @@ class LoadGraph(ctk.CTkFrame):
             dot.pack(side="left", padx=(0, 5))
             ctk.CTkLabel(item, text=label, font=theme.font_small(), text_color=theme.TEXT_DIM).pack(side="left")
 
-        self.canvas = tk.Canvas(self, height=round(210 * self._scale), bg=theme.BG_PANEL, highlightthickness=0)
+        self.canvas = tk.Canvas(
+            self, height=round(GRAPH_MIN_DP * self._scale), bg=theme.BG_PANEL, highlightthickness=0,
+        )
         self.canvas.pack(fill="both", expand=True, padx=16, pady=(6, 16))
         self._image_item = self.canvas.create_image(0, 0, anchor="nw")
         self._labels = [
@@ -281,7 +315,7 @@ class LoadGraph(ctk.CTkFrame):
         super()._set_scaling(*args, **kwargs)
         self._scale = args[0]
         if hasattr(self, "canvas"):
-            self.canvas.configure(height=round(210 * self._scale))
+            self.canvas.configure(height=round(GRAPH_MIN_DP * self._scale))
             font = ("Segoe UI", -round(11 * self._scale))
             for _frac, item in self._labels:
                 self.canvas.itemconfigure(item, font=font)
@@ -428,23 +462,32 @@ _PROC_ROW_DP = 32
 _KILL_W, _KILL_H = 84, 24
 # праві краї колонок (dp від правого краю таблиці): CPU, RAM, дія
 _COL_CPU_R, _COL_RAM_R, _COL_ACTION_W = 6 + 90 + 10 + 80 + 10, 6 + 90 + 10, 90
+_ICON_DP = 16
+_ARROW_W = 22  # dp: ділянка стрілки розгортання групи
+_NAME_X = {"group": 48, "proc": 26, "child": 64}  # dp: початок назви за типом рядка
+_DOT_X = {"proc": 8, "child": 48}
 
 
 class ProcessList(CanvasList):
-    """Рядки процесів на одному Canvas: мітка-крапка, назва, CPU %, RAM (МБ);
-    кнопка «Завершити» з'являється лише при наведенні на рядок. Щосекундне
-    оновлення міняє лише текст/кольори, що справді змінилися (iset)."""
+    """Рядки процесів на одному Canvas. Рядок — група програми (стрілка
+    розгортання, іконка, «Microsoft Edge (45)», суми CPU/RAM), процес усередині
+    розгорнутої групи (з відступом) або окремий процес (режим без групування).
+    Кнопка «Завершити» з'являється лише при наведенні. Щосекундне оновлення
+    міняє лише текст/кольори, що справді змінилися (iset)."""
 
     wheel_step_dp = _PROC_ROW_DP * 3
-    clickable_regions = frozenset({"kill"})
+    clickable_regions = frozenset({"kill", "expand"})
     sound_regions = frozenset({"kill"})
 
-    def __init__(self, master, on_terminate):
+    def __init__(self, master, on_terminate, on_expand):
         super().__init__(master, bg=theme.BG_PANEL, scrollbar_gap=4)
         self._on_terminate = on_terminate
+        self._on_expand = on_expand
         self.rows: list[dict] = []
+        self._photos: dict = {}
+        self.icons = IconLoader(self._icon_ready_threadsafe)
 
-    def set_processes(self, rows: list[dict]) -> None:
+    def set_rows(self, rows: list[dict]) -> None:
         count_changed = len(rows) != len(self.rows)
         self.rows = rows
         if count_changed:
@@ -455,6 +498,36 @@ class ProcessList(CanvasList):
     def row_height_dp(self, index: int) -> float:
         return _PROC_ROW_DP
 
+    def on_scale_changed(self) -> None:
+        self._photos.clear()
+
+    # --------------------------------------------------------- іконки
+
+    def _icon(self, path: str | None):
+        """PhotoImage іконки exe (16 dp) або None, поки не витягнута / немає."""
+        if not path:
+            return None
+        ready, image = self.icons.get(path)
+        if not ready:
+            self.icons.request({"key": path, "display_icon": (path,)})
+            return None
+        if image is None:
+            return None
+        key = (path, round(self.S, 3))
+        photo = self._photos.get(key)
+        if photo is None:
+            px = self.px(_ICON_DP)
+            photo = self._photos[key] = ImageTk.PhotoImage(image.resize((px, px), Image.Resampling.LANCZOS))
+        return photo
+
+    def _icon_ready_threadsafe(self, _key: str) -> None:
+        try:
+            self.after(0, self.update_visible)
+        except (RuntimeError, tk.TclError):
+            pass
+
+    # ---------------------------------------------------------- рядки
+
     def _kill_box(self):
         h = self.px(_KILL_H)
         y0 = (self.px(_PROC_ROW_DP) - h) // 2
@@ -463,11 +536,13 @@ class ProcessList(CanvasList):
 
     def create_slot(self, slot) -> None:
         c = self.canvas
-        base = (slot.tag, slot.base_tag)
         opt = (slot.tag,)
+        base = (slot.tag, slot.base_tag)
         it = slot.items
         it["bg"] = c.create_image(0, 0, anchor="nw", tags=opt)
-        it["dot"] = c.create_image(0, 0, anchor="w", tags=base)
+        it["arrow"] = c.create_text(0, 0, anchor="center", fill=theme.TEXT_DIM, font=self.font(16, "bold"), tags=opt)
+        it["icon"] = c.create_image(0, 0, anchor="w", tags=opt)
+        it["dot"] = c.create_image(0, 0, anchor="w", tags=opt)
         it["name"] = c.create_text(0, 0, anchor="w", font=self.font(13), tags=base)
         it["cpu"] = c.create_text(0, 0, anchor="e", fill=theme.TEXT_MAIN, font=self.font(13), tags=base)
         it["ram"] = c.create_text(0, 0, anchor="e", fill=theme.TEXT_MAIN, font=self.font(13), tags=base)
@@ -478,83 +553,137 @@ class ProcessList(CanvasList):
                                    font=self.font(12), tags=opt)
 
     def bind_slot(self, slot, index: int) -> None:
-        p = self.rows[index]
+        row = self.rows[index]
+        kind = row["kind"]
         w = self.width
         mid = self.px(_PROC_ROW_DP) // 2
-        self.icoords(slot, "dot", self.px(8), mid)
-        cpu = p["cpu_percent"]
-        dot_color = theme.ERROR if cpu >= 50 else (theme.WARNING if cpu >= 20 else theme.ACCENT_BLUE)
-        self.iset(slot, "dot", image=aa.dot_image(dot_color, 8, theme.BG_PANEL, self.S))
-        name_x = self.px(26)
+        cpu = row["cpu_percent"]
+
+        # стрілка розгортання (лише група з кількох процесів)
+        if kind == "group" and row["count"] > 1:
+            self.icoords(slot, "arrow", self.px(_ARROW_W / 2), mid)
+            self.iset(slot, "arrow", text="▾" if row["expanded"] else "▸", state="normal")
+        else:
+            self.iset(slot, "arrow", state="hidden")
+
+        # іконка програми для групи, інакше — кольорова крапка за навантаженням CPU
+        photo = self._icon(row.get("exe_path")) if kind == "group" else None
+        if photo is not None:
+            self.icoords(slot, "icon", self.px(_ARROW_W + 2), mid)
+            self.iset(slot, "icon", image=photo, state="normal")
+            self.iset(slot, "dot", state="hidden")
+        else:
+            self.iset(slot, "icon", state="hidden")
+            dot_x = _DOT_X.get(kind, _ARROW_W + 6)
+            dot_color = theme.ERROR if cpu >= 50 else (theme.WARNING if cpu >= 20 else theme.ACCENT_BLUE)
+            self.icoords(slot, "dot", self.px(dot_x), mid)
+            self.iset(slot, "dot", image=aa.dot_image(dot_color, 8, theme.BG_PANEL, self.S), state="normal")
+
+        if kind == "group":
+            label = f"{row['title']} ({row['count']})" if row["count"] > 1 else row["title"]
+        elif kind == "child":
+            label = f"{row['name']}  ·  PID {row['pid']}"
+        else:
+            label = row["name"]
+        name_x = self.px(_NAME_X[kind])
         name_w = w - self.px(_COL_CPU_R + 56 + 8) - name_x
-        kind = process_info.kind_for(p["name"])
+        badge_kind = process_info.kind_for(row["name"]) if kind != "child" else None
         badge_w = 0
-        if kind:
-            text, color = PROCESS_BADGES[kind]
-            photo, badge_w = self.badge_image(text, color)
-        shown = self.truncate(p["name"], max(name_w - badge_w - self.px(8), self.px(40)), self.font(13))
+        if badge_kind:
+            badge_text, badge_color = PROCESS_BADGES[badge_kind]
+            badge_photo, badge_w = self.badge_image(badge_text, badge_color)
+        font = self.font(13)
+        shown = self.truncate(label, max(name_w - badge_w - self.px(8), self.px(40)), font)
         self.icoords(slot, "name", name_x, mid)
-        self.iset(slot, "name", text=shown, fill=theme.TEXT_MAIN)
-        if kind:
-            bx = name_x + self.text_width(shown, self.font(13)) + self.px(8)
+        self.iset(slot, "name", text=shown, fill=theme.TEXT_DIM if kind == "child" else theme.TEXT_MAIN)
+        if badge_kind:
+            bx = name_x + self.text_width(shown, font) + self.px(8)
             self.icoords(slot, "badge_bg", bx, mid)
-            self.iset(slot, "badge_bg", image=photo, state="normal")
+            self.iset(slot, "badge_bg", image=badge_photo, state="normal")
             self.icoords(slot, "badge", bx + badge_w / 2, mid)
-            self.iset(slot, "badge", text=text, fill=color, state="normal")
+            self.iset(slot, "badge", text=badge_text, fill=badge_color, state="normal")
         else:
             self.iset(slot, "badge_bg", state="hidden")
             self.iset(slot, "badge", state="hidden")
+
         self.icoords(slot, "cpu", w - self.px(_COL_CPU_R), mid)
         self.iset(slot, "cpu", text=f"{cpu:.1f}%")
         self.icoords(slot, "ram", w - self.px(_COL_RAM_R), mid)
-        self.iset(slot, "ram", text=f"{p['memory_mb']:.0f} МБ")
+        self.iset(slot, "ram", text=_fmt_mem(row["memory_mb"]))
         self.icoords(slot, "bg", 0, 0)
         x0, y0, x1, y1 = self._kill_box()
         self.icoords(slot, "kill_bg", x0, y0)
         self.icoords(slot, "kill", (x0 + x1) / 2, (y0 + y1) / 2)
 
     def hover_slot(self, slot, index: int, region) -> None:
-        p = self.rows[index]
+        row = self.rows[index]
         hovered = region is not None
-        protected = p["protected"]
         if hovered:
             self.iset(slot, "bg", image=card_image(
                 max(self.width, 20), self.px(_PROC_ROW_DP), self.px(8),
                 theme.BG_PANEL_LIGHT, theme.BG_PANEL_LIGHT, theme.BG_PANEL,
             ))
         self.iset(slot, "bg", state="normal" if hovered else "hidden")
-        show_kill = hovered and not protected
+        show_kill = hovered and not row["protected"]
         self.iset(slot, "kill_bg", state="normal" if show_kill else "hidden",
                   image=pill_image(self.px(_KILL_W), self.px(_KILL_H),
                                    theme.ERROR if region == "kill" else "#a8283f", self.px(6)))
         self.iset(slot, "kill", state="normal" if show_kill else "hidden")
+        if row["kind"] == "group" and row["count"] > 1:
+            self.iset(slot, "arrow", fill=theme.TEXT_MAIN if region == "expand" else theme.TEXT_DIM)
+
+    # ---------------------------------------------------------- події
 
     def hit_test(self, index: int, x: int, y: int):
-        if not self.rows[index]["protected"]:
+        row = self.rows[index]
+        if not row["protected"]:
             x0, y0, x1, y1 = self._kill_box()
             if x0 <= x < x1 and y0 <= y < y1:
                 return "kill"
+        if row["kind"] == "group" and row["count"] > 1 and x < self.px(_ARROW_W + 4):
+            return "expand"
         return "row"
 
     def click(self, index: int, region: str) -> None:
+        row = self.rows[index]
         if region == "kill":
-            p = self.rows[index]
-            self._on_terminate(p["pid"], p["name"])
+            self._on_terminate(row)
+        elif region == "expand":
+            self._on_expand(row["key"])
+
+    def double_click(self, index: int, region: str) -> None:
+        row = self.rows[index]
+        if region == "row" and row["kind"] == "group" and row["count"] > 1:
+            self._on_expand(row["key"])
+
+    def row_identity(self, index: int):
+        row = self.rows[index]
+        return row["kind"], row["pid"]
 
     def tooltip_for(self, index: int, region: str):
         if region != "row":
             return None
-        p = self.rows[index]
-        return process_info.tooltip_text(p["name"], p["pid"])
+        row = self.rows[index]
+        text = process_info.tooltip_text(row["name"], row["pid"])
+        if row["kind"] == "group" and row["count"] > 1:
+            text += f"\n\nПроцесів у групі: {row['count']} (стрілка ▸ — показати окремо)"
+        return text
+
+
+def _fmt_mem(mb: float) -> str:
+    return f"{mb / 1024:.1f} ГБ" if mb >= 10 * 1024 else f"{mb:.0f} МБ"
 
 
 class ProcessTable(ctk.CTkFrame):
-    """Єдина таблиця процесів із перемикачем сортування «за CPU / за RAM»."""
+    """Таблиця процесів: групи програм (як у Диспетчері завдань) або окремі
+    процеси, сортування «за CPU / за RAM» — за сумою групи."""
 
     def __init__(self, master, on_terminate):
         super().__init__(master, corner_radius=14)
         self._sort_key = "cpu"
-        self._last_processes: list[dict] | None = None
+        self._last_data: tuple | None = None  # (процеси, групи)
+        self._expanded: set = set()
+        self._grouped = bool(load_settings().get("monitor_group_processes", True))
 
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=16, pady=(14, 6))
@@ -564,33 +693,71 @@ class ProcessTable(ctk.CTkFrame):
         self.toggle.set("За CPU")
         self.toggle.pack(side="right")
 
+        self.group_switch = ctk.CTkSwitch(
+            header, text="Групувати", font=theme.font_small(), command=self._on_group_switch, width=40,
+        )
+        if self._grouped:
+            self.group_switch.select()
+        self.group_switch.pack(side="right", padx=(0, 14))
+
         columns = ctk.CTkFrame(self, fg_color="transparent")
         columns.pack(fill="x", padx=(22, 22))
         columns.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(columns, text="Процес", text_color=theme.TEXT_DIM, font=theme.font_small()).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(columns, text="CPU", text_color=theme.TEXT_DIM, font=theme.font_small(), width=56, anchor="e").grid(row=0, column=1, sticky="e", padx=(0, 10))
-        ctk.CTkLabel(columns, text="RAM", text_color=theme.TEXT_DIM, font=theme.font_small(), width=80, anchor="e").grid(row=0, column=2, sticky="e", padx=(0, 10))
+        ctk.CTkLabel(columns, text="Пам'ять", text_color=theme.TEXT_DIM, font=theme.font_small(), width=80, anchor="e").grid(row=0, column=2, sticky="e", padx=(0, 10))
         ctk.CTkLabel(columns, text="", width=_COL_ACTION_W).grid(row=0, column=3, sticky="e", padx=(0, 6))
 
-        self.list = ProcessList(self, on_terminate)
+        self.list = ProcessList(self, on_terminate, self._toggle_expand)
+        self.list.canvas.configure(height=round(_PROC_ROW_DP * 5 * self.list.S))  # ≥ 5 рядків
         self.list.pack(fill="both", expand=True, padx=(16, 8), pady=(2, 14))
         self.list.set_empty_text("Завантаження…")
 
     def _on_toggle(self, value: str) -> None:
         self._sort_key = "cpu" if value == "За CPU" else "ram"
-        if self._last_processes is not None:
-            self._render(self._last_processes)
+        self._render()
 
-    def update_processes(self, processes: list[dict]) -> None:
-        self._last_processes = processes
-        self._render(processes)
+    def _on_group_switch(self) -> None:
+        self._grouped = bool(self.group_switch.get())
+        update_setting("monitor_group_processes", self._grouped)
+        self._render()
 
-    def _render(self, processes: list[dict]) -> None:
-        key = (lambda p: p["cpu_percent"]) if self._sort_key == "cpu" else (lambda p: p["memory_mb"])
-        ordered = sorted(processes, key=key, reverse=True)
-        for p in ordered:
-            p["protected"] = is_protected(p["name"])
-        self.list.set_processes(ordered)
+    def _toggle_expand(self, key) -> None:
+        if key in self._expanded:
+            self._expanded.discard(key)
+        else:
+            self._expanded.add(key)
+        self._render()
+
+    def update_processes(self, processes: list[dict], groups: list[dict] | None) -> None:
+        self._last_data = (processes, groups)
+        self._render()
+
+    def _render(self) -> None:
+        if self._last_data is None:
+            return
+        processes, groups = self._last_data
+        field = "cpu_percent" if self._sort_key == "cpu" else "memory_mb"
+        rows: list[dict] = []
+        if self._grouped and groups is not None:
+            alive = set()
+            for g in sorted(groups, key=lambda g: g[field], reverse=True):
+                alive.add(g["key"])
+                expanded = g["key"] in self._expanded and len(g["members"]) > 1
+                rows.append({
+                    "kind": "group", "key": g["key"], "name": g["name"], "title": g["title"],
+                    "pid": g["pid"], "exe_path": g["exe_path"], "count": len(g["members"]),
+                    "cpu_percent": g["cpu_percent"], "memory_mb": g["memory_mb"],
+                    "protected": g["protected"], "expanded": expanded, "members": g["members"],
+                })
+                if expanded:
+                    for p in sorted(g["members"], key=lambda p: p[field], reverse=True):
+                        rows.append(dict(p, kind="child", protected=is_protected(p["name"])))
+            self._expanded &= alive  # програми, що закрилися, забуваємо
+        else:
+            for p in sorted(processes, key=lambda p: p[field], reverse=True):
+                rows.append(dict(p, kind="proc", protected=is_protected(p["name"])))
+        self.list.set_rows(rows)
 
 
 # ------------------------------------------------------------- status robot
@@ -631,6 +798,9 @@ class StatusRobot(ctk.CTkFrame):
             fg_color=theme.ACCENT_GREEN, hover_color=theme.ACCENT_GREEN_DIM, text_color=theme.BG_MAIN,
             command=lambda: self._action and self._action[1](),
         )
+        self._wrap_dp = None
+        # фраза переноситься по словах у межах картки, кнопка підлаштовує підпис
+        tk.Misc.bind(self, "<Configure>", self._on_resize, "+")
 
         self._mood = None
         self._blink = False
@@ -684,8 +854,31 @@ class StatusRobot(ctk.CTkFrame):
             photo = self._sprites[key] = self._render(*key)
         self.canvas.itemconfigure(self._image_item, image=photo)
 
+    def _on_resize(self, event=None) -> None:
+        width = self.winfo_width()
+        if width <= 1:
+            return
+        wrap = max(round(width / self._scale) - 32, 80)
+        if wrap != self._wrap_dp:
+            self._wrap_dp = wrap
+            self.phrase_label.configure(wraplength=wrap)
+        self._fit_action_text()
+
+    def _fit_action_text(self) -> None:
+        """Повний підпис кнопки, якщо вміщується в картку, інакше короткий."""
+        if self._action is None:
+            return
+        text = self._action[0]
+        short = self._action[2] if len(self._action) > 2 else text
+        avail = self.winfo_width() - round(32 * self._scale)
+        font = tkfont.Font(family="Segoe UI", size=-round(11 * self._scale))
+        needed = font.measure(text) + round(28 * self._scale)
+        wanted = text if needed <= avail or avail <= 0 else short
+        if self.action_button.cget("text") != wanted:
+            self.action_button.configure(text=wanted)
+
     def set_mood(self, mood: str, phrase: str, action: tuple | None = None) -> None:
-        """action — (текст кнопки, колбек) або None (кнопку сховати)."""
+        """action — (текст кнопки, колбек[, короткий текст для вузької картки]) або None."""
         new_text = action[0] if action else None
         old_text = self._action[0] if self._action else None
         self._action = action
@@ -697,6 +890,7 @@ class StatusRobot(ctk.CTkFrame):
                 self.action_button.configure(text=new_text)
                 self.phrase_label.pack_configure(pady=(0, 10))
                 self.action_button.pack(padx=16, pady=(0, 18), fill="x")
+                self._fit_action_text()
         if mood == self._mood and phrase == self.phrase_label.cget("text"):
             return
         self._mood = mood
@@ -788,31 +982,55 @@ class MonitorTab(ctk.CTkFrame):
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.grid(row=3, column=0, padx=(20, 10), pady=(0, 20), sticky="nsew")
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(2, weight=1)
+        # графік і таблиця процесів ділять висоту, що лишилася — на
+        # невисокому вікні таблиця більше не зникає за графіком (2 : 3)
+        main.grid_rowconfigure(1, weight=2)
+        main.grid_rowconfigure(2, weight=3)
 
-        tiles_frame = ctk.CTkFrame(main, fg_color="transparent")
+        tiles_frame = self._tiles_frame = ctk.CTkFrame(main, fg_color="transparent")
         tiles_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        tiles_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
 
-        self.tile_gpu_temp = InfoTile(tiles_frame, "Температура GPU")
-        self.tile_gpu_temp.grid(row=0, column=0, padx=(0, 6), sticky="nsew")
-        self.tile_cpu_temp = InfoTile(tiles_frame, "Температура CPU")
-        self.tile_cpu_temp.grid(row=0, column=1, padx=6, sticky="nsew")
-        self.tile_disk = InfoTile(tiles_frame, "Диск")
-        self.tile_disk.grid(row=0, column=2, padx=6, sticky="nsew")
-        self.tile_network = InfoTile(tiles_frame, "Мережа")
-        self.tile_network.grid(row=0, column=3, padx=6, sticky="nsew")
-        self.tile_uptime = InfoTile(tiles_frame, "Час роботи ПК")
-        self.tile_uptime.grid(row=0, column=4, padx=(6, 0), sticky="nsew")
+        self.tile_gpu_temp = InfoTile(tiles_frame, "Температура GPU", "100°C")
+        self.tile_cpu_temp = InfoTile(tiles_frame, "Температура CPU", "100°C")
+        self.tile_disk = InfoTile(tiles_frame, "Диск", "Чит. 99.9 МБ/с\nЗап. 99.9 МБ/с")
+        self.tile_network = InfoTile(tiles_frame, "Мережа", "↓ 99.9 МБ/с\n↑ 99.9 МБ/с")
+        self.tile_uptime = InfoTile(tiles_frame, "Час роботи ПК", "99 дн 23 год")
+        self.tile_disk.set_tooltip("Чит. — читання з дисків, Зап. — запис на диски (усі диски разом).")
+        self._tiles = [self.tile_gpu_temp, self.tile_cpu_temp, self.tile_disk, self.tile_network, self.tile_uptime]
+        self._tile_columns = None
+        tk.Misc.bind(tiles_frame, "<Configure>", lambda _e: self._layout_tiles(), "+")
+        self._layout_tiles()
 
         self.graph = LoadGraph(main)
-        self.graph.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        self.graph.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
 
         self.process_table = ProcessTable(main, on_terminate=self._confirm_terminate)
         self.process_table.grid(row=2, column=0, sticky="nsew")
 
         self.status_robot = StatusRobot(self)
         self.status_robot.grid(row=3, column=1, padx=(10, 20), pady=(0, 20), sticky="new")
+
+    def _layout_tiles(self) -> None:
+        """5 плиток в один ряд, якщо кожна вміщує свій підпис і найширше
+        значення; інакше 3 або 2 колонки (плитки переносяться на новий ряд)."""
+        frame = self._tiles_frame
+        avail = frame.winfo_width()
+        if avail <= 1:
+            avail = 10 ** 6  # ще не розміщено — поки що один ряд
+        gap = round(12 * frame._get_widget_scaling())
+        need = max(tile.required_width() for tile in self._tiles)
+        columns = next((n for n in (5, 3, 2) if (avail - gap * (n - 1)) / n >= need), 2)
+        if columns == self._tile_columns:
+            return
+        self._tile_columns = columns
+        for col in range(5):
+            frame.grid_columnconfigure(col, weight=1 if col < columns else 0, uniform="tile" if col < columns else "")
+        for i, tile in enumerate(self._tiles):
+            row, col = divmod(i, columns)
+            tile.grid(
+                row=row, column=col, sticky="nsew",
+                padx=(0 if col == 0 else 6, 0 if col == columns - 1 else 6), pady=(0 if row == 0 else 12, 0),
+            )
 
     # -------------------------------------------------------------- worker
 
@@ -919,7 +1137,7 @@ class MonitorTab(ctk.CTkFrame):
                 warnings.append(f"CPU перегрівається: {cpu_temp:.0f}°C (поріг {threshold}°C)")
 
         self.tile_disk.set_value(
-            f"Читання {_fmt_rate(data['disk_read_mb_s'])}\nЗапис {_fmt_rate(data['disk_write_mb_s'])}"
+            f"Чит. {_fmt_rate(data['disk_read_mb_s'])}\nЗап. {_fmt_rate(data['disk_write_mb_s'])}"
         )
         self.tile_network.set_value(
             f"↓ {_fmt_rate(data['net_down_mb_s'])}\n↑ {_fmt_rate(data['net_up_mb_s'])}"
@@ -934,7 +1152,7 @@ class MonitorTab(ctk.CTkFrame):
             self.graph._schedule_redraw()
 
         if data["processes"] is not None:
-            self.process_table.update_processes(data["processes"])
+            self.process_table.update_processes(data["processes"], data.get("process_groups"))
 
         self._update_status_robot(data, warnings)
 
@@ -947,7 +1165,7 @@ class MonitorTab(ctk.CTkFrame):
             details = f"RAM {data['ram_percent']:.0f}%"
             if compression > LOW_RAM_COMPRESSION_MB:
                 details += f" · стиснуто {compression / 1024:.1f} ГБ"
-            action = None if self._game_mode_active() else ("Увімкнути Ігровий режим", self._enable_game_mode)
+            action = None if self._game_mode_active() else ("Увімкнути Ігровий режим", self._enable_game_mode, "Ігровий режим")
             self.status_robot.set_mood("worried", f"Бракує оперативної пам'яті\n{details}", action)
             return
         if data["cpu_percent"] > 90:
@@ -980,26 +1198,43 @@ class MonitorTab(ctk.CTkFrame):
 
     # ---------------------------------------------------------- terminate
 
-    def _confirm_terminate(self, pid: int, name: str):
-        question = f"Завершити процес «{name}» (PID {pid})?"
-        if process_info.is_anticheat(name):
+    def _confirm_terminate(self, row: dict):
+        """«Завершити» в таблиці: для групи — уся програма (усі її процеси,
+        крім системних), для окремого процесу — лише він."""
+        if row["kind"] == "group" and row["count"] > 1:
+            members = [p for p in row["members"] if not is_protected(p["name"])]
+            title = row["title"]
+            question = (
+                f"Завершити «{title}» повністю — усі процеси програми ({len(members)})?\n\n"
+                "Незбережені дані в цій програмі буде втрачено."
+            )
+            anticheat = any(process_info.is_anticheat(p["name"]) for p in members)
+        else:
+            members = [row]
+            title = row.get("title") if row["kind"] == "group" else row["name"]
+            question = f"Завершити процес «{title}» (PID {row['pid']})?"
+            anticheat = process_info.is_anticheat(row["name"])
+        if not members:
+            return
+        if anticheat:
             question += f"\n\n⚠ {process_info.ANTICHEAT_WARNING}"
-        confirmed = messagebox.askyesno("Підтвердження", question, parent=self)
-        if not confirmed:
+        if not messagebox.askyesno("Підтвердження", question, parent=self):
             return
 
+        targets = [(p["pid"], p.get("create_time")) for p in members]
+
         def worker():
-            success, error = monitor_core.terminate_process(pid)
-            self.after(0, self._on_terminate_result, name, pid, success, error)
+            killed, errors = monitor_core.terminate_processes(targets)
+            self.after(0, self._on_terminate_result, title, killed, errors)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_terminate_result(self, name, pid, success, error):
-        if not self.winfo_exists():
+    def _on_terminate_result(self, title, killed, errors):
+        if not self.winfo_exists() or not errors:
             return
-        if not success:
-            messagebox.showerror(
-                "Помилка",
-                f"Не вдалося завершити «{name}» (PID {pid}): {error}",
-                parent=self,
-            )
+        shown = "\n".join(errors[:6]) + (f"\n… і ще {len(errors) - 6}" if len(errors) > 6 else "")
+        messagebox.showerror(
+            "Помилка",
+            f"Не вдалося завершити «{title}» повністю (завершено процесів: {killed}).\n\n{shown}",
+            parent=self,
+        )

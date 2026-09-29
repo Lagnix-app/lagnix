@@ -90,6 +90,9 @@ class ProcessCheckList(CanvasList):
     def hit_test(self, index: int, x: int, y: int):
         return "disabled" if self.items[index]["protected"] else "row"
 
+    def row_identity(self, index: int):
+        return self.items[index]["name"]
+
     def tooltip_for(self, index: int, region: str):
         item = self.items[index]
         return process_info.tooltip_text(item["name"], item.get("pid"))

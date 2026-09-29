@@ -11,7 +11,7 @@ from collections import deque
 
 import psutil
 
-from core import perf_counters, process_snapshot
+from core import perf_counters, process_groups, process_snapshot
 from core.settings import load_settings
 from core.system_processes import is_hidden
 
@@ -313,35 +313,18 @@ def get_uptime_text() -> str:
     return f"{minutes} хв"
 
 
-def get_process_overview(limit: int = 12) -> tuple[list[dict], float | None]:
-    """(топ процесів як get_top_processes, розмір «Memory Compression» у МБ або None)."""
+def get_process_overview() -> tuple[list[dict], list[dict], float | None]:
+    """(усі процеси, ті самі процеси, згруповані в програми, розмір «Memory
+    Compression» у МБ або None). Список у UI віртуалізований, тож показуємо
+    всі процеси, а не лише топ."""
     procs = _all_processes()
     compression = next((p["memory_mb"] for p in procs if p["name"].lower() == "memory compression"), None)
-    return _top(procs, limit), compression
-
-
-def get_top_processes(limit: int = 12):
-    """Повертає об'єднаний список процесів (топ за CPU + топ за RAM, без
-    дублів) — кожен запис містить обидві метрики, тож UI може перемикати
-    сортування "за CPU / за RAM" без повторного опитування psutil.
-
-    Виключає процеси ядра ОС (System, System Idle Process) та власний процес
-    PulseFPS. Відсоток CPU нормалізується на кількість логічних ядер, щоб
-    максимум був 100%.
-    """
-    return _top(_all_processes(), limit)
-
-
-def _top(procs: list[dict], limit: int) -> list[dict]:
-    top_cpu = sorted(procs, key=lambda p: p["cpu_percent"], reverse=True)[:limit]
-    top_ram = sorted(procs, key=lambda p: p["memory_mb"], reverse=True)[:limit]
-
-    merged = {p["pid"]: p for p in top_ram}
-    merged.update({p["pid"]: p for p in top_cpu})
-    return list(merged.values())
+    return procs, process_groups.group_processes(procs), compression
 
 
 def _all_processes() -> list[dict]:
+    """Усі процеси (крім ядра ОС і самого PulseFPS): pid, ppid, create_time,
+    name, cpu_percent (нормований на всі ядра, максимум 100%), memory_mb."""
     current_pid = os.getpid()
     if process_snapshot.is_available():
         try:
@@ -362,7 +345,7 @@ def _psutil_processes(current_pid: int) -> list[dict]:
     # memory_percent свідомо не запитуємо: psutil рахує його через той самий
     # memory_info() — ще один системний виклик на кожен процес. Для сортування
     # "за RAM" досить rss.
-    for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info"]):
+    for proc in psutil.process_iter(["pid", "ppid", "name", "cpu_percent", "memory_info"]):
         try:
             info = proc.info
             pid = info["pid"]
@@ -373,6 +356,8 @@ def _psutil_processes(current_pid: int) -> list[dict]:
             mem_info = info["memory_info"]
             procs.append({
                 "pid": pid,
+                "ppid": info["ppid"] or 0,
+                "create_time": None,
                 "name": name,
                 "cpu_percent": (info["cpu_percent"] or 0.0) / _LOGICAL_CPU_COUNT,
                 "memory_mb": (mem_info.rss / (1024 ** 2)) if mem_info else 0.0,
@@ -380,6 +365,42 @@ def _psutil_processes(current_pid: int) -> list[dict]:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return procs
+
+
+def _filetime_to_unix(filetime: int) -> float:
+    return filetime / 1e7 - 11644473600.0
+
+
+def terminate_processes(targets: list[tuple[int, int | None]]) -> tuple[int, list[str]]:
+    """Завершує кілька процесів (групу програми): targets — (pid, create_time
+    у FILETIME або None). Процес із тим самим PID, але іншим часом створення
+    (PID уже перевикористано) не чіпаємо. Спершу м'яке terminate для всіх,
+    потім kill для тих, хто не завершився за 3 с. -> (завершено, помилки)."""
+    procs, errors = [], []
+    for pid, create_time in targets:
+        try:
+            proc = psutil.Process(pid)
+            if create_time and abs(proc.create_time() - _filetime_to_unix(create_time)) > 1.0:
+                continue
+            proc.terminate()
+            procs.append(proc)
+        except psutil.NoSuchProcess:
+            continue
+        except psutil.AccessDenied:
+            errors.append(f"PID {pid}: немає прав для завершення")
+        except Exception as exc:
+            errors.append(f"PID {pid}: {exc}")
+    gone, alive = psutil.wait_procs(procs, timeout=3)
+    killed = len(gone)
+    for proc in alive:
+        try:
+            proc.kill()
+            killed += 1
+        except psutil.NoSuchProcess:
+            killed += 1
+        except Exception as exc:
+            errors.append(f"PID {proc.pid}: {exc}")
+    return killed, errors
 
 
 def terminate_process(pid: int) -> tuple[bool, str]:
@@ -422,7 +443,7 @@ def collect_snapshot(include_processes: bool = True) -> dict:
     else:
         _gpu_load_avg.add(None)
     freq = _cpu_freq_avg.add(usage["cpu_freq_ghz"])
-    processes, compression_mb = get_process_overview() if include_processes else (None, None)
+    processes, groups, compression_mb = get_process_overview() if include_processes else (None, None, None)
 
     return {
         "cpu_percent": usage["cpu_percent"],
@@ -435,6 +456,7 @@ def collect_snapshot(include_processes: bool = True) -> dict:
         "temp_threshold": threshold,
         "uptime_text": get_uptime_text(),
         "processes": processes,
+        "process_groups": groups,
         "memory_compression_mb": compression_mb,
         **io_rates,
     }
