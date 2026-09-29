@@ -1,7 +1,7 @@
-"""Лого PulseFPS для верху бічного меню: мініатюрний робот, що "дихає" й
-кліпає, напис Pulse/FPS і тонка лінія пульсу, що біжить під ним.
+"""Лого PulseFPS для верху бічного меню: мініатюрний робот (спільний RobotView,
+"дихає" й кліпає), напис Pulse/FPS і тонка лінія пульсу, що біжить під ним.
 
-Анімація йде на ~24 кадри/с (досить для декоративного ефекту, що працює
+Лінія анімується на ~24 кадри/с (досить для декоративного ефекту, що працює
 безперервно весь час роботи програми) через власний after()-цикл із
 time.perf_counter(), у стилі ui/widgets/cleaner_bot.py.
 """
@@ -9,13 +9,13 @@ time.perf_counter(), у стилі ui/widgets/cleaner_bot.py.
 from __future__ import annotations
 
 import math
-import random
 import time
 import tkinter as tk
 
 import customtkinter as ctk
 
 from ui import theme
+from ui.widgets.robot import RobotView
 
 _FRAME_MS = 42  # ~24 fps
 _ICON_SIZE = 44
@@ -31,11 +31,9 @@ class LogoWidget(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
         self.grid_columnconfigure(1, weight=1)
 
-        self._icon = tk.Canvas(
-            self, width=_ICON_SIZE, height=_ICON_SIZE, bg=theme.BG_PANEL,
-            highlightthickness=0,
-        )
-        self._icon.grid(row=0, column=0, rowspan=2, padx=(4, 8), pady=(4, 0), sticky="w")
+        self._robot = RobotView(self, size=_ICON_SIZE, bg=theme.BG_PANEL)
+        self._robot.set_running(True)
+        self._robot.grid(row=0, column=0, rowspan=2, padx=(4, 8), pady=(4, 0), sticky="w")
 
         text_row = ctk.CTkFrame(self, fg_color="transparent")
         text_row.grid(row=0, column=1, sticky="w", pady=(8, 0))
@@ -56,34 +54,21 @@ class LogoWidget(ctk.CTkFrame):
         self._line_w = 160
 
         self._elapsed = 0.0
-        self._blink = False
-        self._blink_timer = random.uniform(1.8, 3.2)
         self._trail: list[tuple[float, float]] = []
         self._after_id = None
         self._last_tick = None
         self._paused = False
-        self._eyes_closed = None
         # кольори шлейфу залежать лише від номера крапки — рахуємо один раз
         self._trail_colors = [
             theme.lerp_color(self, _TEXT_TEAL, theme.BG_PANEL, i / _TRAIL_LEN) for i in range(_TRAIL_LEN)
         ]
 
-        self._build_icon_items()
         self._build_line_items()
 
         self.bind("<Destroy>", self._on_destroy)
         self._tick()
 
     # ------------------------------------------------------------- setup
-
-    def _build_icon_items(self) -> None:
-        c = self._icon
-        self._antenna_line = c.create_line(0, 0, 0, 0, fill=theme.TEXT_DIM, width=2)
-        self._antenna_glow = c.create_oval(0, 0, 0, 0, fill=theme.ACCENT_GREEN, outline="")
-        self._body = c.create_oval(0, 0, 0, 0, fill=theme.ACCENT_BLUE, outline=theme.ACCENT_BLUE_DIM, width=2)
-        self._screen = c.create_rectangle(0, 0, 0, 0, fill=theme.BG_MAIN, outline="")
-        self._eye_l = c.create_arc(0, 0, 0, 0, start=110, extent=140, style="arc", outline=theme.ACCENT_GREEN, width=2)
-        self._eye_r = c.create_arc(0, 0, 0, 0, start=-70, extent=140, style="arc", outline=theme.ACCENT_GREEN, width=2)
 
     def _build_line_items(self) -> None:
         c = self._line
@@ -111,6 +96,7 @@ class LogoWidget(ctk.CTkFrame):
         if paused == self._paused:
             return
         self._paused = paused
+        self._robot.set_running(not paused)
         if paused:
             if self._after_id is not None:
                 self.after_cancel(self._after_id)
@@ -138,44 +124,11 @@ class LogoWidget(ctk.CTkFrame):
         self._last_tick = now
         self._elapsed += dt
 
-        self._blink_timer -= dt
-        if self._blink_timer <= 0:
-            self._blink = not self._blink
-            self._blink_timer = 0.1 if self._blink else random.uniform(2.2, 4.0)
-
-        self._render_icon()
         self._render_line()
 
         self._after_id = self.after(_FRAME_MS, self._tick)
 
     # ------------------------------------------------------------ render
-
-    def _render_icon(self) -> None:
-        c = self._icon
-        t = self._elapsed
-        cx, cy = _ICON_SIZE / 2, _ICON_SIZE / 2 + 3
-        radius = 14 + math.sin(t * 1.3) * 0.8  # дихання
-
-        c.coords(self._antenna_line, cx, cy - radius, cx, cy - radius - 9)
-        glow_r = 3.0 + math.sin(t * 5.0) * 1.2
-        top = cy - radius - 9
-        c.coords(self._antenna_glow, cx - glow_r, top - glow_r, cx + glow_r, top + glow_r)
-
-        c.coords(self._body, cx - radius, cy - radius, cx + radius, cy + radius)
-
-        panel_w, panel_h = radius * 1.05, radius * 0.75
-        c.coords(self._screen, cx - panel_w / 2, cy - panel_h / 2, cx + panel_w / 2, cy + panel_h / 2)
-
-        eye_h = 1.5 if self._blink else panel_h * 0.6
-        eye_w = panel_w * 0.24
-        for dx, item in ((-panel_w * 0.26, self._eye_l), (panel_w * 0.26, self._eye_r)):
-            ex = cx + dx
-            c.coords(item, ex - eye_w / 2, cy - eye_h / 2, ex + eye_w / 2, cy + eye_h / 2)
-        if self._blink != self._eyes_closed:
-            self._eyes_closed = self._blink
-            state = "hidden" if self._blink else "normal"
-            c.itemconfigure(self._eye_l, state=state)
-            c.itemconfigure(self._eye_r, state=state)
 
     def _render_line(self) -> None:
         c = self._line

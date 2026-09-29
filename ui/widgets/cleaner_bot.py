@@ -29,11 +29,12 @@ import tkinter as tk
 from collections import deque
 
 import customtkinter as ctk
-from PIL import Image, ImageTk
+from PIL import ImageTk
 
 from core import sounds
 from ui import theme
 from ui.widgets import aa
+from ui.widgets import robot
 
 _IS_WINDOWS = platform.system() == "Windows"
 
@@ -56,6 +57,9 @@ _SHADOW_RGBA = (0, 0, 0, 115)
 _ARC_GREY = "#4a5568"
 _SPRITE_HALF_W = 100  # dp: півширина спрайт-регіону навколо робота
 _ANTENNA_STICK = "#8a94a6"
+_BODY_RADIUS = 30  # dp
+# стан анімації -> настрій спільного робота
+_STATE_MOODS = {"running": robot.CALM, "finishing": robot.HAPPY, "shrug": robot.SAD}
 
 _FILE_COLORS = (_BODY_MAIN, _ACCENT_GREEN, _ACCENT_PURPLE)
 _SPARK_COLORS = (_ACCENT_ORANGE, _EYE_COLOR, _ACCENT_PURPLE)
@@ -622,7 +626,7 @@ class CleanerBotAnimation(ctk.CTkFrame):
         else:
             bounce = 0.0
 
-        radius = 30
+        radius = _BODY_RADIUS
         cy = ground_y - radius - 14 - bounce
         ax, ay = round(cx * S), round(cy * S)
 
@@ -647,7 +651,8 @@ class CleanerBotAnimation(ctk.CTkFrame):
             ("light", light_color, light_r), (-7, -7, 7, 7),
             lambda p: p.ellipse(-light_r, -light_r, light_r, light_r, fill=aa.rgb(light_color)),
         )
-        self._place(self._light_item, light, ax, round((cy - radius - 12) * S))
+        tip_y = cy + (robot.ANTENNA_TIP[1] - robot.BODY_CY) * radius / robot.BODY_R  # вогник на кінчику антени
+        self._place(self._light_item, light, ax, round(tip_y * S))
 
         if state == "shrug":
             self._hide(self._tool_item)
@@ -680,16 +685,22 @@ class CleanerBotAnimation(ctk.CTkFrame):
             self._hide(self._signal_item)
 
     def _draw_body(self, p: "aa.Painter", state: str, blink: bool) -> None:
-        """Тіло робота з центром у (0, 0): колеса, корпус, антена, руки (у
-        стані «знизування» — обидві), екран, очі, рот."""
+        """Тіло робота з центром у (0, 0): колеса, голова (спільний робот із
+        ui/widgets/robot.py, настрій за станом), руки (у стані «знизування» — обидві)."""
         body_dark = aa.rgb(_BODY_DARK)
-        radius = 30
+        radius = _BODY_RADIUS
 
         for dx in (-15, 15):
             p.ellipse(dx - 7, radius - 6, dx + 7, radius + 7,
                       fill=aa.rgb(_SCREEN_BG), outline=body_dark, width=1)
-        p.ellipse(-radius, -radius, radius, radius, fill=aa.rgb(_BODY_MAIN), outline=body_dark, width=2)
-        p.line([(0, -radius), (0, -radius - 12)], fill=body_dark, width=2)
+
+        # квадрат спільного робота: його коло (центр BODY_CX/CY, радіус BODY_R) = наше тіло
+        unit = radius / robot.BODY_R  # dp на одиницю
+        S = p.k / aa.SS
+        x0 = -robot.BODY_CX * unit * S - p._ox / aa.SS
+        y0 = -robot.BODY_CY * unit * S - p._oy / aa.SS
+        robot.paint_robot(p.img, x0, y0, robot.UNIT * unit * S, _STATE_MOODS.get(state, robot.CALM),
+                          blink=blink, light=False)
 
         if state == "shrug":
             for side in (-1, 1):
@@ -698,21 +709,6 @@ class CleanerBotAnimation(ctk.CTkFrame):
         else:
             lx, ly = -(radius - 6), 6
             p.line([(lx, ly), (lx - 9, ly + 10)], fill=body_dark, width=4)
-
-        py = -4
-        p.rect(-15, py - 10, 15, py + 10, fill=aa.rgb(_SCREEN_BG), outline=body_dark, width=1)
-
-        eye = aa.rgb(_EYE_COLOR)
-        eye_h = 1 if blink else 4
-        for dx in (-7, 7):
-            p.ellipse(dx - 4, py - 3 - eye_h, dx + 4, py - 3 + eye_h, fill=eye)
-
-        if state == "shrug":
-            p.line([(-6, py + 6), (6, py + 6)], fill=eye, width=2)
-        elif state == "finishing":
-            p.arc(-8, py - 1, 8, py + 11, start=200, extent=140, fill=eye, width=2)
-        else:
-            p.arc(-6, py + 1, 6, py + 8, start=200, extent=140, fill=eye, width=2)
 
     def _draw_tool(self, p: "aa.Painter", angle: float, running: bool) -> None:
         """Права рука з мітлою (або антеною-сканером) під кутом angle; початок

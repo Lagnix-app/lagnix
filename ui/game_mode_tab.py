@@ -18,9 +18,10 @@ from core.system_processes import is_protected
 from core.logging_setup import get_logger
 from ui import theme
 from ui.widgets import aa
+from ui.widgets import robot as robot_view
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, Tooltip, card_image, checkbox_image
 from ui.widgets.game_widgets import (
-    BigSwitch, ChipBoard, GamesList, GameRobot, IconCache, ScrollPage, SessionsList,
+    BigSwitch, ChipBoard, GamesList, IconCache, ScrollPage, SessionsList,
     fmt_mem, fmt_pct, fmt_temp,
 )
 
@@ -247,7 +248,7 @@ class GameModeTab(ctk.CTkFrame):
         card = self._card(inner, 1)
         card.grid_columnconfigure(0, weight=0)
         card.grid_columnconfigure(1, weight=1)
-        self.robot = GameRobot(card)
+        self.robot = robot_view.RobotView(card, size=154, mood=robot_view.SLEEPY)
         self.robot.grid(row=0, column=0, padx=(20, 16), pady=12)
         body = ctk.CTkFrame(card, fg_color="transparent")
         body.grid(row=0, column=1, padx=(0, 24), pady=12, sticky="ew")
@@ -466,7 +467,7 @@ class GameModeTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         active = bool(self.state.get("is_active"))
-        self.robot.set_active(active)
+        self.robot.set_mood(robot_view.GAMING if active else robot_view.SLEEPY)
         self.switch.set_on(active)
         self.switch.set_busy(self._busy)
 

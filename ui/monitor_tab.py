@@ -2,7 +2,6 @@
 компактні плитки диска/мережі/температур, комбінований графік навантаження,
 єдиний список процесів і робот-індикатор стану системи."""
 
-import random
 import threading
 import time
 import tkinter as tk
@@ -21,6 +20,7 @@ from core.settings import load_settings, update_setting
 from core.system_processes import is_protected
 from ui import theme
 from ui.widgets import aa
+from ui.widgets import robot as robot_view
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, card_image, pill_image
 
 DEFAULT_UPDATE_INTERVAL_SEC = 1.0
@@ -817,28 +817,22 @@ class ProcessTable(ctk.CTkFrame):
 
 # ------------------------------------------------------------- status robot
 
-_MOOD_COLORS = {"happy": theme.ACCENT_GREEN, "neutral": theme.ACCENT_BLUE, "worried": theme.WARNING}
+# настрій стану системи -> настрій спільного робота (ui/widgets/robot.py)
+_ROBOT_MOODS = {"happy": robot_view.HAPPY, "neutral": robot_view.CALM, "worried": robot_view.WORRIED}
 ROBOT_SIZE = 88
 
 
 class StatusRobot(ctk.CTkFrame):
-    """Робот із настроєм і коротка фраза про стан системи.
-
-    Малюється Pillow (4x -> LANCZOS) у вигляді спрайтів за парою
-    (настрій, кліпання) — кожен малюється один раз і далі лише перемикається.
-    """
+    """Робот із настроєм (спільний RobotView) і коротка фраза про стан системи."""
 
     def __init__(self, master):
         super().__init__(master, corner_radius=14)
         self._scale = self._get_widget_scaling()
-        self._sprites: dict = {}
 
         ctk.CTkLabel(self, text="Статус системи", font=theme.font_header()).pack(padx=16, pady=(18, 8))
 
-        px = round(ROBOT_SIZE * self._scale)
-        self.canvas = tk.Canvas(self, width=px, height=px, highlightthickness=0, bg=theme.BG_PANEL)
-        self.canvas.pack(pady=(0, 10))
-        self._image_item = self.canvas.create_image(0, 0, anchor="nw")
+        self.robot = robot_view.RobotView(self, size=ROBOT_SIZE, mood=robot_view.CALM)
+        self.robot.pack(pady=(0, 10))
 
         self.phrase_label = ctk.CTkLabel(
             self, text="Збираємо дані…", font=theme.font_body(), text_color=theme.TEXT_DIM,
@@ -858,56 +852,14 @@ class StatusRobot(ctk.CTkFrame):
         tk.Misc.bind(self, "<Configure>", self._on_resize, "+")
 
         self._mood = None
-        self._blink = False
-        self._blink_timer = random.uniform(1.6, 3.0)
-        self._last_tick = None
-        self._after_id = None
-
-        self._show()
-        self.bind("<Destroy>", self._on_destroy)
 
     def set_active(self, active: bool) -> None:
-        """Кліпання працює лише на видимій вкладці."""
-        if active and self._after_id is None:
-            self._last_tick = None
-            self._tick()
-        elif not active and self._after_id is not None:
-            self.after_cancel(self._after_id)
-            self._after_id = None
+        """Анімація робота працює лише на видимій вкладці."""
+        self.robot.set_running(active)
 
     def _set_scaling(self, *args, **kwargs):
         super()._set_scaling(*args, **kwargs)
         self._scale = args[0]
-        if hasattr(self, "canvas"):
-            px = round(ROBOT_SIZE * self._scale)
-            self.canvas.configure(width=px, height=px)
-            self._sprites.clear()
-            self._show()
-
-    def _render(self, mood, blink: bool) -> ImageTk.PhotoImage:
-        S = self._scale
-        px = round(ROBOT_SIZE * S)
-        color = aa.rgb(_MOOD_COLORS.get(mood, theme.ACCENT_GREEN))
-        head_outline = color if mood else aa.rgb(theme.ACCENT_BLUE_DIM)
-
-        img = aa.new_layer(px, px, "RGB", aa.rgb(theme.BG_PANEL))
-        p = aa.Painter(img, S)
-        p.line([(44, 10), (44, 18)], fill=aa.rgb(theme.TEXT_DIM), width=2, round_caps=False)
-        p.ellipse(40, 2, 48, 10, fill=color)
-        p.ellipse(10, 16, 78, 78, fill=aa.rgb(theme.ACCENT_BLUE), outline=head_outline, width=2)
-        p.rect(22, 32, 66, 64, fill=aa.rgb(theme.BG_MAIN))
-        eye_extent = 8 if blink else 140
-        p.arc(28, 38, 42, 52, start=20, extent=eye_extent, fill=color, width=2)
-        p.arc(46, 38, 60, 52, start=20, extent=eye_extent, fill=color, width=2)
-        p.arc(30, 46, 58, 64, start=20 if mood == "worried" else 200, extent=140, fill=color, width=2)
-        return ImageTk.PhotoImage(aa.downscale(img, (px, px)))
-
-    def _show(self) -> None:
-        key = (self._mood, self._blink)
-        photo = self._sprites.get(key)
-        if photo is None:
-            photo = self._sprites[key] = self._render(*key)
-        self.canvas.itemconfigure(self._image_item, image=photo)
 
     def _on_resize(self, event=None) -> None:
         width = self.winfo_width()
@@ -949,30 +901,8 @@ class StatusRobot(ctk.CTkFrame):
         if mood == self._mood and phrase == self.phrase_label.cget("text"):
             return
         self._mood = mood
-        self._show()
+        self.robot.set_mood(_ROBOT_MOODS.get(mood, robot_view.CALM))
         theme.set_text(self.phrase_label, phrase, text_color=theme.TEXT_MAIN)
-
-    def _tick(self) -> None:
-        if not self.winfo_exists():
-            return
-        if theme.robot_animation_enabled():
-            now = time.perf_counter()
-            dt = 0.0 if self._last_tick is None else now - self._last_tick
-            self._last_tick = now
-            self._blink_timer -= dt
-            if self._blink_timer <= 0:
-                self._blink = not self._blink
-                self._blink_timer = random.uniform(0.12, 0.2) if self._blink else random.uniform(2.0, 4.0)
-                self._show()
-        self._after_id = self.after(150, self._tick)
-
-    def _on_destroy(self, event) -> None:
-        if event.widget is self and self._after_id is not None:
-            try:
-                self.after_cancel(self._after_id)
-            except Exception:
-                pass
-            self._after_id = None
 
 
 # ------------------------------------------------------------------ the tab

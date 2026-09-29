@@ -1,24 +1,22 @@
-"""Віджети вкладки «Ігровий режим»: робот у навушниках, великий перемикач,
-чіпи програм, списки ігор і сесій та вертикально прокручувана сторінка.
+"""Віджети вкладки «Ігровий режим»: великий перемикач, чіпи програм,
+списки ігор і сесій та вертикально прокручувана сторінка.
 
-Як і на «Моніторі», нічого «важкого»: робот і перемикач — спрайти Pillow, чіпи —
+Як і на «Моніторі», нічого «важкого»: перемикач — спрайт Pillow, чіпи —
 один Canvas, списки — CanvasList (віртуалізовані), а не сотні CTk-віджетів.
 """
 
 from __future__ import annotations
 
-import random
 import time
 import tkinter as tk
 import tkinter.font as tkfont
 
 import customtkinter as ctk
-from PIL import Image, ImageDraw, ImageFilter, ImageTk
+from PIL import Image, ImageTk
 
 from core import game_sessions
 from core.app_icons import IconLoader
 from ui import theme
-from ui.widgets import aa
 from ui.widgets.canvas_list import (
     CanvasList, FastScrollbar, Tooltip, card_image, switch_image,
 )
@@ -97,135 +95,6 @@ class IconCache:
             self._owner.after(0, self._on_update)
         except (RuntimeError, tk.TclError):
             pass
-
-
-# ================================================================= робот
-
-ROBOT_UNIT = 1.75  # 88 dp «сітки» робота з Монітора -> ~154 dp на екрані
-_BAND = "#3b4b70"
-
-
-class GameRobot(CanvasBox):
-    """Великий робот. Вимкнено — спокійний, очі-риски. Увімкнено — у навушниках із
-    мікрофоном, очі світяться (свічення «дихає» — 4 фази, кожна — готовий спрайт)."""
-
-    def __init__(self, master, bg: str = theme.BG_PANEL):
-        size = 88 * ROBOT_UNIT
-        super().__init__(master, size, size, bg)
-        self._sprites: dict = {}
-        self._image = self.canvas.create_image(0, 0, anchor="nw")
-        self._active = False
-        self._blink = False
-        self._phase = 0
-        self._running = False
-        self._after_id = None
-        self._t0 = time.perf_counter()
-        self._blink_timer = random.uniform(1.6, 3.0)
-        self._last_tick = None
-        self._show()
-        self.bind("<Destroy>", self._on_destroy)
-
-    def set_active(self, active: bool) -> None:
-        if active != self._active:
-            self._active = active
-            self._show()
-
-    def set_running(self, running: bool) -> None:
-        """Кліпання й «дихання» очей — лише поки вкладку видно."""
-        if running and self._after_id is None:
-            self._last_tick = None
-            self._tick()
-        elif not running and self._after_id is not None:
-            self.after_cancel(self._after_id)
-            self._after_id = None
-
-    def on_scale_changed(self) -> None:
-        self._sprites.clear()
-        self._show()
-
-    def _render(self, active: bool, blink: bool, phase: int) -> ImageTk.PhotoImage:
-        u = ROBOT_UNIT
-        S = self.S * u
-        px = round(88 * S)
-        green, blue = aa.rgb(theme.ACCENT_GREEN), aa.rgb(theme.ACCENT_BLUE)
-        img = aa.new_layer(px, px, "RGB", aa.rgb(self.bg))
-        p = aa.Painter(img, S)
-
-        if active:  # навушники: дуга над головою й чашки на вухах
-            p.arc(4, 7, 84, 87, start=8, extent=164, fill=_BAND, width=6, round_caps=True)
-            p.arc(7, 10, 81, 84, start=14, extent=152, fill=green, width=1.6, round_caps=True)
-        p.line([(44, 10), (44, 18)], fill=aa.rgb(theme.TEXT_DIM), width=2, round_caps=False)
-        p.ellipse(40, 2, 48, 10, fill=green if active else aa.rgb(theme.ACCENT_BLUE_DIM))
-        p.ellipse(10, 16, 78, 78, fill=blue, outline=green if active else aa.rgb(theme.ACCENT_BLUE_DIM), width=2)
-        p.rect(22, 32, 66, 64, fill=aa.rgb(theme.BG_MAIN))
-
-        if active:
-            # свічення очей: розмите коло під очима, «дихає» між фазами
-            k = aa.SS * S
-            glow = Image.new("L", img.size, 0)
-            gd = ImageDraw.Draw(glow)
-            strength = (150, 190, 225, 190)[phase]
-            for cx in (35, 53):
-                r = 9.5 * k
-                gd.ellipse((cx * k - r, 45 * k - r, cx * k + r, 45 * k + r), fill=strength)
-            glow = glow.filter(ImageFilter.GaussianBlur(radius=4.2 * k))
-            img.paste(Image.new("RGB", img.size, green), (0, 0), glow)
-            p = aa.Painter(img, S)
-            if blink:
-                p.line([(29, 45), (41, 45)], fill=green, width=2.4)
-                p.line([(47, 45), (59, 45)], fill=green, width=2.4)
-            else:
-                for cx in (35, 53):
-                    p.ellipse(cx - 6, 38, cx + 6, 52, fill=green)
-                    p.ellipse(cx - 3.2, 40, cx + 0.6, 44, fill=aa.rgb("#d8fff0"))
-            p.arc(30, 46, 58, 64, start=200, extent=140, fill=green, width=2)
-            # ліва чашка з мікрофоном і права чашка
-            p.line([(8, 58), (10, 70), (21, 75)], fill=_BAND, width=2.2)
-            p.ellipse(19, 72, 25, 78, fill=green)
-            for x0 in (1, 72):
-                p.ellipse(x0, 32, x0 + 15, 64, fill=_BAND, outline=green, width=1.6)
-        else:
-            eye = aa.rgb(theme.TEXT_DIM)
-            p.line([(29, 46), (41, 46)], fill=eye, width=2)
-            p.line([(47, 46), (59, 46)], fill=eye, width=2)
-            p.line([(36, 57), (52, 57)], fill=eye, width=2)
-        return ImageTk.PhotoImage(aa.downscale(img, (px, px)))
-
-    def _show(self) -> None:
-        key = (self._active, self._blink, self._phase if self._active else 0)
-        photo = self._sprites.get(key)
-        if photo is None:
-            photo = self._sprites[key] = self._render(*key)
-        self.canvas.itemconfigure(self._image, image=photo)
-
-    def _tick(self) -> None:
-        if not self.winfo_exists():
-            return
-        if theme.robot_animation_enabled():
-            now = time.perf_counter()
-            dt = 0.0 if self._last_tick is None else now - self._last_tick
-            self._last_tick = now
-            changed = False
-            self._blink_timer -= dt
-            if self._blink_timer <= 0:
-                self._blink = not self._blink
-                self._blink_timer = random.uniform(0.12, 0.2) if self._blink else random.uniform(2.0, 4.0)
-                changed = True
-            phase = int((now - self._t0) / 0.45) % 4
-            if self._active and phase != self._phase:
-                self._phase = phase
-                changed = True
-            if changed:
-                self._show()
-        self._after_id = self.after(150, self._tick)
-
-    def _on_destroy(self, event) -> None:
-        if event.widget is self and self._after_id is not None:
-            try:
-                self.after_cancel(self._after_id)
-            except Exception:
-                pass
-            self._after_id = None
 
 
 # ============================================================ перемикач
