@@ -836,37 +836,70 @@ class ProcessTable(ctk.CTkFrame):
 
 # настрій стану системи -> настрій спільного робота (ui/widgets/robot.py)
 _ROBOT_MOODS = {"happy": robot_view.HAPPY, "neutral": robot_view.CALM, "worried": robot_view.WORRIED}
-ROBOT_SIZE = 88
+ROBOT_SIZE = 64
+STATUS_WIDTH_DP = 260
+
+
+def _page_bg(widget) -> str:
+    """Колір фону під карткою (перший непрозорий предок) — для tk-контейнера."""
+    while widget is not None:
+        if isinstance(widget, ctk.CTkBaseClass) or isinstance(widget, ctk.CTk):
+            color = widget.cget("fg_color")
+            color = None if color == "transparent" else widget._apply_appearance_mode(color)
+        else:  # звичайний tk-віджет (напр. внутрішня рамка ScrollPage) — його фон і видно
+            try:
+                color = widget.cget("bg")
+            except tk.TclError:
+                color = None
+        if color:
+            r, g, b = widget.winfo_rgb(color)
+            return f"#{r >> 8:02x}{g >> 8:02x}{b >> 8:02x}"
+        widget = widget.master
+    return theme.BG_MAIN
 
 
 class StatusRobot(ctk.CTkFrame):
-    """Робот із настроєм (спільний RobotView) і коротка фраза про стан системи."""
+    """Компактна картка «Статус системи»: робот ліворуч, праворуч — заголовок,
+    коротка фраза про стан і (за потреби) кнопка-дія. Лежить у звичайному
+    tk-контейнері, висоту якого MonitorTab зрівнює з рядком плиток поруч
+    (match_height) — картка не звисає на графік, а CTk малює її штатно."""
 
     def __init__(self, master):
-        super().__init__(master, corner_radius=14)
+        # контейнер (tk.Frame) задає розмір; картка заповнює його
+        self.holder = tk.Frame(master, bg=_page_bg(master), highlightthickness=0, bd=0)
+        super().__init__(self.holder, corner_radius=10)  # як у плиток поруч
+        self.pack(fill="both", expand=True)
         self._scale = self._get_widget_scaling()
+        self._target_px = 0
 
-        ctk.CTkLabel(self, text="Статус системи", font=theme.font_header()).pack(padx=16, pady=(18, 8))
+        self.body = ctk.CTkFrame(self, fg_color="transparent")
+        self.body.place(relx=0, rely=0.5, anchor="w", relwidth=1)
+        self.body.grid_columnconfigure(1, weight=1)
 
-        self.robot = robot_view.RobotView(self, size=ROBOT_SIZE, mood=robot_view.CALM)
-        self.robot.pack(pady=(0, 10))
+        # фон робота = колір картки (у темі він може бути назвою Tk на кшталт "gray17" — переводимо в hex)
+        r, g, b = self.winfo_rgb(self._apply_appearance_mode(self.cget("fg_color")))
+        card_color = f"#{r >> 8:02x}{g >> 8:02x}{b >> 8:02x}"
+        self.robot = robot_view.RobotView(self.body, size=ROBOT_SIZE, mood=robot_view.CALM, bg=card_color)
+        self.robot.grid(row=0, column=0, rowspan=3, padx=(12, 10), pady=8)
 
+        ctk.CTkLabel(self.body, text="Статус системи", font=ctk.CTkFont(size=13, weight="bold"),
+                     anchor="w").grid(row=0, column=1, padx=(0, 12), pady=(8, 0), sticky="sw")
         self.phrase_label = ctk.CTkLabel(
-            self, text="Збираємо дані…", font=theme.font_body(), text_color=theme.TEXT_DIM,
-            wraplength=190, justify="center",
+            self.body, text="Збираємо дані…", font=theme.font_small(), text_color=theme.TEXT_DIM,
+            wraplength=150, justify="left", anchor="w",
         )
-        self.phrase_label.pack(padx=16, pady=(0, 20))
+        self.phrase_label.grid(row=1, column=1, padx=(0, 12), sticky="nw")
 
         # кнопка-дія під фразою (напр. «Увімкнути Ігровий режим», коли бракує RAM)
         self._action = None
         self.action_button = ctk.CTkButton(
-            self, text="", height=32, corner_radius=10, font=theme.font_small(),
+            self.body, text="", height=26, corner_radius=8, font=theme.font_small(),
             fg_color=theme.ACCENT_GREEN, hover_color=theme.ACCENT_GREEN_DIM, text_color=theme.BG_MAIN,
             command=lambda: self._action and self._action[1](),
         )
         self._wrap_dp = None
-        # фраза переноситься по словах у межах картки, кнопка підлаштовує підпис
         tk.Misc.bind(self, "<Configure>", self._on_resize, "+")
+        tk.Misc.bind(self.body, "<Configure>", lambda _e: self._fit_height(), "+")
 
         self._mood = None
 
@@ -878,25 +911,38 @@ class StatusRobot(ctk.CTkFrame):
         super()._set_scaling(*args, **kwargs)
         self._scale = args[0]
 
+    def match_height(self, height_px: int) -> None:
+        """Висота рядка плиток поруч (px)."""
+        if height_px > 1 and height_px != self._target_px:
+            self._target_px = height_px
+            self._fit_height()
+
+    def _fit_height(self) -> None:
+        needed = max(self._target_px, self.body.winfo_reqheight())
+        width = round(STATUS_WIDTH_DP * self._scale)
+        if needed > 1 and (int(self.holder.cget("height")) != needed or int(self.holder.cget("width")) != width):
+            self.holder.configure(height=needed, width=width)
+            self.holder.pack_propagate(False)
+
     def _on_resize(self, event=None) -> None:
         width = self.winfo_width()
         if width <= 1:
             return
-        wrap = max(round(width / self._scale) - 32, 80)
+        wrap = max(round(width / self._scale) - ROBOT_SIZE - 40, 80)
         if wrap != self._wrap_dp:
             self._wrap_dp = wrap
             self.phrase_label.configure(wraplength=wrap)
         self._fit_action_text()
 
     def _fit_action_text(self) -> None:
-        """Повний підпис кнопки, якщо вміщується в картку, інакше короткий."""
+        """Повний підпис кнопки, якщо вміщується, інакше короткий."""
         if self._action is None:
             return
         text = self._action[0]
         short = self._action[2] if len(self._action) > 2 else text
-        avail = self.winfo_width() - round(32 * self._scale)
+        avail = self.winfo_width() - round((ROBOT_SIZE + 40) * self._scale)
         font = tkfont.Font(family="Segoe UI", size=-round(11 * self._scale))
-        needed = font.measure(text) + round(28 * self._scale)
+        needed = font.measure(text) + round(24 * self._scale)
         wanted = text if needed <= avail or avail <= 0 else short
         if self.action_button.cget("text") != wanted:
             self.action_button.configure(text=wanted)
@@ -908,12 +954,10 @@ class StatusRobot(ctk.CTkFrame):
         self._action = action
         if new_text != old_text:
             if new_text is None:
-                self.action_button.pack_forget()
-                self.phrase_label.pack_configure(pady=(0, 20))
+                self.action_button.grid_forget()
             else:
                 self.action_button.configure(text=new_text)
-                self.phrase_label.pack_configure(pady=(0, 10))
-                self.action_button.pack(padx=16, pady=(0, 18), fill="x")
+                self.action_button.grid(row=2, column=1, padx=(0, 12), pady=(4, 8), sticky="w")
                 self._fit_action_text()
         if mood == self._mood and phrase == self.phrase_label.cget("text"):
             return
@@ -1022,7 +1066,9 @@ class MonitorTab(ctk.CTkFrame):
         self.process_table.grid(row=2, column=0, sticky="nsew")
 
         self.status_robot = StatusRobot(self._body)
-        self.status_robot.grid(row=3, column=1, padx=(10, 20), pady=(0, 20), sticky="new")
+        self.status_robot.holder.grid(row=3, column=1, padx=(10, 20), pady=(0, 20), sticky="new")
+        # висота картки = висота рядка плиток поруч (і коли плитки переносяться у 2 рядки)
+        tk.Misc.bind(tiles_frame, "<Configure>", lambda e: self.status_robot.match_height(e.height), "+")
 
     def _fit_graph_row(self) -> None:
         """Мінімуми рядків: графік — не нижче GRAPH_MIN_DP, таблиця — TABLE_MIN_DP;

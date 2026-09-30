@@ -101,9 +101,16 @@ def load_game_mode() -> dict:
     return state
 
 
+def default_level() -> str:
+    """Рівень для профілів, де його ще не обирали — з «Налаштування → Ігровий режим»."""
+    from core.settings import load_settings
+    level = load_settings().get("game_mode_default_level")
+    return level if level in app_catalog.LEVELS else app_catalog.DEFAULT_LEVEL
+
+
 def level_of(state: dict, profile_name: str) -> str:
     level = state.get("levels", {}).get(profile_name)
-    return level if level in app_catalog.LEVELS else app_catalog.DEFAULT_LEVEL
+    return level if level in app_catalog.LEVELS else default_level()
 
 
 def choices_of(state: dict, profile_name: str, level: str) -> dict[str, bool]:

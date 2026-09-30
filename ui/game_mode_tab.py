@@ -15,6 +15,7 @@ from core import app_catalog as catalog
 from core import game_mode as game_mode_core
 from core import game_scanner, game_sessions, power_plans, process_control, process_info, smart_apps
 from core import monitor as monitor_core
+from core.settings import load_settings
 from core.system_processes import is_protected
 from core.logging_setup import get_audit_logger, get_logger
 from ui import bg, theme
@@ -989,6 +990,10 @@ class GameModeTab(ctk.CTkFrame):
             return
         get_audit_logger().info("Гра «%s» запущена (%s, PID %s, %s) — пропоную автоувімкнення Ігрового режиму",
                                 game["name"], proc["name"], proc["pid"], proc["exe"] or "шлях невідомий")
+        if not load_settings().get("game_mode_auto_toast", True):
+            # сповіщення вимкнено в «Налаштуваннях» — одразу лише план живлення (програми не закриваються)
+            self._auto_offer_accepted(game)
+            return
         apps = list(self._current_apps())
         extra = None
         if apps:

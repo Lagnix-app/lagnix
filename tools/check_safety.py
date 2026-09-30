@@ -20,6 +20,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PROCESS_CONTROL = os.path.join("core", "process_control.py")
+# функції, що видаляють лише власні тимчасові файли, створені тут же (не дані користувача)
+OWN_TEMP_FILE_FUNCS = {"set_enabled", "download_and_verify"}
 KILL_RE = re.compile(r"\.terminate\(|\.kill\(|TerminateProcess|taskkill|os\.kill\(|Stop-Process|"
                      r"WM_CLOSE|PostMessage|SendMessage|EndTask")
 DELETE_CALLS = {"remove", "unlink", "rmdir", "rmtree", "removedirs", "SHEmptyRecycleBinW"}
@@ -30,6 +32,8 @@ DELETE_ALLOWED = {
     os.path.join("core", "app_cache.py"): ({"clean_group", "close_group"}, {"_remove_empty_dirs"}),
     # тимчасовий XML власного завдання планувальника, створений у цій же функції
     os.path.join("core", "launch_on_windows.py"): (set(), {"set_enabled"}),
+    # власний завантажений інсталятор PawnIO, якщо його підпис недійсний
+    os.path.join("core", "pawnio.py"): (set(), {"download_and_verify"}),
 }
 
 
@@ -106,7 +110,7 @@ def main() -> int:
                 continue
             if not any(isinstance(n, ast.Call) and _call_name(n) == "require" for n in ast.walk(fn)):
                 problems.append(f"{rel}:{fn.lineno}: {fname} не викликає process_control.require()")
-        for helper in helpers - {"set_enabled"}:
+        for helper in helpers - OWN_TEMP_FILE_FUNCS:
             for fn in _functions(tree):
                 uses = any(isinstance(n, ast.Name) and n.id == helper for n in ast.walk(fn))
                 if uses and fn.name != helper and fn.name not in guarded:

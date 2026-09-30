@@ -8,6 +8,8 @@
 import copy
 import json
 import os
+import threading
+import time
 
 from core.migrate import migrate_if_needed
 
@@ -29,7 +31,8 @@ DEFAULT_SETTINGS = {
     "advanced_sensors_enabled": True,
     "sounds_enabled": True,
     "sounds_volume": 0.25,
-    "sounds_hover_volume": 0.125,
+    # Звук наведення — частка від загальної гучності (0.5 = половина).
+    "sounds_hover_ratio": 0.5,
     "monitor_update_interval_s": 1.0,
     "animations_enabled": True,
     "robot_animation_enabled": True,
@@ -39,48 +42,83 @@ DEFAULT_SETTINGS = {
     "network_help_collapsed": False,
     # «Монітор»: процеси згруповані за програмами (як у Диспетчері завдань).
     "monitor_group_processes": True,
+    # «Ігровий режим»: рівень для профілів, де його ще не обирали (core/app_catalog.py),
+    # і чи показувати сповіщення з «Скасувати» при автоувімкненні.
+    "game_mode_default_level": "balanced",
+    "game_mode_auto_toast": True,
 }
 
 
 # Кеш розібраного settings.json за (mtime, розмір): load_settings() кличуть
 # часто (Монітор — щосекунди з фонового потоку), а файл змінюється рідко.
+# Після ВЛАСНОГО запису кеш оновлюється напряму: раніше два записи в межах
+# одного тіку годинника файлової системи з однаковим розміром файлу давали
+# той самий ключ, load_settings() повертав застарілий кеш, і наступний
+# update_setting() затирав щойно збережене значення старим (так «сама»
+# скидалась гучність). Запис — атомарний (тимчасовий файл + os.replace) і під
+# блокуванням, тож читач із фонового потоку не бачить напівзаписаний файл.
+_lock = threading.RLock()
 _cache_key = None
 _cache_data: dict | None = None
+
+
+def _stat_key():
+    st = os.stat(SETTINGS_PATH)
+    return st.st_mtime_ns, st.st_size
 
 
 def load_settings() -> dict:
     global _cache_key, _cache_data
     migrate_if_needed()
 
-    try:
-        st = os.stat(SETTINGS_PATH)
-    except OSError:
-        save_settings(DEFAULT_SETTINGS)
-        return copy.deepcopy(DEFAULT_SETTINGS)
-
-    key = (st.st_mtime_ns, st.st_size)
-    if key != _cache_key or _cache_data is None:
+    with _lock:
         try:
-            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
+            key = _stat_key()
+        except OSError:
+            save_settings(DEFAULT_SETTINGS)
             return copy.deepcopy(DEFAULT_SETTINGS)
-        merged = dict(DEFAULT_SETTINGS)
-        merged.update(data)
-        _cache_key, _cache_data = key, merged
-    return copy.deepcopy(_cache_data)  # копія: виклики можуть змінювати словник
+
+        if key != _cache_key or _cache_data is None:
+            try:
+                with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                return copy.deepcopy(_cache_data if _cache_data is not None else DEFAULT_SETTINGS)
+            merged = dict(DEFAULT_SETTINGS)
+            merged.update(data)
+            _cache_key, _cache_data = key, merged
+        return copy.deepcopy(_cache_data)  # копія: виклики можуть змінювати словник
 
 
 def save_settings(settings: dict) -> None:
-    with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-        json.dump(settings, f, ensure_ascii=False, indent=4)
+    global _cache_key, _cache_data
+    with _lock:
+        tmp_path = SETTINGS_PATH + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=4)
+        for attempt in range(5):  # антивірус/індексатор може на мить тримати файл
+            try:
+                os.replace(tmp_path, SETTINGS_PATH)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.05)
+        merged = dict(DEFAULT_SETTINGS)
+        merged.update(copy.deepcopy(settings))
+        _cache_data = merged
+        try:
+            _cache_key = _stat_key()
+        except OSError:
+            _cache_key = None
 
 
 def update_setting(key: str, value) -> dict:
-    settings = load_settings()
-    settings[key] = value
-    save_settings(settings)
-    return settings
+    with _lock:  # читання й запис разом — інакше паралельне оновлення загубиться
+        settings = load_settings()
+        settings[key] = value
+        save_settings(settings)
+        return settings
 
 
 def reset_to_defaults() -> dict:

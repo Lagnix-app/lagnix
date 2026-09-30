@@ -456,6 +456,10 @@ class NetworkTab(ctk.CTkFrame):
 
     # ---------------------------------------------------------- history
 
+    def reload_history(self) -> None:
+        """Перечитати історію тестів (напр. після «Налаштування → Очистити історію»)."""
+        self._show_history(network_core.load_test_history())
+
     def _show_history(self, history: list) -> None:
         self.history_table.set_data(history)
         self.clear_history_button.configure(state="normal" if history else "disabled")

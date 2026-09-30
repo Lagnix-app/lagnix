@@ -12,9 +12,10 @@
 і має нормальну гучність через Sound.set_volume() (яку сама WAV-генерація
 далі не чіпає — гучність повністю в runtime, повзунок діє миттєво).
 
-Гучність — дві незалежні: "Загальна гучність" (клік/успіх/помилка) і
-тихіший "Звук наведення" (типово ~½ від загальної), обидві керуються з
-вкладки «Налаштування» (config.json: sounds_volume/sounds_hover_volume).
+Гучність: "Загальна гучність" (клік/успіх/помилка; типово 25%) і "Звук
+наведення" — ЧАСТКА від загальної (типово 50%), тож наведення завжди тихіше
+й разом із загальною стає 0. settings.json: sounds_volume / sounds_hover_ratio
+(старе абсолютне sounds_hover_volume переноситься автоматично).
 Наведення на пункт меню грає один з кількох варіантів звуку (щоб не
 набридало) і не частіше ніж раз на 80 мс — цього досить, щоб не сипати
 звуками, коли курсор проходить між внутрішніми під-віджетами однієї й
@@ -25,6 +26,7 @@
 logs.txt через core.logging_setup, а не проковтуються мовчки.
 """
 
+import json
 import math
 import os
 import random
@@ -33,6 +35,7 @@ import time
 import wave
 
 from core.logging_setup import get_logger
+from core.settings import SETTINGS_PATH as SETTINGS_FILE
 from core.settings import load_settings, update_setting
 
 ASSETS_SOUNDS_DIR = os.path.join(
@@ -56,10 +59,32 @@ except ImportError:
     _HAS_PYGAME = False
     _logger.error("pygame недоступний — звуки інтерфейсу вимкнені (pip install pygame-ce)")
 
+def _clamp(value) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _initial_hover_ratio(settings: dict) -> float:
+    """Частка наведення; зі старого абсолютного sounds_hover_volume — перерахунок."""
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        raw = {}
+    if "sounds_hover_ratio" in raw:
+        return _clamp(raw["sounds_hover_ratio"])
+    old_hover, volume = raw.get("sounds_hover_volume"), _clamp(settings.get("sounds_volume", 0.25))
+    if old_hover is None or volume <= 0:
+        return 0.5
+    return _clamp(round(float(old_hover) / volume, 2))
+
+
 _settings = load_settings()
 _enabled = bool(_settings.get("sounds_enabled", True))
-_volume = float(_settings.get("sounds_volume", 0.25))
-_hover_volume = float(_settings.get("sounds_hover_volume", 0.125))
+_volume = _clamp(_settings.get("sounds_volume", 0.25))
+_hover_ratio = _initial_hover_ratio(_settings)
 
 _mixer_ready = False
 _mixer_failed = False
@@ -204,8 +229,12 @@ def _is_hover(name: str) -> bool:
     return name in HOVER_VARIANTS
 
 
+def _hover_volume() -> float:
+    return _volume * _hover_ratio
+
+
 def _volume_for(name: str) -> float:
-    return _hover_volume if _is_hover(name) else _volume
+    return _hover_volume() if _is_hover(name) else _volume
 
 
 def _ensure_mixer() -> bool:
@@ -251,38 +280,45 @@ def is_enabled() -> bool:
     return _enabled
 
 
-def set_volume(volume: float) -> None:
-    global _volume
-    _volume = max(0.0, min(1.0, volume))
-    update_setting("sounds_volume", _volume)
+def _apply_volumes() -> None:
     for name, snd in _sounds.items():
-        if _is_hover(name):
-            continue
         try:
-            snd.set_volume(_volume)
+            snd.set_volume(_volume_for(name))
         except Exception:
             _logger.exception("Не вдалося застосувати гучність до вже завантаженого звуку %s", name)
+
+
+def set_volume(volume: float, persist: bool = True) -> None:
+    """persist=False — лише застосувати (під час перетягування повзунка); зберігається
+    при відпусканні — так файл не переписується десятки разів на секунду."""
+    global _volume
+    _volume = _clamp(round(volume, 2))
+    _apply_volumes()
+    if persist:
+        update_setting("sounds_volume", _volume)
 
 
 def get_volume() -> float:
     return _volume
 
 
-def set_hover_volume(volume: float) -> None:
-    global _hover_volume
-    _hover_volume = max(0.0, min(1.0, volume))
-    update_setting("sounds_hover_volume", _hover_volume)
-    for name, snd in _sounds.items():
-        if not _is_hover(name):
-            continue
-        try:
-            snd.set_volume(_hover_volume)
-        except Exception:
-            _logger.exception("Не вдалося застосувати гучність наведення до вже завантаженого звуку %s", name)
+def set_hover_ratio(ratio: float, persist: bool = True) -> None:
+    global _hover_ratio
+    _hover_ratio = _clamp(round(ratio, 2))
+    _apply_volumes()
+    if persist:
+        update_setting("sounds_hover_ratio", _hover_ratio)
 
 
-def get_hover_volume() -> float:
-    return _hover_volume
+def get_hover_ratio() -> float:
+    return _hover_ratio
+
+
+def reset_volumes(volume: float, ratio: float) -> None:
+    """Після «Скинути налаштування» — значення вже записані у файл, лише застосувати."""
+    global _volume, _hover_ratio
+    _volume, _hover_ratio = _clamp(volume), _clamp(ratio)
+    _apply_volumes()
 
 
 def _play(name: str, force: bool = False) -> None:
