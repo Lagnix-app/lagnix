@@ -187,11 +187,16 @@ class AppShell:
         if hook is not None:
             hook(enabled)
 
-    def apply_overlay_settings(self, **overrides) -> None:
-        """Після зміни розміру/прозорості/показників/кута в «Налаштуваннях»;
-        overrides — ще не збережені значення (повзунок під час перетягування)."""
+    def apply_overlay_settings(self) -> None:
+        """Після зміни розміру/прозорості/показників/кута в «Налаштуваннях»: існуюче
+        вікно оверлею оновлює лише те, що змінилось (не перестворюється)."""
         if self._overlay is not None:
-            self._overlay.configure_overlay({**self.overlay_config(), **overrides})
+            self._overlay.configure_overlay(self.overlay_config())
+
+    def preview_overlay_opacity(self, value: float) -> None:
+        """Повзунок під час руху: лише -alpha вікна оверлею, без запису у файл."""
+        if self._overlay is not None:
+            self._overlay.set_opacity(value)
 
     def _show_overlay(self) -> None:
         if self._overlay is not None:

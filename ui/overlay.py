@@ -11,7 +11,14 @@ CPU %, GPU %, RAM %, температура GPU і CPU (якщо датчик д
 * У повноекранних іграх з exclusive fullscreen Windows не показує чужі вікна
   поверх гри — лише в безрамковому / віконному режимі (примітка в «Налаштуваннях»).
 
-Усе в потоці інтерфейсу: таймер ~120 мс лише читає стан Ctrl (GetAsyncKeyState)."""
+Усе в потоці інтерфейсу: таймер ~120 мс лише читає стан Ctrl (GetAsyncKeyState).
+
+ВАЖЛИВО: іменовані шрифти (tkfont.Font) тут ніколи не переналаштовуються
+(.configure). Зміна іменованого шрифту в Tk перераховує геометрію ВСІХ віджетів
+програми — у CustomTkinter це лавина перемальовувань з update_idletasks(), яка
+«ламала» головне вікно, поки рухали повзунок прозорості. Тому шрифти кожного
+розміру створюються один раз (_fonts_for) і лише вибираються; прозорість —
+тільки attributes("-alpha") цього Toplevel (set_opacity)."""
 
 from __future__ import annotations
 
@@ -59,6 +66,20 @@ _HWND_TOPMOST = -1
 _SWP_NOSIZE, _SWP_NOMOVE, _SWP_NOACTIVATE, _SWP_FRAMECHANGED = 0x1, 0x2, 0x10, 0x20
 _VK_CONTROL = 0x11
 _SM_XVIRTUALSCREEN, _SM_YVIRTUALSCREEN, _SM_CXVIRTUALSCREEN, _SM_CYVIRTUALSCREEN = 76, 77, 78, 79
+
+
+_font_cache: dict[int, tuple] = {}  # px -> (жирний для значень, звичайний для підписів)
+
+
+def _fonts_for(widget, px: int) -> tuple:
+    """Шрифти потрібного розміру: створюються один раз і ніколи не змінюються й не
+    видаляються (див. примітку вгорі про іменовані шрифти)."""
+    fonts = _font_cache.get(px)
+    if fonts is None:
+        fonts = (tkfont.Font(root=widget, family="Segoe UI", size=-px, weight="bold"),
+                 tkfont.Font(root=widget, family="Segoe UI", size=-px))
+        _font_cache[px] = fonts
+    return fonts
 
 
 def _ctrl_down() -> bool:
@@ -139,8 +160,9 @@ class OverlayWindow(tk.Toplevel):
         self._drag_from = None
         self._poll_job = None
         self._poll_count = 0
-        self._font = tkfont.Font(family="Segoe UI", size=-11, weight="bold")
-        self._label_font = tkfont.Font(family="Segoe UI", size=-11)
+        self._opacity: float | None = None
+        self._width = self._height = 1
+        self._font, self._label_font = _fonts_for(self, _SIZES["small"])
 
         self.withdraw()
         self.overrideredirect(True)
@@ -165,20 +187,29 @@ class OverlayWindow(tk.Toplevel):
     # --------------------------------------------------------------- API
 
     def configure_overlay(self, config: dict) -> None:
+        """Оновити існуюче вікно — лише те, що змінилось. Вікно не перестворюється."""
         old = self._config
         self._config = dict(config)
-        scale = self._scale()
-        px = round(_SIZES.get(config.get("size"), _SIZES["small"]) * scale)
-        self._font.configure(size=-px)
-        self._label_font.configure(size=-px)
+        self.set_opacity(config.get("opacity", 0.85))
+        resized = not old or old.get("size") != config.get("size")
+        if resized:
+            px = round(_SIZES.get(config.get("size"), _SIZES["small"]) * self._scale())
+            self._font, self._label_font = _fonts_for(self, px)
+        if resized or old.get("metrics") != config.get("metrics"):
+            self._redraw(force=True)
+        if resized or old.get("corner") != config.get("corner") or old.get("position") != config.get("position"):
+            self._place()
+
+    def set_opacity(self, value: float) -> None:
+        """Лише прозорість цього Toplevel (ніколи не головного вікна)."""
+        value = max(0.3, min(1.0, float(value)))
+        if value == self._opacity:
+            return
+        self._opacity = value
         try:
-            self.attributes("-alpha", max(0.3, min(1.0, float(config.get("opacity", 0.85)))))
+            self.attributes("-alpha", value)
         except tk.TclError:
             pass
-        self._redraw(force=True)
-        if (old.get("corner") != config.get("corner") or old.get("position") != config.get("position")
-                or old.get("size") != config.get("size") or not old):
-            self._place()
 
     def update_data(self, data: dict) -> None:
         self._data = data
@@ -238,11 +269,12 @@ class OverlayWindow(tk.Toplevel):
             c.create_text(width - pad, y, text=value, anchor="e", font=self._font, fill=color,
                           tags=(f"value{index}",))
         c.configure(width=width, height=height)
-        if (width, height) != (self.winfo_width(), self.winfo_height()):
-            x, y = self.winfo_x(), self.winfo_y()
-            self.geometry(f"{width}x{height}+{x}+{y}")
+        if (width, height) != (self._width, self._height):
+            self._width, self._height = width, height
             if self._config.get("position") is None:
                 self.after_idle(self._place)  # від кута: ширина змінилась — перерахувати
+            else:
+                self.geometry(f"{width}x{height}+{self.winfo_x()}+{self.winfo_y()}")
 
     def _round_rect(self, x0, y0, x1, y1, r, **options) -> None:
         points = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1, x1 - r, y1,
@@ -252,12 +284,12 @@ class OverlayWindow(tk.Toplevel):
 
     # -------------------------------------------------------------- позиція
 
-    def _size(self) -> tuple[int, int]:
-        self.update_idletasks()
-        return max(self.canvas.winfo_reqwidth(), 1), max(self.canvas.winfo_reqheight(), 1)
-
     def _place(self) -> None:
-        width, height = self._size()
+        # розмір — з останнього малювання, без update_idletasks(): той обробив би
+        # відкладені перемальовування всього застосунку посеред колбека повзунка
+        if not self.winfo_exists():
+            return
+        width, height = self._width, self._height
         vx, vy, vw, vh = _virtual_screen(self)
         position = self._config.get("position")
         if position:

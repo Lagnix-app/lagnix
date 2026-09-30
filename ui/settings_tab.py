@@ -6,8 +6,10 @@
 Компактна розкладка: сегментовані перемикачі — групою ~300–400 px, повзунки —
 до 400 px зі значенням праворуч; на широкому вікні картки йдуть у дві колонки."""
 
+import math
 import os
 import threading
+import time
 import tkinter
 from tkinter import messagebox
 
@@ -36,6 +38,7 @@ _OVERLAY_SIZE_LABELS = {"small": "Малий", "medium": "Середній"}
 _OVERLAY_CORNER_LABELS = {"top_left": "Лівий верхній кут", "top_right": "Правий верхній кут",
                           "bottom_left": "Лівий нижній кут", "bottom_right": "Правий нижній кут"}
 _VK_ESCAPE = 0x1B
+_OPACITY_PREVIEW_MS = 100  # -alpha оверлею під час руху повзунка — не частіше
 
 _SLIDER_WIDTH = 380            # повзунки — не на всю ширину
 _SEGMENT_WIDTH_PER_ITEM = 150  # група сегментів ~300–400 px
@@ -62,6 +65,9 @@ class SettingsTab(ctk.CTkFrame):
         self._layout_job = None
         self._visible = False
         self._pawnio_task = None
+        self._opacity_job = None
+        self._opacity_pending: float | None = None
+        self._opacity_applied_at = 0.0
         bg.ensure_pump(self)
         self._build_all_cards()
         self.scroll.bind("<Configure>", self._on_scroll_configure, add="+")
@@ -521,14 +527,35 @@ class SettingsTab(ctk.CTkFrame):
         sounds.play_click()
 
     def _on_overlay_opacity(self, value: float) -> None:
+        """Рух повзунка: одразу лише підпис; -alpha оверлею — не частіше ніж раз на
+        100 мс (останнє значення); у settings.json — після відпускання."""
         self._opacity_label.configure(text=f"{round(value * 100)}%")
+        self._opacity_pending = value
+        if self._opacity_job is None:
+            self._opacity_job = self.after(_OPACITY_PREVIEW_MS, self._flush_opacity_preview)
+
+    def _flush_opacity_preview(self) -> None:
+        # таймер Windows інколи спрацьовує на кілька мс раніше — дочекатися повних 100 мс
+        wait_ms = _OPACITY_PREVIEW_MS - (time.monotonic() - self._opacity_applied_at) * 1000
+        if wait_ms > 0:
+            self._opacity_job = self.after(max(1, math.ceil(wait_ms)), self._flush_opacity_preview)
+            return
+        self._opacity_job = None
+        self._opacity_applied_at = time.monotonic()
         shell = self._shell()
-        if shell is not None:
-            shell.apply_overlay_settings(opacity=value)  # наживо, без запису у файл на кожен рух
+        if shell is not None and self._opacity_pending is not None:
+            shell.preview_overlay_opacity(self._opacity_pending)  # оверлей вимкнений — нічого не робить
 
     def _on_overlay_opacity_release(self, _event=None) -> None:
-        update_setting("overlay_opacity", round(float(self._opacity_slider.get()), 2))
-        self._apply_overlay()
+        if self._opacity_job is not None:
+            self.after_cancel(self._opacity_job)
+            self._opacity_job = None
+        value = round(float(self._opacity_slider.get()), 2)
+        self._opacity_pending = None
+        update_setting("overlay_opacity", value)
+        shell = self._shell()
+        if shell is not None:
+            shell.preview_overlay_opacity(value)
 
     def _on_overlay_metrics(self) -> None:
         update_setting("overlay_metrics", {key: bool(box.get()) for key, box in self._metric_boxes.items()})
