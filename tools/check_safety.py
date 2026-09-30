@@ -1,7 +1,8 @@
 """Перевірка правила безпеки проєкту (запуск: python tools/check_safety.py).
 
-1. Завершувати процеси (.terminate() / .kill() / taskkill / TerminateProcess /
-   os.kill) можна лише в core/process_control.py.
+1. Завершувати й закривати процеси (.terminate() / .kill() / taskkill /
+   TerminateProcess / os.kill / WM_CLOSE через PostMessage) можна лише в
+   core/process_control.py.
 2. UserAction створюється лише в core/process_control.py, а ask_user_action()
    викликається лише з UI (ui/*), тобто після натискання кнопки.
 3. Видаляти файли (os.remove / os.unlink / os.rmdir / shutil.rmtree /
@@ -19,7 +20,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PROCESS_CONTROL = os.path.join("core", "process_control.py")
-KILL_RE = re.compile(r"\.terminate\(|\.kill\(|TerminateProcess|taskkill|os\.kill\(|Stop-Process")
+KILL_RE = re.compile(r"\.terminate\(|\.kill\(|TerminateProcess|taskkill|os\.kill\(|Stop-Process|"
+                     r"WM_CLOSE|PostMessage|SendMessage|EndTask")
 DELETE_CALLS = {"remove", "unlink", "rmdir", "rmtree", "removedirs", "SHEmptyRecycleBinW"}
 
 # модуль -> (захищені функції, що мусять викликати require; помічники, які видаляють)

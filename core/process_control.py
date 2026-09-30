@@ -12,6 +12,7 @@
 
 import subprocess
 import threading
+import time
 
 import psutil
 
@@ -131,6 +132,112 @@ def terminate_processes(targets, action: UserAction, graceful_command: list[str]
             killed += 1
             audit.info("Завершено процес %s — причина: %s", names[proc.pid], action.reason)
     return killed, errors
+
+
+# ------------------------------------------------------------ м'яке закриття
+
+_WM_CLOSE = 0x0010
+_GW_OWNER = 4
+_DIALOG_CLASS = "#32770"  # стандартний діалог Windows («Зберегти зміни?» тощо)
+
+
+def _windows_of(pids: set[int]) -> list[dict]:
+    """Верхньорівневі вікна процесів (лише читання): hwnd, pid, visible, cls, title."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    found = []
+    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def callback(hwnd, _lparam):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value in pids:
+            cls = ctypes.create_unicode_buffer(64)
+            user32.GetClassNameW(hwnd, cls, 64)
+            title = ctypes.create_unicode_buffer(256)
+            user32.GetWindowTextW(hwnd, title, 256)
+            found.append({"hwnd": hwnd, "pid": pid.value, "visible": bool(user32.IsWindowVisible(hwnd)),
+                          "owned": bool(user32.GetWindow(hwnd, _GW_OWNER)), "cls": cls.value,
+                          "title": title.value})
+        return True
+
+    user32.EnumWindows(enum_proc(callback), 0)
+    return found
+
+
+def _main_windows(windows: list[dict]) -> list[dict]:
+    """Видимі «справжні» вікна програми (не службові/приховані)."""
+    return [w for w in windows if w["visible"] and (w["title"] or w["owned"])]
+
+
+def _alive_pids(pids) -> set[int]:
+    alive = set()
+    for pid in pids:
+        try:
+            if psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE:
+                alive.add(pid)
+        except psutil.Error:
+            continue
+    return alive
+
+
+def close_apps_gracefully(apps: list[dict], action: UserAction, grace_s: float = 5.0) -> list[dict]:
+    """Закриває програми «як користувач»: спершу WM_CLOSE усім їхнім вікнам
+    (програма сама збереже стан або спитає «Зберегти?»). Через grace_s с:
+      * процеси завершились — закрито штатно;
+      * у програми лишилось видиме вікно (діалог «Зберегти?» чи просто не закрилась) —
+        НЕ чіпаємо, повертаємо причину;
+      * вікон немає (фонові/тray-програми, «залишки» браузера) — примусово через
+        terminate_processes.
+    apps: [{"title", "targets": [(pid, create_time)], "document": bool}].
+    -> [{"title", "status": "closed"|"forced"|"kept"|"failed", "reason"}]."""
+    require(action, f"закриття програм {[a.get('title') for a in apps]}")
+    import ctypes
+
+    audit = get_audit_logger()
+    user32 = ctypes.windll.user32
+    pending = []
+    for app in apps:
+        pids = {pid for pid, _ct in app["targets"]}
+        windows = _windows_of(pids)
+        had_windows = bool(_main_windows(windows))
+        for window in windows:
+            user32.PostMessageW(window["hwnd"], _WM_CLOSE, 0, 0)
+        audit.info("М'яке закриття (WM_CLOSE, вікон: %d) «%s» — причина: %s",
+                   len(windows), app.get("title"), action.reason)
+        pending.append({"app": app, "pids": pids, "had_windows": had_windows})
+
+    deadline = time.monotonic() + grace_s
+    while time.monotonic() < deadline:
+        if not any(_alive_pids(p["pids"]) for p in pending):
+            break
+        time.sleep(0.25)
+
+    results = []
+    for item in pending:
+        app, title = item["app"], item["app"].get("title")
+        alive = _alive_pids(item["pids"])
+        if not alive:
+            audit.info("Закрито штатно «%s» — причина: %s", title, action.reason)
+            results.append({"title": title, "status": "closed", "reason": ""})
+            continue
+        visible = _main_windows(_windows_of(alive))
+        if visible:
+            asks_to_save = any(w["cls"] == _DIALOG_CLASS for w in visible) or app.get("document")
+            reason = "відкрито документ" if asks_to_save else "програма не закрилась (вікно лишилось відкритим)"
+            audit.info("НЕ закрито «%s»: %s — примусово не завершую, бо в програми є вікно", title, reason)
+            results.append({"title": title, "status": "kept", "reason": reason})
+            continue
+        targets = [(pid, ct) for pid, ct in app["targets"] if pid in alive]
+        killed, errors = terminate_processes(targets, action, timeout=3)
+        if errors and not killed:
+            results.append({"title": title, "status": "failed", "reason": "; ".join(errors[:2])})
+        else:
+            audit.info("Примусово завершено «%s» (без вікон, не закрилась за %.0f с)", title, grace_s)
+            results.append({"title": title, "status": "forced", "reason": ""})
+    return results
 
 
 def find_by_names(names) -> list[tuple[int, float]]:

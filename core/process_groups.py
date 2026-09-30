@@ -69,6 +69,8 @@ def _title_and_path(root: dict) -> tuple[str, str | None]:
             title = read_version_field(path, "FileDescription")
         except ImportError:
             title = None
+    if title:
+        title = title.split("\x00", 1)[0].strip()  # деякі exe мають сміття після нуль-символу
     if not title or len(title) > 48:
         title = _stem(root["name"]) if root["name"] != "—" else root["name"]
         title = title[:1].upper() + title[1:]

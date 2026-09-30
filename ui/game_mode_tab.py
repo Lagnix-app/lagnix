@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+from core import app_catalog as catalog
 from core import game_mode as game_mode_core
 from core import game_scanner, game_sessions, power_plans, process_control, process_info, smart_apps
 from core import monitor as monitor_core
@@ -19,6 +20,7 @@ from core.logging_setup import get_audit_logger, get_logger
 from ui import bg, theme
 from ui.widgets import aa
 from ui.widgets import robot as robot_view
+from ui.game_mode_apps import AppsPanel
 from ui.widgets.countdown_toast import CountdownToast
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, Tooltip, card_image, checkbox_image
 from ui.widgets.game_widgets import (
@@ -201,7 +203,8 @@ class GameModeTab(ctk.CTkFrame):
         self._auto_enabled = False       # режим увімкнено автоматично (гра) — сам і вимкнеться
         self._games: list[dict] = []     # знайдені ігри (core.game_scanner)
         self._running_game_keys: set = set()
-        self._candidates: list[dict] = []  # розумний список без урахування вилучених
+        self._running_apps: list[dict] = []  # запущені програми з каталогу (усіх рівнів) + додані вручну
+        self._cpu_sampler = smart_apps.CpuSampler()
         self._running_mem: dict[str, float] = {}  # назва exe -> RAM (для ручних процесів профілю)
         self._on_battery = False
         self._note = ""
@@ -292,15 +295,16 @@ class GameModeTab(ctk.CTkFrame):
         self.apps_title.grid(row=0, column=0, sticky="w")
         self.apps_info = ctk.CTkLabel(header, text="", font=theme.font_small(), text_color=theme.TEXT_DIM)
         self.apps_info.grid(row=0, column=1, sticky="e")
-        self.chips = ChipBoard(card, on_remove=self._on_chip_remove)
+        # увімкнений режим: чіпи закритих програм; вимкнений — панель рівнів і керування списком
+        self.chips = ChipBoard(card, on_remove=lambda _key: None)
         self.chips.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="ew")
-        self.restore_button = ctk.CTkButton(
-            card, text="", height=26, width=10, corner_radius=8, font=theme.font_small(),
-            fg_color="transparent", hover_color=theme.BG_PANEL_LIGHT, text_color=theme.ACCENT_BLUE,
-            command=self._on_restore_excluded,
+        self.apps_panel = AppsPanel(
+            card, on_level=self._on_level, on_toggle=self._on_app_toggle, on_add=self._on_app_add,
+            on_remove_user=self._on_app_remove, on_group_toggle=self._on_group_toggle,
+            on_never_add=self._on_never_add, on_never_remove=self._on_never_remove,
+            on_never_reset=self._on_never_reset,
         )
-        self.restore_button.grid(row=2, column=0, padx=12, pady=(0, 10), sticky="w")
-        self.restore_button.grid_remove()
+        self.apps_panel.grid(row=2, column=0, padx=16, pady=(0, 14), sticky="ew")
 
     def _small_button(self, parent, text: str, command, width: int = 90, **options):
         """Другорядна кнопка (як «Оновити»/сортування на «Програмах»): темна, без яскравої заливки."""
@@ -434,20 +438,20 @@ class GameModeTab(ctk.CTkFrame):
             if self._visible and not self.state.get("is_active"):
                 try:
                     groups = monitor_core.get_process_groups()
-                    platforms = {g["platform"] for g in self._games}
-                    candidates = smart_apps.compute_suggestions(set(), platforms, groups)
+                    extra = list(self.state.get("user_apps", {}))
+                    running = smart_apps.scan_running(groups, self._cpu_sampler, extra)
                     mem: dict[str, float] = {}
                     for group in groups:
                         for m in group["members"]:
                             mem[m["name"].lower()] = mem.get(m["name"].lower(), 0.0) + m["memory_mb"]
-                    self._post(self._apply_preview, candidates, mem, power_plans.on_battery())
+                    self._post(self._apply_preview, running, mem, power_plans.on_battery())
                 except Exception:
                     _logger.exception("Не вдалося зібрати список програм для закриття")
             self._wake.wait(PREVIEW_INTERVAL_SEC)
             self._wake.clear()
 
-    def _apply_preview(self, candidates, mem, on_battery) -> None:
-        self._candidates, self._running_mem, self._on_battery = candidates, mem, on_battery
+    def _apply_preview(self, running, mem, on_battery) -> None:
+        self._running_apps, self._running_mem, self._on_battery = running, mem, on_battery
         self._render()
 
     def _profile(self) -> dict:
@@ -456,9 +460,51 @@ class GameModeTab(ctk.CTkFrame):
     def _plan_value(self) -> str:
         return self._profile().get("power_plan", "")
 
+    def _level(self) -> str:
+        return game_mode_core.level_of(self.state, self.state["active_profile"])
+
+    def _protected_platforms(self) -> dict[str, str]:
+        """Платформа -> запущена гра: лаунчер цієї гри не закриваємо (Steam для Dota 2)."""
+        return {g["platform"]: g["name"] for g in self._games if g["key"] in self._running_game_keys}
+
+    def _plans(self) -> dict:
+        """План для кожного рівня з вибором користувача для поточного профілю."""
+        profile = self.state["active_profile"]
+        never = game_mode_core.never_close_of(self.state)
+        protected = self._protected_platforms()
+        plans = {}
+        for level in catalog.LEVELS:
+            choices = game_mode_core.choices_of(self.state, profile, level)
+            plan = smart_apps.plan_for_level(self._running_apps, level, choices, never, protected)
+            plan["choices"] = choices
+            plans[level] = plan
+        return plans
+
     def _current_apps(self) -> list[dict]:
-        excluded = {n.lower() for n in self.state.get("excluded_apps", [])}
-        return [a for a in self._candidates if a["key"] not in excluded]
+        return [a for a in self._plans()[self._level()]["apps"] if a["close"]]
+
+    def _panel_apps(self, plans: dict) -> list[dict]:
+        """Чіпи поточного рівня: план + додані вручну (навіть не запущені) + процеси профілю."""
+        plan = plans[self._level()]
+        apps = [dict(a, running=True) for a in plan["apps"]]
+        shown = {a["key"] for a in apps}
+        running = {a["key"]: a for a in self._running_apps}
+        for key, meta in self.state.get("user_apps", {}).items():
+            if key in shown:
+                continue
+            if key in running:
+                apps.append(dict(running[key], close=plan["choices"].get(key, False), running=True))
+            else:
+                apps.append({"key": key, "title": meta.get("title") or key, "exe_path": meta.get("exe_path"),
+                             "category": "user", "group": catalog.G_OTHER, "memory_mb": 0, "cpu_percent": 0,
+                             "close": plan["choices"].get(key, False), "running": False})
+        in_apps = {a["key"] for a in apps}
+        for proc in self._current_extras():
+            if proc.lower() not in in_apps:
+                apps.append({"key": "proc:" + proc, "title": proc, "exe_path": None, "category": "profile",
+                             "group": catalog.G_OTHER, "memory_mb": self._running_mem.get(proc.lower(), 0),
+                             "cpu_percent": 0, "close": True, "running": True})
+        return apps
 
     def _current_extras(self) -> list[str]:
         """Вручну позначені в профілі процеси, що зараз запущені (і не входять у розумний список)."""
@@ -493,21 +539,25 @@ class GameModeTab(ctk.CTkFrame):
                       "category_label": "Закрито PulseFPS", "note": "Після вимкнення режиму запропоную відкрити знову"}
                      for c in closed]
             self.chips.set_chips(chips, False, "Режим не закривав жодних програм.")
+            self.chips.grid()
+            self.apps_panel.grid_remove()
             theme.set_text(self.apps_title, "Закрито PulseFPS")
             theme.set_text(self.apps_info, f"звільнено {_fmt_freed(self.state.get('freed_mb', 0))} RAM"
                            if self.state.get("freed_mb") else "")
         else:
             summary = self._idle_summary(apps, extras)
-            chips = [{"key": a["key"], "title": a["title"], "memory_mb": a["memory_mb"],
-                      "exe_path": a["exe_path"], "count": a["count"],
-                      "category_label": smart_apps.CATEGORY_LABELS[a["category"]]} for a in apps]
-            chips += [{"key": "proc:" + p, "title": p, "memory_mb": self._running_mem.get(p.lower(), 0),
-                       "exe_path": None, "icon": False, "category_label": "Позначено вручну (профіль)"}
-                      for p in extras]
-            self.chips.set_chips(chips, True, "Фонових програм для закриття не знайдено — усе вже чисто.")
+            plans = self._plans()
+            self.chips.grid_remove()
+            self.apps_panel.grid()
+            self.apps_panel.render(
+                self._level(), plans, self._panel_apps(plans), set(self.state.get("user_apps", {})),
+                self.state.get("collapsed_groups", []), game_mode_core.never_close_of(self.state),
+                self.state.get("never_close") is None,
+            )
             theme.set_text(self.apps_title, "Фонові програми для закриття")
-            total = sum(c["memory_mb"] for c in chips)
-            theme.set_text(self.apps_info, f"{len(chips)} шт. · {fmt_mem(total)} RAM" if chips else "")
+            n = len(apps) + len(extras)
+            total = sum(a["memory_mb"] for a in apps) + sum(self._running_mem.get(p.lower(), 0) for p in extras)
+            theme.set_text(self.apps_info, f"закрию {n} · {fmt_mem(total)} RAM" if n else "")
         theme.set_text(self.summary_label, summary)
 
         note = self._note
@@ -520,12 +570,6 @@ class GameModeTab(ctk.CTkFrame):
         else:
             self.note_label.grid_remove()
 
-        excluded = self.state.get("excluded_apps", [])
-        if excluded and not active:
-            theme.set_text(self.restore_button, f"Повернути вилучені програми ({len(excluded)})")
-            self.restore_button.grid()
-        else:
-            self.restore_button.grid_remove()
 
     def _plan_phrase(self, plan: str) -> str:
         if not plan:
@@ -557,21 +601,81 @@ class GameModeTab(ctk.CTkFrame):
         with self._lock:
             game_mode_core.save_game_mode(self.state)
 
-    def _on_chip_remove(self, key: str) -> None:
+    def _choices_bucket(self, level: str | None = None) -> dict:
+        profile = self.state["active_profile"]
+        return (self.state.setdefault("app_choices", {}).setdefault(profile, {})
+                .setdefault(level or self._level(), {}))
+
+    def _remove_profile_process(self, name: str) -> None:
+        processes = self._profile().get("processes", [])
+        if name in processes:
+            processes.remove(name)
+
+    def _on_level(self, level: str) -> None:
         with self._lock:
-            if key.startswith("proc:"):
-                processes = self._profile().get("processes", [])
-                name = key[5:]
-                if name in processes:
-                    processes.remove(name)
-            elif key not in self.state["excluded_apps"]:
-                self.state["excluded_apps"].append(key)
+            self.state.setdefault("levels", {})[self.state["active_profile"]] = level
             self._save()
         self._render()
 
-    def _on_restore_excluded(self) -> None:
+    def _on_app_toggle(self, key: str, close: bool) -> None:
         with self._lock:
-            self.state["excluded_apps"] = []
+            if key.startswith("proc:"):
+                if not close:  # процес профілю «не закривати» = прибрати з профілю
+                    self._remove_profile_process(key[5:])
+            else:
+                self._choices_bucket()[key] = close
+            self._save()
+        self._render()
+
+    def _on_app_add(self, key: str, title: str, exe_path) -> None:
+        with self._lock:
+            self.state.setdefault("user_apps", {})[key] = {"title": title, "exe_path": exe_path}
+            self._choices_bucket()[key] = True
+            self._save()
+        self._wake.set()  # перечитати процеси — додана програма має з'явитись із RAM/CPU
+        self._render()
+
+    def _on_app_remove(self, key: str) -> None:
+        with self._lock:
+            if key.startswith("proc:"):
+                self._remove_profile_process(key[5:])
+            else:
+                self.state.get("user_apps", {}).pop(key, None)
+                for levels in self.state.get("app_choices", {}).values():
+                    for bucket in levels.values():
+                        bucket.pop(key, None)
+            self._save()
+        self._render()
+
+    def _on_group_toggle(self, group: str) -> None:
+        with self._lock:
+            collapsed = self.state.setdefault("collapsed_groups", [])
+            if group in collapsed:
+                collapsed.remove(group)
+            else:
+                collapsed.append(group)
+            self._save()
+        self._render()
+
+    def _on_never_add(self, pattern: str) -> None:
+        with self._lock:
+            patterns = game_mode_core.never_close_of(self.state)
+            if pattern and pattern not in patterns:
+                patterns.append(pattern)
+            self.state["never_close"] = patterns
+            self._save()
+        self._render()
+
+    def _on_never_remove(self, pattern: str) -> None:
+        with self._lock:
+            patterns = [p for p in game_mode_core.never_close_of(self.state) if p != pattern]
+            self.state["never_close"] = patterns
+            self._save()
+        self._render()
+
+    def _on_never_reset(self) -> None:
+        with self._lock:
+            self.state["never_close"] = None
             self._save()
         self._render()
 

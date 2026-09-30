@@ -96,6 +96,27 @@ def ui_call(owner, fn, *args) -> None:
     _queue.put((owner, fn, args))
 
 
+class WidgetBool:
+    """Замінник ctk.BooleanVar для віджетів, що створюються й знищуються динамічно.
+
+    tkinter.Variable.__del__ звертається до Tk; якщо збирач сміття звільнить
+    змінну знищеного віджета, поки Python працює у фоновому потоці, це виклик
+    Tk не з того потоку (може закінчитись Tcl_AsyncDelete і аварією). Тут стан
+    живе в самому CTkSwitch/CTkCheckBox (select/deselect/get) — Tk-змінної немає."""
+
+    def __init__(self, widget):
+        self._widget = widget
+
+    def get(self) -> bool:
+        return bool(self._widget.get())
+
+    def set(self, value: bool) -> None:
+        if value:
+            self._widget.select()
+        else:
+            self._widget.deselect()
+
+
 class Task:
     """Хендл запущеного завдання: done / timed_out; cancel() — результат більше не цікавий."""
 

@@ -157,6 +157,7 @@ class CleanupTab(ctk.CTkFrame):
         self._build_summary_bar()
 
         self.bind("<Destroy>", self._on_destroy)
+        bg.ensure_pump(self)  # доставка результатів фонових потоків (ui/bg.py), навіть без MainWindow
 
         # Через after(0, ...), а не напряму: вкладки створюються ще до
         # MainWindow.mainloop(), і фоновий потік сканування міг би

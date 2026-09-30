@@ -44,9 +44,8 @@ class AppCacheRow(ctk.CTkFrame):
 
         self.grid_columnconfigure(2, weight=1)
 
-        self.var = ctk.BooleanVar(value=False)
-        self.checkbox = ctk.CTkCheckBox(self, text="", width=24, variable=self.var,
-                                        command=lambda: on_toggle(self))
+        self.checkbox = ctk.CTkCheckBox(self, text="", width=24, command=lambda: on_toggle(self))
+        self.var = bg.WidgetBool(self.checkbox)  # без Tk-змінної: рядки створюються й знищуються динамічно
         self.checkbox.grid(row=0, column=0, padx=(0, 6), sticky="w")
 
         self.icon_label = ctk.CTkLabel(
@@ -203,6 +202,7 @@ class AppCacheSection(ctk.CTkFrame):
         self.bottom_pad.pack()
 
         self.bind("<Destroy>", self._on_destroy)
+        bg.ensure_pump(self)  # доставка результатів фонових потоків (ui/bg.py), навіть без MainWindow
 
     # ------------------------------------------------------------ scan
 

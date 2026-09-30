@@ -15,11 +15,12 @@
 запуску вкладка запропонує повернути попередній план.
 """
 
+import copy
 import os
 
 import psutil
 
-from core import power_plans, process_control, process_snapshot, smart_apps
+from core import app_catalog, power_plans, process_control, process_snapshot, smart_apps
 from core.app_data import load_data, update_data
 from core.logging_setup import get_logger
 from core.system_processes import is_hidden, is_protected
@@ -37,7 +38,7 @@ HIGH_PERFORMANCE_GUID = power_plans.HIGH_PERFORMANCE_GUID
 # У профілі план живлення — GUID, порожній рядок ("Без змін") або цей маркер:
 # «PulseFPS Ultra», який створюється при першому вмиканні.
 ULTRA = "ultra"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DEFAULT_PROFILES = {
     "Гра": {"processes": [], "power_plan": ULTRA},
@@ -51,7 +52,12 @@ DEFAULT_GAME_MODE = {
     "active_profile": "Гра",
     "games": [],            # вручну додані exe (автоперемикання, як раніше)
     "auto_games": [],       # ключі знайдених ігор із увімкненим автоперемиканням
-    "excluded_apps": [],    # назви exe, які користувач прибрав із розумного списку
+    "excluded_apps": [],    # застаріле (схема < 3): переноситься в app_choices
+    "levels": {},           # профіль -> рівень: soft / balanced / max (core/app_catalog.py)
+    "app_choices": {},      # профіль -> рівень -> {exe: True «закривати» / False «не закривати»}
+    "user_apps": {},        # exe -> {title, exe_path}: програми, додані вручну через «+ Додати програму»
+    "never_close": None,    # None = типовий список app_catalog.DEFAULT_NEVER_CLOSE, інакше — список користувача
+    "collapsed_groups": [], # згорнуті групи в блоці «Фонові програми»
     "closed_apps": [],      # [{title, name, exe_path, memory_mb}] — закриті під час режиму
     "freed_mb": 0,
     "plan_name": None,      # який план увімкнено режимом (для показу)
@@ -78,13 +84,35 @@ def load_game_mode() -> dict:
             if profiles[name].get("power_plan") == HIGH_PERFORMANCE_GUID:
                 profiles[name]["power_plan"] = ULTRA
 
-    state = {key: (list(v) if isinstance(v, list) else v) for key, v in DEFAULT_GAME_MODE.items()}
+    state = copy.deepcopy(DEFAULT_GAME_MODE)  # глибока копія: словники стану не мають ділитися з типовими
     for key in state:
         if key in saved:
             state[key] = saved[key]
     state["profiles"] = profiles
+    if saved.get("schema", 1) < 3 and state.get("excluded_apps"):
+        # раніше вилучені зі списку програми = «не закривати» на всіх рівнях усіх профілів
+        for name in profiles:
+            for level in app_catalog.LEVELS:
+                bucket = state["app_choices"].setdefault(name, {}).setdefault(level, {})
+                for exe in state["excluded_apps"]:
+                    bucket.setdefault(exe.lower(), False)
+        state["excluded_apps"] = []
     state["schema"] = SCHEMA_VERSION
     return state
+
+
+def level_of(state: dict, profile_name: str) -> str:
+    level = state.get("levels", {}).get(profile_name)
+    return level if level in app_catalog.LEVELS else app_catalog.DEFAULT_LEVEL
+
+
+def choices_of(state: dict, profile_name: str, level: str) -> dict[str, bool]:
+    return state.get("app_choices", {}).get(profile_name, {}).get(level, {})
+
+
+def never_close_of(state: dict) -> list[str]:
+    patterns = state.get("never_close")
+    return list(app_catalog.DEFAULT_NEVER_CLOSE) if patterns is None else list(patterns)
 
 
 def save_game_mode(state: dict) -> None:
@@ -226,12 +254,13 @@ def activate(state: dict, profile_name: str, auto: bool = False, plan_override: 
 
     closed, errors = [], []
     if action is not None:
-        closed, errors = smart_apps.close_apps(apps or [], action)
-        for name in extras or []:
-            killed, errs = process_control.terminate_processes(process_control.find_by_names([name]), action)
-            errors.extend(f"{name}: {e}" for e in errs)
-            if killed:
-                closed.append({"title": name, "name": name, "exe_path": None, "memory_mb": 0})
+        to_close = list(apps or [])
+        for name in extras or []:  # процеси, позначені в профілі вручну, — теж м'яко
+            targets = process_control.find_by_names([name])
+            if targets:
+                to_close.append({"title": name, "name": name, "exe_path": None, "memory_mb": 0,
+                                 "targets": targets, "document": False})
+        closed, errors = smart_apps.close_apps(to_close, action)
 
     if not state.get("is_active"):  # повторне вмикання не має затирати справжній «попередній» план
         current = power_plans.get_active_scheme()
