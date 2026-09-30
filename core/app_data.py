@@ -18,6 +18,7 @@ DEFAULT_DATA = {
     "autostart_disabled": {},
     "registry_tweaks_initial_state": {},
     "registry_tweaks_backup_done": False,
+    "registry_tweaks_backed_up_keys": [],
     "game_mode": {},
 }
 
