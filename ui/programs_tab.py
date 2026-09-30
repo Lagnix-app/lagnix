@@ -460,7 +460,9 @@ class ProgramsTab(ctk.CTkFrame):
         ]
         to_compute = []
         for program in pending:
-            cached = programs_core.cached_folder_size(program["install_folder"])
+            # без підтек, що вже є окремими рядками (ігри в теці Steam тощо) — щоб не рахувати двічі
+            program["size_exclude"] = programs_core.folder_size_exclusions(program, self.all_programs)
+            cached = programs_core.cached_folder_size(program["install_folder"], program["size_exclude"])
             if cached is not None:
                 program["size_bytes"] = cached
                 program["size_source"] = "folder"
@@ -474,7 +476,7 @@ class ProgramsTab(ctk.CTkFrame):
             for program in to_compute:
                 if self._abort_sizes.is_set():  # вкладку закрито (winfo_* з потоку не можна)
                     return
-                size = programs_core.compute_folder_size(program["install_folder"])
+                size = programs_core.compute_folder_size(program["install_folder"], program["size_exclude"])
                 self._post(self._on_size_computed, program["key"], size)
 
         bg.start_thread(self, "Програми: розміри тек", worker)

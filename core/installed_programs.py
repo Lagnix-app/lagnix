@@ -47,7 +47,7 @@ _SYSTEM_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
-_folder_size_cache: dict[str, int] = {}
+_folder_size_cache: dict[tuple, int] = {}  # (тека, виключені підтеки) -> байти
 
 
 def _read_value(key, name, default=None):
@@ -340,23 +340,66 @@ def list_installed_programs() -> list[dict]:
     return programs
 
 
-def cached_folder_size(path: str) -> int | None:
-    return _folder_size_cache.get(os.path.normcase(os.path.abspath(path)))
+# Підтеки клієнта Steam, де лежать самі ігри (вони вже є окремими рядками списку)
+_STEAM_GAME_SUBDIRS = (("steamapps", "common"), ("steamapps", "workshop"), ("steamapps", "downloading"))
 
 
-def compute_folder_size(path: str) -> int:
-    """Рекурсивно рахує розмір теки й кешує результат. Повільно для великих програм —
-    викликати лише з фонового потоку, щоб не блокувати інтерфейс.
+def _norm_path(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
+
+
+def is_steam_client(program: dict) -> bool:
+    """Сам клієнт Steam (не гра Steam): тека встановлення зі steam.exe."""
+    folder = program.get("install_folder")
+    return (not program.get("steam_appid") and bool(folder)
+            and os.path.isfile(os.path.join(folder, "steam.exe")))
+
+
+def folder_size_exclusions(program: dict, programs: list[dict]) -> tuple[str, ...]:
+    """Підтеки, які НЕ входять у розмір теки програми, щоб нічого не рахувати двічі:
+    для Steam — steamapps\\common, \\workshop, \\downloading (ігри), а для будь-якої
+    програми — теки встановлення інших програм зі списку, що лежать усередині її теки."""
+    folder = program.get("install_folder")
+    if not folder:
+        return ()
+    root = _norm_path(folder)
+    excluded = set()
+    if is_steam_client(program):
+        excluded.update(_norm_path(os.path.join(folder, *parts)) for parts in _STEAM_GAME_SUBDIRS)
+    for other in programs:
+        other_folder = other.get("install_folder")
+        if other is program or not other_folder:
+            continue
+        other_root = _norm_path(other_folder)
+        if other_root != root and other_root.startswith(root + os.sep):
+            excluded.add(other_root)
+    return tuple(sorted(excluded))
+
+
+def _cache_key(path: str, exclude) -> tuple:
+    return _norm_path(path), tuple(sorted(_norm_path(e) for e in exclude))
+
+
+def cached_folder_size(path: str, exclude=()) -> int | None:
+    return _folder_size_cache.get(_cache_key(path, exclude))
+
+
+def compute_folder_size(path: str, exclude=()) -> int:
+    """Рекурсивно рахує розмір теки (без підтек exclude) й кешує результат. Повільно
+    для великих програм — викликати лише з фонового потоку, щоб не блокувати інтерфейс.
     """
+    skip = {_norm_path(e) for e in exclude}
     total = 0
-    for root, _dirs, files in os.walk(path, onerror=lambda e: None):
+    for root, dirs, files in os.walk(path, onerror=lambda e: None):
+        if skip:
+            dirs[:] = [d for d in dirs if _norm_path(os.path.join(root, d)) not in skip]
         for file_name in files:
             try:
                 total += os.path.getsize(os.path.join(root, file_name))
             except OSError:
                 continue
 
-    _folder_size_cache[os.path.normcase(os.path.abspath(path))] = total
+    _folder_size_cache[_cache_key(path, exclude)] = total
     return total
 
 
