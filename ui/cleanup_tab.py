@@ -9,7 +9,8 @@ from core import app_cache as app_cache_core
 from core import cleanup as cleanup_core
 from core import large_files as large_files_core
 from core import process_control
-from ui import bg
+from ui.widgets.scroll import ScrollFrame
+from ui import bg, theme
 from ui.cleanup_app_cache import AppCacheSection
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 
@@ -33,7 +34,7 @@ class CleanupItemRow(ctk.CTkFrame):
 
         self.grid_columnconfigure(0, weight=1)
 
-        text_frame = ctk.CTkFrame(self, fg_color="transparent")
+        text_frame = theme.plain_frame(self)
         text_frame.grid(row=0, column=0, sticky="w")
         self._text_frame = text_frame
 
@@ -137,7 +138,7 @@ class CleanupTab(ctk.CTkFrame):
         self._clean_static_keys: list[str] = []
         self._clean_app_keys: list[str] = []
 
-        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll = ScrollFrame(self)
         self.scroll.grid(row=0, column=0, sticky="nsew")
 
         ctk.CTkLabel(self.scroll, text="Очищення", font=ctk.CTkFont(size=22, weight="bold")).pack(
@@ -169,7 +170,7 @@ class CleanupTab(ctk.CTkFrame):
     # ----------------------------------------------------------- top actions
 
     def _build_top_actions(self):
-        bar = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        bar = theme.plain_frame(self.scroll)
         bar.pack(fill="x", padx=6, pady=(0, 10))
 
         self.select_recommended_button = ctk.CTkButton(
@@ -235,7 +236,7 @@ class CleanupTab(ctk.CTkFrame):
                 row.pack(fill="x", padx=14, pady=4, anchor="w")
                 self.rows[target["key"]] = row
 
-            ctk.CTkFrame(frame, fg_color="transparent", height=4).pack()
+            theme.plain_frame(frame, height=4).pack()
 
     def _on_item_toggle(self, _row: CleanupItemRow):
         self._update_summary()
@@ -521,7 +522,7 @@ class CleanupTab(ctk.CTkFrame):
         section = ctk.CTkFrame(self.scroll, corner_radius=10)
         section.pack(fill="x", padx=6, pady=(0, 20))
 
-        header = ctk.CTkFrame(section, fg_color="transparent")
+        header = theme.plain_frame(section)
         header.pack(fill="x", padx=14, pady=(12, 4))
 
         ctk.CTkLabel(header, text="Великі файли", font=ctk.CTkFont(size=16, weight="bold")).pack(side="left")
@@ -544,7 +545,7 @@ class CleanupTab(ctk.CTkFrame):
         )
         self.large_files_status.pack(padx=14, pady=(0, 8), anchor="w")
 
-        self.large_files_list = ctk.CTkFrame(section, fg_color="transparent")
+        self.large_files_list = theme.plain_frame(section)
         self.large_files_list.pack(fill="x", padx=14, pady=(0, 14))
 
     def _scan_large_files(self):
@@ -576,7 +577,7 @@ class CleanupTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
 
-        row = ctk.CTkFrame(self.large_files_list, fg_color="transparent")
+        row = theme.plain_frame(self.large_files_list)
         row.pack(fill="x", pady=2)
         row.grid_columnconfigure(0, weight=1)
 

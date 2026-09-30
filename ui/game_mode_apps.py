@@ -13,6 +13,7 @@ import customtkinter as ctk
 from core import app_catalog as catalog
 from core import monitor as monitor_core
 from core import smart_apps
+from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
 from ui.widgets.game_widgets import ChipBoard, fmt_mem
 
@@ -331,7 +332,7 @@ class AddAppDialog(ctk.CTkToplevel):
         self.search = ctk.CTkEntry(self, placeholder_text="Пошук за назвою або exe")
         self.search.pack(fill="x", padx=16)
         self.search.bind("<KeyRelease>", lambda _e: self._filter())
-        self.list = ctk.CTkScrollableFrame(self, fg_color=theme.BG_MAIN)
+        self.list = ScrollFrame(self, bg=theme.BG_MAIN)
         self.list.pack(fill="both", expand=True, padx=16, pady=8)
         self.status = ctk.CTkLabel(self.list, text="Завантаження списку процесів…", text_color=theme.TEXT_DIM)
         self.status.pack(pady=20)

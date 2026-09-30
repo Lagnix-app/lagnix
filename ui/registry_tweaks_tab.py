@@ -14,6 +14,7 @@ import customtkinter as ctk
 
 from core import process_control
 from core import tweaks as tweaks_core
+from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
 from ui.widgets import confirm_dialog
 
@@ -98,7 +99,7 @@ class TweakRow(ctk.CTkFrame):
         )
         self.switch.grid(row=0, column=0, padx=(0, 10), pady=8, sticky="n")
 
-        text_frame = ctk.CTkFrame(self, fg_color="transparent")
+        text_frame = theme.plain_frame(self)
         text_frame.grid(row=0, column=1, sticky="ew", pady=8)
 
         ctk.CTkLabel(
@@ -106,7 +107,7 @@ class TweakRow(ctk.CTkFrame):
             anchor="w", justify="left", wraplength=620,
         ).pack(anchor="w", fill="x")
 
-        chips_row = ctk.CTkFrame(text_frame, fg_color="transparent")
+        chips_row = theme.plain_frame(text_frame)
         chips_row.pack(anchor="w", pady=(3, 0))
         for chip in _tweak_chips(chips_row, tweak):
             chip.pack(side="left", padx=(0, 6))
@@ -166,12 +167,12 @@ class SettingsLinkRow(ctk.CTkFrame):
             command=lambda: self._open(link.uri),
         ).grid(row=0, column=0, padx=(0, 10), pady=8, sticky="n")
 
-        text_frame = ctk.CTkFrame(self, fg_color="transparent")
+        text_frame = theme.plain_frame(self)
         text_frame.grid(row=0, column=1, sticky="ew", pady=8)
         ctk.CTkLabel(
             text_frame, text=link.title, font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
         ).pack(anchor="w")
-        chips_row = ctk.CTkFrame(text_frame, fg_color="transparent")
+        chips_row = theme.plain_frame(text_frame)
         chips_row.pack(anchor="w", pady=(3, 0))
         _chip(chips_row, " вручну в «Параметрах» ", theme.TEXT_DIM).pack(side="left")
         ctk.CTkLabel(
@@ -212,13 +213,13 @@ class ChecklistDialog(ctk.CTkToplevel):
             ctk.CTkLabel(self, text=warning, font=theme.font_small(), text_color=theme.WARNING, anchor="w",
                          justify="left", wraplength=width - 40).pack(fill="x", padx=20, pady=(8, 0))
 
-        listbox = ctk.CTkScrollableFrame(self, width=width - 60, height=min(360, 58 * len(items) + 10),
-                                         fg_color=theme.BG_MAIN, corner_radius=8)
+        listbox = ScrollFrame(self, width=width - 60, height=min(360, 58 * len(items) + 10),
+                              bg=theme.BG_MAIN)
         listbox.pack(fill="both", expand=True, padx=20, pady=(12, 0))
 
         self._boxes: list[tuple[str, ctk.CTkCheckBox]] = []
         for tweak_id, item_title, risk, effect, note, selectable in items:
-            row = ctk.CTkFrame(listbox, fg_color="transparent")
+            row = theme.plain_frame(listbox)
             row.pack(fill="x", pady=4)
             box = ctk.CTkCheckBox(row, text=item_title, font=theme.font_body(), command=self._update_count,
                                   checkbox_width=20, checkbox_height=20)
@@ -228,7 +229,7 @@ class ChecklistDialog(ctk.CTkToplevel):
                 self._boxes.append((tweak_id, box))
             else:
                 box.configure(state="disabled")
-            meta = ctk.CTkFrame(row, fg_color="transparent")
+            meta = theme.plain_frame(row)
             meta.pack(anchor="w", padx=(28, 0), pady=(2, 0))
             _chip(meta, f" ● {_RISK_LABELS[risk]} ", _RISK_COLORS[risk]).pack(side="left", padx=(0, 6))
             _chip(meta, f" ефект: {tweaks_core.EFFECT_LABELS[effect]} ", _EFFECT_COLORS[effect]).pack(
@@ -238,7 +239,7 @@ class ChecklistDialog(ctk.CTkToplevel):
                              text_color=theme.TEXT_DIM if selectable else theme.WARNING, anchor="w",
                              wraplength=width - 120, justify="left").pack(anchor="w", padx=(28, 0))
 
-        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons = theme.plain_frame(self)
         buttons.pack(fill="x", padx=20, pady=(14, 18))
         style = ({"fg_color": "#a8283f", "hover_color": theme.ERROR, "text_color": "#ffffff"} if danger
                  else {"fg_color": theme.ACCENT_BLUE_DIM})
@@ -304,7 +305,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
         self._build_header()
 
-        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll = ScrollFrame(self)
         self.scroll.grid(row=1, column=0, sticky="nsew", padx=6, pady=(0, 10))
         self.scroll.grid_columnconfigure(0, weight=1)
 
@@ -321,7 +322,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
     # ------------------------------------------------------------------ UI
 
     def _build_header(self):
-        header = ctk.CTkFrame(self, fg_color="transparent")
+        header = theme.plain_frame(self)
         header.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
@@ -349,7 +350,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
             self.scroll, text="Пресети", font=ctk.CTkFont(size=14, weight="bold"), anchor="w",
         ).pack(fill="x", padx=10, pady=(4, 2))
 
-        grid = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        grid = theme.plain_frame(self.scroll)
         grid.pack(fill="x", padx=10, pady=(4, 2))
         for column in range(4):
             grid.grid_columnconfigure(column, weight=1, uniform="preset")
@@ -410,7 +411,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
             text_color="gray", font=ctk.CTkFont(size=11), wraplength=700, justify="left",
         ).grid(row=1, column=0, sticky="w", padx=16, pady=(0, 10))
 
-        btn_row = ctk.CTkFrame(block, fg_color="transparent")
+        btn_row = theme.plain_frame(block)
         btn_row.grid(row=2, column=0, sticky="w", padx=16, pady=(0, 14))
 
         self.max_perf_button = ctk.CTkButton(

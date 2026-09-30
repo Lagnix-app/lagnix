@@ -22,9 +22,11 @@ import time
 import traceback
 
 from core.logging_setup import get_logger
+from ui import theme
 
 DEFAULT_TIMEOUT_S = 60.0
 _PUMP_INTERVAL_MS = 25
+_MAX_HOLD_S = 1.0        # скільки найдовше тримати результати під час безперервної прокрутки
 _PUMP_BUDGET_S = 0.03  # не більше 30 мс роботи за такт — інтерфейс не підвисає
 
 _log = get_logger("ui.bg")
@@ -69,9 +71,19 @@ def ensure_pump(widget) -> None:
     _pumped_roots.add(key)
     _install_exception_hooks(root)
 
+    held_since = [0.0]
+
     def pump():
-        deadline = time.perf_counter() + _PUMP_BUDGET_S
-        while time.perf_counter() < deadline:
+        # під час прокрутки результати живих оновлень чекають у черзі (не довше
+        # _MAX_HOLD_S) і застосовуються вже після її зупинки
+        now = time.perf_counter()
+        if theme.is_scrolling() and not _queue.empty():
+            held_since[0] = held_since[0] or now
+            hold = now - held_since[0] < _MAX_HOLD_S
+        else:
+            held_since[0], hold = 0.0, False
+        deadline = now + _PUMP_BUDGET_S
+        while not hold and time.perf_counter() < deadline:
             try:
                 owner, fn, args = _queue.get_nowait()
             except queue.Empty:

@@ -303,6 +303,10 @@ class CleanerBotAnimation(ctk.CTkFrame):
         if not self.winfo_exists():
             self._after_id = None
             return
+        if theme.is_scrolling():  # під час прокрутки кадри не малюємо
+            self._last_tick_perf = None
+            self._after_id = self.after(50, self._tick)
+            return
 
         now = time.perf_counter()
         dt = now - self._last_tick_perf if self._last_tick_perf is not None else FRAME_INTERVAL_MS / 1000.0

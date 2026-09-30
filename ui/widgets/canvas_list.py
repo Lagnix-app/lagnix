@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import bisect
+import time
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -337,6 +338,9 @@ class CanvasList(theme.PlainFrame):
         self._offset = 0.0
         self._target = 0.0
         self._scrolling = False
+        self._drag_job = None
+        self._drag_fraction = 0.0
+        self._drag_applied_at = 0.0
         self.width = 0
         self._height = 0
         self._hover: tuple = (None, None)
@@ -654,6 +658,12 @@ class CanvasList(theme.PlainFrame):
         self._after_scroll()
         return self._scrolling
 
+    def _apply_drag(self) -> None:
+        self._drag_job = None
+        self._drag_applied_at = time.perf_counter()
+        self.scroll_to(self._drag_fraction * self._max_offset())
+        self.update_idletasks()
+
     def _after_scroll(self) -> None:
         theme.notify_scroll()
         self.tooltip.hide()
@@ -662,7 +672,11 @@ class CanvasList(theme.PlainFrame):
 
     def _on_scrollbar(self, kind: str, value) -> None:
         if kind == "moveto":
-            self.scroll_to(value * self._max_offset())
+            # перетягування повзунка: зсув збирається й застосовується раз на ~16 мс
+            self._drag_fraction = value
+            if self._drag_job is None:
+                wait = 0.016 - (time.perf_counter() - self._drag_applied_at)
+                self._drag_job = self.after(max(1, round(wait * 1000)), self._apply_drag)
         else:
             self.scroll_to(self._target + value * self._height * 0.9, smooth=True)
 

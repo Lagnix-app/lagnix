@@ -11,7 +11,7 @@ import customtkinter as ctk
 
 from core import app_cache
 from core.cleanup import format_size
-from ui import bg
+from ui import bg, theme
 
 _WARNING = "#e0a52f"
 _SUCCESS = "#2ee59d"
@@ -54,7 +54,7 @@ class AppCacheRow(ctk.CTkFrame):
         )
         self.icon_label.grid(row=0, column=1, padx=(0, 10))
 
-        text = ctk.CTkFrame(self, fg_color="transparent")
+        text = theme.plain_frame(self)
         text.grid(row=0, column=2, sticky="ew")
         self.name_label = ctk.CTkLabel(text, text="", font=ctk.CTkFont(size=13, weight="bold"), anchor="w")
         self.name_label.pack(anchor="w")
@@ -159,7 +159,7 @@ class AppCacheSection(ctk.CTkFrame):
         self._stop_event = threading.Event()
         self._scan_generation = 0
 
-        header = ctk.CTkFrame(self, fg_color="transparent")
+        header = theme.plain_frame(self)
         header.pack(fill="x", padx=14, pady=(10, 0))
         ctk.CTkLabel(header, text=title, font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
 
@@ -180,7 +180,7 @@ class AppCacheSection(ctk.CTkFrame):
             text_color="gray", font=ctk.CTkFont(size=11), wraplength=760, justify="left",
         ).pack(padx=14, pady=(0, 6), anchor="w")
 
-        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.progress_frame = theme.plain_frame(self)
         self.progress_bar = ctk.CTkProgressBar(self.progress_frame, height=8)
         self.progress_bar.set(0)
         self.progress_bar.pack(fill="x", pady=(2, 2))
@@ -188,7 +188,7 @@ class AppCacheSection(ctk.CTkFrame):
                                            font=ctk.CTkFont(size=11), anchor="w")
         self.progress_label.pack(anchor="w")
 
-        self.list_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.list_frame = theme.plain_frame(self)
         self.list_frame.pack(fill="x", padx=14)
 
         self.empty_label = ctk.CTkLabel(self, text="Кешу програм не знайдено", text_color="gray")
@@ -197,8 +197,8 @@ class AppCacheSection(ctk.CTkFrame):
             self, text="", height=26, fg_color="transparent", border_width=1,
             text_color=("gray20", "gray80"), font=ctk.CTkFont(size=11), command=self._toggle_small,
         )
-        self.small_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.bottom_pad = ctk.CTkFrame(self, fg_color="transparent", height=8)
+        self.small_frame = theme.plain_frame(self)
+        self.bottom_pad = theme.plain_frame(self, height=8)
         self.bottom_pad.pack()
 
         self.bind("<Destroy>", self._on_destroy)

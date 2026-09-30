@@ -77,6 +77,32 @@ def robot_animation_enabled() -> bool:
     return _robot_animation_enabled
 
 
+def _bg_of(widget) -> str:
+    """Суцільний колір фону, який видно під віджетом (для прозорих CTk-рамок)."""
+    while widget is not None:
+        if hasattr(widget, "_apply_appearance_mode"):
+            try:
+                fg = widget.cget("fg_color")
+            except (tk.TclError, ValueError):
+                fg = "transparent"
+            if fg != "transparent":
+                return widget._apply_appearance_mode(fg)
+        else:
+            try:
+                return widget.cget("bg")
+            except tk.TclError:
+                pass
+        widget = getattr(widget, "master", None)
+    return BG_MAIN
+
+
+def plain_frame(parent, **options) -> tk.Frame:
+    """Проста невидима рамка-розкладка: один tk.Frame замість CTkFrame (той — це
+    рамка + canvas, два вікна Windows, які треба переміщувати при кожній
+    прокрутці). Фон суцільний, як у батька; висота/ширина — у пікселях."""
+    return tk.Frame(parent, bg=_bg_of(parent), bd=0, highlightthickness=0, **options)
+
+
 def set_text(label, text: str, **options) -> None:
     """label.configure(text=...), лише якщо текст чи опції змінилися: CTkLabel
     перемальовує себе на КОЖЕН configure, навіть з тим самим текстом, а
@@ -113,7 +139,7 @@ def font_small() -> ctk.CTkFont:
 # анімувати те, що за 50 мс зникне з-під курсора, — лише витрачати кадри.
 
 _FRAME_MS = 15
-_SCROLL_QUIET_S = 0.25  # стільки після останньої прокрутки анімації вимкнені
+_SCROLL_QUIET_S = 0.15  # стільки після останньої прокрутки анімації й живі оновлення вимкнені
 _FAST_POINTER_S = 0.07  # Enter/Leave частіше за це — курсор "пролітає"
 
 _last_scroll_at = 0.0

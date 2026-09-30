@@ -23,6 +23,7 @@ from core.app_info import APP_DESCRIPTION, APP_VERSION
 from core.logging_setup import LOG_PATH
 from core.settings import load_settings, reset_to_defaults, update_setting
 from core.tweaks import BACKUPS_DIR
+from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
 from ui.widgets import confirm_dialog
 from ui.widgets import robot as robot_view
@@ -56,7 +57,7 @@ class SettingsTab(ctk.CTkFrame):
             row=0, column=0, padx=theme.PAD_L, pady=(theme.PAD_L, theme.PAD_M), sticky="w"
         )
 
-        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll = ScrollFrame(self)
         self.scroll.grid(row=1, column=0, sticky="nsew", padx=(theme.PAD_S, 0), pady=(0, theme.PAD_M))
         self.scroll.grid_columnconfigure((0, 1), weight=1, uniform="cols")
 
@@ -112,7 +113,7 @@ class SettingsTab(ctk.CTkFrame):
             column.destroy()
         self._column_frames = []
         for i in range(columns):
-            column = ctk.CTkFrame(self.scroll, fg_color="transparent")
+            column = theme.plain_frame(self.scroll)
             column.grid(row=0, column=i, columnspan=2 if columns == 1 else 1, sticky="nsew")
             self._column_frames.append(column)
         heights = [0] * columns
@@ -157,7 +158,7 @@ class SettingsTab(ctk.CTkFrame):
 
     def _choice_row(self, card, label_text: str, value_to_label: dict, current_value, on_select):
         label_to_value = {label: value for value, label in value_to_label.items()}
-        row = ctk.CTkFrame(card, fg_color="transparent")
+        row = theme.plain_frame(card)
         row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
         ctk.CTkLabel(row, text=label_text, font=theme.font_body()).pack(anchor="w")
         width = min(400, max(300, _SEGMENT_WIDTH_PER_ITEM * len(value_to_label)))
@@ -172,10 +173,10 @@ class SettingsTab(ctk.CTkFrame):
     def _slider_row(self, card, label_text: str, from_, to, steps, value, value_text: str, on_change,
                     on_release=None):
         """Повзунок до ~400 px, значення — праворуч від нього."""
-        row = ctk.CTkFrame(card, fg_color="transparent")
+        row = theme.plain_frame(card)
         row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
         ctk.CTkLabel(row, text=label_text, font=theme.font_body()).pack(anchor="w")
-        line = ctk.CTkFrame(row, fg_color="transparent")
+        line = theme.plain_frame(row)
         line.pack(anchor="w", pady=(6, 0))
         slider = ctk.CTkSlider(line, from_=from_, to=to, number_of_steps=steps, width=_SLIDER_WIDTH,
                                command=on_change)
@@ -189,7 +190,7 @@ class SettingsTab(ctk.CTkFrame):
         return slider, value_label
 
     def _switch(self, parent, text: str, value: bool, command, hint: str | None = None):
-        box = ctk.CTkFrame(parent, fg_color="transparent")
+        box = theme.plain_frame(parent)
         box.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
         var = ctk.BooleanVar(value=value)
         ctk.CTkSwitch(box, text=text, variable=var, command=command).pack(anchor="w")
@@ -260,7 +261,7 @@ class SettingsTab(ctk.CTkFrame):
 
         driver = ctk.CTkFrame(card, fg_color=theme.BG_PANEL_LIGHT, corner_radius=10)
         driver.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
-        top = ctk.CTkFrame(driver, fg_color="transparent")
+        top = theme.plain_frame(driver)
         top.pack(fill="x", padx=12, pady=(10, 4))
         ctk.CTkLabel(top, text="Драйвер датчиків PawnIO", font=theme.font_body()).pack(side="left")
         self._pawnio_status = ctk.CTkLabel(top, text="перевіряю…", font=theme.font_body(),
@@ -466,7 +467,7 @@ class SettingsTab(ctk.CTkFrame):
             self._on_overlay_opacity, self._on_overlay_opacity_release,
         )
 
-        metrics_row = ctk.CTkFrame(card, fg_color="transparent")
+        metrics_row = theme.plain_frame(card)
         metrics_row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
         ctk.CTkLabel(metrics_row, text="Що показувати", font=theme.font_body()).grid(
             row=0, column=0, columnspan=3, sticky="w")
@@ -483,7 +484,7 @@ class SettingsTab(ctk.CTkFrame):
         self._hint(metrics_row, "Температура CPU показується, лише якщо датчик доступний (див. «Монітор»).").grid(
             row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
-        row = ctk.CTkFrame(card, fg_color="transparent")
+        row = theme.plain_frame(card)
         row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
         ctk.CTkLabel(row, text="Кут екрана за замовчуванням", font=theme.font_body()).pack(anchor="w")
         corner_menu = ctk.CTkOptionMenu(
@@ -577,7 +578,7 @@ class SettingsTab(ctk.CTkFrame):
         self._recording: str | None = None
         saved = load_settings().get("hotkeys") or {}
         for action, label in HOTKEY_LABELS.items():
-            row = ctk.CTkFrame(card, fg_color="transparent")
+            row = theme.plain_frame(card)
             row.pack(fill="x", padx=theme.PAD_M, pady=(0, 10))
             row.grid_columnconfigure(0, weight=1)
             ctk.CTkLabel(row, text=label, font=theme.font_body(), anchor="w").grid(row=0, column=0, sticky="w")
@@ -721,7 +722,7 @@ class SettingsTab(ctk.CTkFrame):
         self._robot_anim_var = self._switch(card, "Анімація робота", settings.get("robot_animation_enabled", True),
                                             self._on_toggle_robot_animation)
 
-        row = ctk.CTkFrame(card, fg_color="transparent")
+        row = theme.plain_frame(card)
         row.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
         ctk.CTkLabel(row, text="Мова", font=theme.font_body()).pack(anchor="w")
         self._language_menu = ctk.CTkOptionMenu(
@@ -752,13 +753,13 @@ class SettingsTab(ctk.CTkFrame):
 
     def _build_data_card(self) -> None:
         card = self._card("Дані")
-        buttons = ctk.CTkFrame(card, fg_color="transparent")
+        buttons = theme.plain_frame(card)
         buttons.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
         self._secondary_button(buttons, "Резервні копії твіків", self._open_backups_folder).pack(
             side="left", padx=(0, 8))
         self._secondary_button(buttons, "Журнал (logs.txt)", self._open_logs_file).pack(side="left")
 
-        danger = ctk.CTkFrame(card, fg_color="transparent")
+        danger = theme.plain_frame(card)
         danger.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
         self._secondary_button(danger, "Очистити історію", self._confirm_clear_history).pack(
             side="left", padx=(0, 8))
@@ -827,21 +828,21 @@ class SettingsTab(ctk.CTkFrame):
 
     def _build_about_card(self) -> None:
         card = self._card("Про програму")
-        row = ctk.CTkFrame(card, fg_color="transparent")
+        row = theme.plain_frame(card)
         row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
 
         self._about_robot = robot_view.RobotView(row, size=132, mood=robot_view.HAPPY, bg=theme.BG_PANEL)
         self._about_robot.pack(side="left", padx=(0, 18))
         self._about_robot.set_running(self._visible)
 
-        text_col = ctk.CTkFrame(row, fg_color="transparent")
+        text_col = theme.plain_frame(row)
         text_col.pack(side="left", fill="both", expand=True)
         ctk.CTkLabel(text_col, text=f"PulseFPS  ·  версія {APP_VERSION}", font=theme.font_header()).pack(anchor="w")
         self._hint(text_col, APP_DESCRIPTION).pack(anchor="w", pady=(4, 0))
         self._hint(text_col, "Датчики температури: LibreHardwareMonitor (MPL-2.0) — github.com/LibreHardwareMonitor. "
                              "Повний перелік ліцензій — файл THIRD_PARTY_LICENSES.").pack(anchor="w", pady=(6, 0))
 
-        links = ctk.CTkFrame(card, fg_color="transparent")
+        links = theme.plain_frame(card)
         links.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
         for text in ("GitHub", "Повідомити про помилку", "Підтримати"):
             button = self._secondary_button(links, text, None, state="disabled", text_color_disabled=theme.TEXT_DIM)

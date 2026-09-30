@@ -13,6 +13,7 @@ import customtkinter as ctk
 from core import game_mode as game_mode_core
 from core import system_info as system_info_core
 from core.logging_setup import get_logger
+from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
 from ui.widgets.cleaner_bot import CleanerBotAnimation
 
@@ -56,7 +57,7 @@ class DiskCard(ctk.CTkFrame):
     def __init__(self, master, disk: dict):
         super().__init__(master, corner_radius=10)
 
-        top = ctk.CTkFrame(self, fg_color="transparent")
+        top = theme.plain_frame(self)
         top.pack(fill="x", padx=14, pady=(12, 4))
         ctk.CTkLabel(top, text=f"Диск {disk['letter']}", font=ctk.CTkFont(size=14, weight="bold")).pack(
             side="left"
@@ -83,7 +84,7 @@ class TipCard(ctk.CTkFrame):
     def __init__(self, master, tip: dict, on_fix):
         super().__init__(master, corner_radius=10, fg_color="#3a2f14", border_width=1, border_color="#e0a52f")
 
-        row = ctk.CTkFrame(self, fg_color="transparent")
+        row = theme.plain_frame(self)
         row.pack(fill="x", padx=14, pady=10)
         row.grid_columnconfigure(0, weight=1)
 
@@ -117,7 +118,7 @@ class SystemTab(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll = ScrollFrame(self)
         self.scroll.grid(row=0, column=0, sticky="nsew")
         self.scroll.grid_columnconfigure(0, weight=1)
 
@@ -149,6 +150,9 @@ class SystemTab(ctk.CTkFrame):
         self._freq_after_id = None
         if not self.winfo_exists() or not self._visible:
             return
+        if theme.is_scrolling():
+            self._freq_after_id = self.after(200, self._tick_cpu_freq)
+            return
         self._update_cpu_freq()
         self._freq_after_id = self.after(1500, self._tick_cpu_freq)
 
@@ -168,7 +172,7 @@ class SystemTab(ctk.CTkFrame):
     # ------------------------------------------------------------------ UI
 
     def _build_header(self):
-        row = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        row = theme.plain_frame(self.scroll)
         row.pack(fill="x", padx=6, pady=(14, 10))
         row.grid_columnconfigure(0, weight=1)
 
@@ -182,7 +186,7 @@ class SystemTab(ctk.CTkFrame):
         self.copy_info_button.grid(row=0, column=1, sticky="e")
 
     def _build_hardware_section(self):
-        grid = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        grid = theme.plain_frame(self.scroll)
         grid.pack(fill="x", padx=6, pady=(0, 10))
         grid.grid_columnconfigure((0, 1), weight=1)
 
@@ -202,7 +206,7 @@ class SystemTab(ctk.CTkFrame):
         ctk.CTkLabel(self.scroll, text="Диски", font=ctk.CTkFont(size=16, weight="bold")).pack(
             padx=6, pady=(6, 4), anchor="w"
         )
-        self.disks_frame = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        self.disks_frame = theme.plain_frame(self.scroll)
         self.disks_frame.pack(fill="x", padx=6, pady=(0, 10))
         self.disks_frame.grid_columnconfigure((0, 1), weight=1)
         ctk.CTkLabel(self.disks_frame, text="Завантаження...", text_color="gray").grid(
@@ -213,7 +217,7 @@ class SystemTab(ctk.CTkFrame):
         ctk.CTkLabel(self.scroll, text="Монітори", font=ctk.CTkFont(size=16, weight="bold")).pack(
             padx=6, pady=(6, 4), anchor="w"
         )
-        self.monitors_frame = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        self.monitors_frame = theme.plain_frame(self.scroll)
         self.monitors_frame.pack(fill="x", padx=6, pady=(0, 10))
         self.monitors_frame.grid_columnconfigure((0, 1), weight=1)
         ctk.CTkLabel(self.monitors_frame, text="Завантаження...", text_color="gray").grid(
@@ -224,7 +228,7 @@ class SystemTab(ctk.CTkFrame):
         ctk.CTkLabel(self.scroll, text="Підказки", font=ctk.CTkFont(size=16, weight="bold")).pack(
             padx=6, pady=(6, 4), anchor="w"
         )
-        self.tips_frame = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        self.tips_frame = theme.plain_frame(self.scroll)
         self.tips_frame.pack(fill="x", padx=6, pady=(0, 10))
         self.tips_frame.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(self.tips_frame, text="Завантаження...", text_color="gray").grid(
@@ -254,9 +258,9 @@ class SystemTab(ctk.CTkFrame):
         self._build_report_result_section(section)
 
     def _build_report_result_section(self, master):
-        self.report_result_frame = ctk.CTkFrame(master, fg_color="transparent")
+        self.report_result_frame = theme.plain_frame(master)
 
-        top = ctk.CTkFrame(self.report_result_frame, fg_color="transparent")
+        top = theme.plain_frame(self.report_result_frame)
         top.pack(fill="x", padx=16, pady=(4, 6))
         self.report_badge = ctk.CTkLabel(
             top, text="", font=ctk.CTkFont(size=16, weight="bold"), corner_radius=8,
@@ -275,10 +279,10 @@ class SystemTab(ctk.CTkFrame):
         )
         self.report_offenders_label.pack(fill="x", padx=16, pady=(0, 8), anchor="w")
 
-        self.report_advice_frame = ctk.CTkFrame(self.report_result_frame, fg_color="transparent")
+        self.report_advice_frame = theme.plain_frame(self.report_result_frame)
         self.report_advice_frame.pack(fill="x", padx=16, pady=(0, 10))
 
-        buttons = ctk.CTkFrame(self.report_result_frame, fg_color="transparent")
+        buttons = theme.plain_frame(self.report_result_frame)
         buttons.pack(fill="x", padx=16, pady=(0, 16))
         ctk.CTkButton(
             buttons, text="Повторити перевірку", width=180, command=self._start_report,
@@ -542,7 +546,7 @@ class SystemTab(ctk.CTkFrame):
             widget.destroy()
 
         for item in report["advice"]:
-            row = ctk.CTkFrame(self.report_advice_frame, fg_color="transparent")
+            row = theme.plain_frame(self.report_advice_frame)
             row.pack(fill="x", pady=3)
             row.grid_columnconfigure(0, weight=1)
             ctk.CTkLabel(

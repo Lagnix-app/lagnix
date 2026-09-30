@@ -435,6 +435,10 @@ class RobotView(ctk.CTkFrame):
         if not self.winfo_exists():
             self._after_id = None
             return
+        if theme.is_scrolling():  # під час прокрутки кадри не малюємо
+            self._last_tick = None
+            self._after_id = self.after(50, self._tick)
+            return
         if theme.robot_animation_enabled():
             now = time.perf_counter()
             dt = 0.0 if self._last_tick is None else min(now - self._last_tick, 0.1)

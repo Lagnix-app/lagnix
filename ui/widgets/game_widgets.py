@@ -17,6 +17,7 @@ from PIL import Image, ImageTk
 from core import game_sessions
 from core.app_icons import IconLoader
 from ui import bg, theme
+from ui.widgets import scroll
 from ui.widgets.canvas_list import (
     CanvasList, FastScrollbar, Tooltip, card_image, switch_image,
 )
@@ -626,17 +627,17 @@ class ScrollPage(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
         S = self._get_widget_scaling()
-        self.canvas = tk.Canvas(self, bg=theme.BG_MAIN, highlightthickness=0, bd=0, takefocus=0,
-                                yscrollincrement=round(48 * S))
+        self.canvas = tk.Canvas(self, bg=theme.BG_MAIN, highlightthickness=0, bd=0, takefocus=0)
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self.scrollbar = FastScrollbar(self, self._on_scrollbar, bg=theme.BG_MAIN, scale=S)
         self.scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 2))
-        self.inner = ctk.CTkFrame(self.canvas, fg_color="transparent", corner_radius=0)
+        self.inner = ctk.CTkFrame(self.canvas, fg_color=theme.BG_MAIN, corner_radius=0)
         self._window = self.canvas.create_window(0, 0, anchor="nw", window=self.inner)
         self.canvas.configure(yscrollcommand=lambda a, b: self.scrollbar.set(float(a), float(b)))
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.inner.bind("<Configure>", self._on_inner_configure)
-        tk.Misc.bind_all(self, "<MouseWheel>", self._on_wheel, "+")  # CTk забороняє bind_all у своїх віджетах
+        self.controller = scroll.ScrollController(self, self.canvas)
+        scroll.register(self, self.controller, self._overflow, S)
 
     def _on_canvas_configure(self, event) -> None:
         self.canvas.itemconfigure(self._window, width=event.width)
@@ -671,24 +672,9 @@ class ScrollPage(ctk.CTkFrame):
 
     def _on_scrollbar(self, kind: str, value, *_rest) -> None:
         if kind == "moveto":
-            self.canvas.yview_moveto(value)
+            self.controller.moveto(float(value))
         else:
-            self.canvas.yview_scroll(int(value) * 3, "units")
+            self.controller.by_pixels(int(value) * 3 * 48)
 
     def scroll_to_top(self) -> None:
-        self.canvas.yview_moveto(0)
-
-    def _on_wheel(self, event) -> None:
-        if not self.winfo_ismapped() or not self._overflow():
-            return
-        widget = self.winfo_containing(event.x_root, event.y_root)
-        while widget is not None:
-            if widget is self:
-                break
-            if isinstance(widget, (CanvasList, tk.Listbox)):
-                return  # список прокручується сам
-            widget = getattr(widget, "master", None)
-        else:
-            return
-        self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
-        theme.notify_scroll()
+        self.controller.moveto_now(0.0)
