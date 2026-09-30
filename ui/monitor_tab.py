@@ -977,6 +977,8 @@ class MonitorTab(ctk.CTkFrame):
         # історію графіка; останній зріз застосовується повністю при показі.
         self._visible = False
         self._last_data: dict | None = None
+        # оверлей і сповіщення про перегрів читають ті самі зрізи (ui/app_shell.py)
+        self._snapshot_listeners: list = []
 
         # сторінка на всю висоту вкладки; якщо вікно надто низьке для кілець,
         # плиток, графіка й таблиці з їхніми мінімумами — прокручується
@@ -1150,6 +1152,11 @@ class MonitorTab(ctk.CTkFrame):
             return
 
         self._last_data = data
+        for listener in list(self._snapshot_listeners):
+            try:
+                listener(data)
+            except Exception:
+                _logger.exception("Помилка слухача зрізів монітора")
         if not self._visible:
             # лише накопичуємо історію графіка — нічого не перемальовуємо
             gpu = data["gpu"]
@@ -1250,6 +1257,10 @@ class MonitorTab(ctk.CTkFrame):
             self.status_robot.set_mood("neutral", "Є невелике навантаження, але все під контролем")
         else:
             self.status_robot.set_mood("happy", "Все чудово, система в нормі")
+
+    def add_snapshot_listener(self, listener) -> None:
+        """listener(data) — у потоці UI на кожен зріз (і коли вкладку не видно)."""
+        self._snapshot_listeners.append(listener)
 
     def latest_snapshot(self) -> dict | None:
         """Останній зріз метрик (для підсумків ігрових сесій); оновлюється й на прихованій вкладці."""

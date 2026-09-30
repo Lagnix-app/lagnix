@@ -6,8 +6,8 @@ import customtkinter as ctk
 
 from core.app_data import load_data, update_data
 from core.settings import load_settings
-from core.tray import TrayIcon, is_available as tray_is_available
 from ui import bg, theme
+from ui.app_shell import AppShell
 from ui.widgets.logo_widget import LogoWidget
 from ui.monitor_tab import MonitorTab
 from ui.game_mode_tab import GameModeTab
@@ -63,12 +63,15 @@ class MainWindow(ctk.CTk):
         self._tab_anim = {}
         self._current_tab = None
 
-        self._tray = TrayIcon(on_open=self._on_tray_open, on_exit=self._on_tray_exit)
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
         bg.ensure_pump(self)  # доставка результатів фонових потоків (ui/bg.py)
 
         self._build_sidebar()
         self._build_content_area()
+
+        # трей, гарячі клавіші, оверлей і сповіщення Windows (ui/app_shell.py)
+        self.shell = AppShell(self)
+        self.shell.start()
 
         # згорнуте/сховане в трей вікно — фонові оновлення й анімації на паузі
         self.bind("<Map>", self._on_root_map_change, add="+")
@@ -87,33 +90,34 @@ class MainWindow(ctk.CTk):
     def start_minimized(self) -> None:
         """Викликається з main.py при запуску з --minimized (автозапуск
         Windows) — вікно одразу ховається в трей, без блимання на екрані."""
-        if not tray_is_available():
+        if not self.shell.tray.visible:
             return  # трею немає — лишаємо вікно видимим, щоб програма не "зникла"
         self.withdraw()
-        self._tray.show()
 
     def _on_window_close(self) -> None:
         close_action = load_settings().get("close_action", "exit")
-        if close_action == "tray" and self._tray is not None:
-            self.withdraw()
-            self._tray.show()
+        if close_action == "tray" and self.shell.tray.visible:
+            self.shell.hide_window()
         else:
-            self._exit_app()
+            self.exit_app()
 
-    def _on_tray_open(self) -> None:
-        bg.ui_call(self, self._restore_from_tray)  # з потоку трею
+    def show_window(self, tab: str | None = None) -> None:
+        """Показати вікно (з трею/згорнутого), за потреби — на вкладці tab."""
+        self.shell.show_window(tab)
 
-    def _on_tray_exit(self) -> None:
-        bg.ui_call(self, self._exit_app)  # з потоку трею
+    # вкладки викликають це й у своїх конструкторах — тобто ще до створення self.shell
+    def on_game_mode_changed(self, active: bool) -> None:
+        shell = getattr(self, "shell", None)
+        if shell is not None:
+            shell.on_game_mode_changed(active)
 
-    def _restore_from_tray(self) -> None:
-        self._tray.hide()
-        self.deiconify()
-        self.lift()
-        self.focus_force()
+    def notify_game_mode_auto(self, game_name: str) -> None:
+        shell = getattr(self, "shell", None)
+        if shell is not None:
+            shell.notify_game_mode_auto(game_name)
 
-    def _exit_app(self) -> None:
-        self._tray.hide()
+    def exit_app(self) -> None:
+        self.shell.shutdown()
         self.destroy()
 
     def _apply_icon(self) -> None:

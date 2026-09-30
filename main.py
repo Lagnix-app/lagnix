@@ -63,6 +63,7 @@ def main():
     try:
         app.mainloop()
     finally:
+        app.shell.shutdown()  # трей і потік гарячих клавіш (повторний виклик — без ефекту)
         sensors.stop()
 
 

@@ -1,5 +1,5 @@
-"""Вкладка «Налаштування»: Загальні, Монітор, Звуки, Ігровий режим, Інтерфейс,
-Дані, Про програму. Усе зберігається в settings.json одразу при зміні
+"""Вкладка «Налаштування»: Загальні, Монітор, Звуки, Ігровий режим, Оверлей,
+Гарячі клавіші, Сповіщення, Інтерфейс, Дані, Про програму. Усе зберігається в settings.json одразу при зміні
 (core/settings.py) і застосовується без перезапуску — прапорці анімацій/звуку
 читаються живими модулями (ui/theme.py, core/sounds.py) на льоту.
 
@@ -8,11 +8,13 @@
 
 import os
 import threading
+import tkinter
 from tkinter import messagebox
 
 import customtkinter as ctk
 
 from core import app_catalog, game_sessions, launch_on_windows, pawnio, sensors, sounds
+from core import hotkeys as hotkeys_core
 from core import network as network_core
 from core import tray as tray_core
 from core.app_info import APP_DESCRIPTION, APP_VERSION
@@ -22,12 +24,18 @@ from core.tweaks import BACKUPS_DIR
 from ui import bg, theme
 from ui.widgets import confirm_dialog
 from ui.widgets import robot as robot_view
+from ui.app_shell import HOTKEY_LABELS
+from ui.overlay import METRICS as OVERLAY_METRICS
 from ui.widgets.canvas_list import Tooltip
 
 _UPDATE_INTERVAL_LABELS = {0.5: "0.5 с", 1.0: "1 с", 2.0: "2 с"}
 _STARTUP_TAB_LABELS = {"last": "Остання відкрита", "monitor": "Монітор"}
 _CLOSE_ACTION_LABELS = {"tray": "Згортати в трей", "exit": "Закривати програму"}
 _LANGUAGES = {"uk": "Українська"}
+_OVERLAY_SIZE_LABELS = {"small": "Малий", "medium": "Середній"}
+_OVERLAY_CORNER_LABELS = {"top_left": "Лівий верхній кут", "top_right": "Правий верхній кут",
+                          "bottom_left": "Лівий нижній кут", "bottom_right": "Правий нижній кут"}
+_VK_ESCAPE = 0x1B
 
 _SLIDER_WIDTH = 380            # повзунки — не на всю ширину
 _SEGMENT_WIDTH_PER_ITEM = 150  # група сегментів ~300–400 px
@@ -67,6 +75,9 @@ class SettingsTab(ctk.CTkFrame):
         self._build_monitor_card()
         self._build_sound_card()
         self._build_game_mode_card()
+        self._build_overlay_card()
+        self._build_hotkeys_card()
+        self._build_notifications_card()
         self._build_interface_card()
         self._build_data_card()
         self._build_about_card()
@@ -113,6 +124,7 @@ class SettingsTab(ctk.CTkFrame):
             robot.set_running(visible)
         if visible:
             self._refresh_pawnio_status()
+            self._refresh_hotkey_rows()
 
     # ------------------------------------------------------------ helpers
 
@@ -429,6 +441,249 @@ class SettingsTab(ctk.CTkFrame):
         update_setting("game_mode_auto_toast", bool(self._toast_var.get()))
         sounds.play_click()
 
+    # ------------------------------------------------------------- оверлей
+
+    def _shell(self):
+        return getattr(self.winfo_toplevel(), "shell", None)
+
+    def _build_overlay_card(self) -> None:
+        card = self._card("Оверлей", "Маленьке напівпрозоре вікно поверх ігор: навантаження CPU, GPU, RAM і "
+                                     "температури. Кольори змінюються при високому навантаженні й нагріві.")
+        settings = load_settings()
+        self._overlay_var = self._switch(card, "Показувати оверлей", settings.get("overlay_enabled", False),
+                                         self._on_toggle_overlay)
+        self._choice_row(card, "Розмір", _OVERLAY_SIZE_LABELS, settings.get("overlay_size", "small"),
+                         self._on_overlay_size)
+        opacity = float(settings.get("overlay_opacity", 0.85))
+        self._opacity_slider, self._opacity_label = self._slider_row(
+            card, "Непрозорість", 0.3, 1.0, 14, opacity, f"{round(opacity * 100)}%",
+            self._on_overlay_opacity, self._on_overlay_opacity_release,
+        )
+
+        metrics_row = ctk.CTkFrame(card, fg_color="transparent")
+        metrics_row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
+        ctk.CTkLabel(metrics_row, text="Що показувати", font=theme.font_body()).grid(
+            row=0, column=0, columnspan=3, sticky="w")
+        saved = settings.get("overlay_metrics") or {}
+        self._metric_boxes = {}
+        for index, (key, label) in enumerate(OVERLAY_METRICS):
+            box = ctk.CTkCheckBox(metrics_row, text=label.replace(" °C", " — темп."), width=10,
+                                  checkbox_width=18, checkbox_height=18, font=theme.font_body(),
+                                  command=self._on_overlay_metrics)
+            if saved.get(key, True):
+                box.select()
+            box.grid(row=1 + index // 3, column=index % 3, padx=(0, 18), pady=(6, 0), sticky="w")
+            self._metric_boxes[key] = box
+        self._hint(metrics_row, "Температура CPU показується, лише якщо датчик доступний (див. «Монітор»).").grid(
+            row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
+        ctk.CTkLabel(row, text="Кут екрана за замовчуванням", font=theme.font_body()).pack(anchor="w")
+        corner_menu = ctk.CTkOptionMenu(
+            row, values=list(_OVERLAY_CORNER_LABELS.values()), width=220, height=30, corner_radius=8,
+            fg_color=theme.BG_PANEL_LIGHT, button_color=theme.BG_PANEL_LIGHT, button_hover_color=theme.BORDER,
+            dropdown_fg_color=theme.BG_PANEL, dropdown_hover_color=theme.BORDER, text_color=theme.TEXT_MAIN,
+            command=self._on_overlay_corner,
+        )
+        corner_menu.set(_OVERLAY_CORNER_LABELS.get(settings.get("overlay_corner", "top_left"),
+                                                   _OVERLAY_CORNER_LABELS["top_left"]))
+        corner_menu.pack(anchor="w", pady=(6, 0))
+        self._hint(row, "Щоб перетягнути оверлей, затисніть Ctrl і тягніть його мишею — позиція запам'ятається. "
+                        "Вибір кута скидає збережену позицію. Без Ctrl оверлей пропускає кліки в гру.").pack(
+            anchor="w", pady=(4, 0))
+        self._hint(card, "У повноекранних іграх (exclusive fullscreen) оверлей може не показуватись — "
+                         "використовуйте безрамковий режим.", theme.WARNING).pack(
+            padx=theme.PAD_M, pady=(0, theme.PAD_M), anchor="w")
+
+    def sync_overlay_enabled(self, enabled: bool) -> None:
+        """Оверлей увімкнули/вимкнули з трею чи гарячою клавішею."""
+        var = getattr(self, "_overlay_var", None)
+        if var is not None:
+            var.set(enabled)
+
+    def _on_toggle_overlay(self) -> None:
+        shell = self._shell()
+        if shell is not None:
+            shell.set_overlay_enabled(bool(self._overlay_var.get()))
+        else:
+            update_setting("overlay_enabled", bool(self._overlay_var.get()))
+        sounds.play_click()
+
+    def _apply_overlay(self) -> None:
+        shell = self._shell()
+        if shell is not None:
+            shell.apply_overlay_settings()
+
+    def _on_overlay_size(self, value: str) -> None:
+        update_setting("overlay_size", value)
+        self._apply_overlay()
+        sounds.play_click()
+
+    def _on_overlay_opacity(self, value: float) -> None:
+        self._opacity_label.configure(text=f"{round(value * 100)}%")
+        shell = self._shell()
+        if shell is not None:
+            shell.apply_overlay_settings(opacity=value)  # наживо, без запису у файл на кожен рух
+
+    def _on_overlay_opacity_release(self, _event=None) -> None:
+        update_setting("overlay_opacity", round(float(self._opacity_slider.get()), 2))
+        self._apply_overlay()
+
+    def _on_overlay_metrics(self) -> None:
+        update_setting("overlay_metrics", {key: bool(box.get()) for key, box in self._metric_boxes.items()})
+        self._apply_overlay()
+
+    def _on_overlay_corner(self, label: str) -> None:
+        corner = next((c for c, text in _OVERLAY_CORNER_LABELS.items() if text == label), "top_left")
+        update_setting("overlay_corner", corner)
+        update_setting("overlay_position", None)
+        self._apply_overlay()
+        sounds.play_click()
+
+    # ------------------------------------------------------ гарячі клавіші
+
+    def _build_hotkeys_card(self) -> None:
+        card = self._card("Гарячі клавіші", "Працюють усюди, зокрема в грі. Натисніть поле, а потім нову "
+                                            "комбінацію (Esc — скасувати).")
+        self._hotkey_rows: dict[str, dict] = {}
+        self._recording: str | None = None
+        saved = load_settings().get("hotkeys") or {}
+        for action, label in HOTKEY_LABELS.items():
+            row = ctk.CTkFrame(card, fg_color="transparent")
+            row.pack(fill="x", padx=theme.PAD_M, pady=(0, 10))
+            row.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(row, text=label, font=theme.font_body(), anchor="w").grid(row=0, column=0, sticky="w")
+            field = ctk.CTkButton(row, text="", width=190, height=30, corner_radius=8,
+                                  fg_color=theme.BG_PANEL_LIGHT, hover_color=theme.BORDER, border_width=1,
+                                  border_color=theme.BORDER, text_color=theme.TEXT_MAIN,
+                                  command=lambda a=action: self._start_recording(a))
+            field.grid(row=0, column=1, padx=(8, 8))
+            self._secondary_button(row, "Скинути", lambda a=action: self._reset_hotkey(a)).grid(row=0, column=2)
+            status = self._hint(row, "")
+            # клавіші ловить сама рамка кнопки-поля (під час запису фокус на ній);
+            # CTkButton.bind вішає обробники на внутрішні canvas/label, тож — tkinter напряму
+            tkinter.Misc.bind(field, "<KeyPress>", lambda e, a=action: self._on_record_key(a, e))
+            tkinter.Misc.bind(field, "<FocusOut>", lambda _e, a=action: self._stop_recording(a, apply=True))
+            self._hotkey_rows[action] = {"field": field, "status": status,
+                                         "combo": saved.get(action, hotkeys_core.DEFAULT_HOTKEYS[action])}
+        self._refresh_hotkey_rows()
+
+    def _refresh_hotkey_rows(self) -> None:
+        rows = getattr(self, "_hotkey_rows", None)
+        if not rows:
+            return
+        shell = self._shell()
+        errors = shell.hotkey_errors if shell is not None else {}
+        bindings = shell.hotkey_bindings() if shell is not None else {}
+        for action, row in rows.items():
+            if not row["field"].winfo_exists():
+                continue
+            row["combo"] = bindings.get(action, row["combo"])
+            if self._recording != action:
+                row["field"].configure(text=row["combo"] or "не задано", border_color=theme.BORDER)
+            self._set_hotkey_status(action, errors.get(action))
+
+    def _set_hotkey_status(self, action: str, error: str | None) -> None:
+        status = self._hotkey_rows[action]["status"]
+        if error:
+            status.configure(text=f"⚠ {error[:1].upper() + error[1:]}", text_color=theme.ERROR)
+            status.grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
+        else:
+            status.grid_remove()
+
+    def _start_recording(self, action: str) -> None:
+        if self._recording == action:
+            self._stop_recording(action, apply=True)
+            return
+        if self._recording is not None:
+            self._stop_recording(self._recording, apply=True)
+        shell = self._shell()
+        if shell is None:
+            return
+        shell.suspend_hotkeys()  # інакше Windows «з'їсть» комбінації, які вже зайняв PulseFPS
+        self._recording = action
+        field = self._hotkey_rows[action]["field"]
+        field.configure(text="Натисніть комбінацію…", border_color=theme.ACCENT_GREEN)
+        field.focus_set()
+
+    def _stop_recording(self, action: str, apply: bool) -> None:
+        """Вийти з запису без зміни комбінації (apply — повернути зареєстровані клавіші)."""
+        if self._recording != action:
+            return
+        self._recording = None
+        shell = self._shell()
+        if apply and shell is not None:
+            shell.apply_hotkeys()
+        self._refresh_hotkey_rows()
+
+    def _on_record_key(self, action: str, event):
+        if self._recording != action:
+            return None
+        field = self._hotkey_rows[action]["field"]
+        modifiers = hotkeys_core.pressed_modifiers()
+        vk = event.keycode  # на Windows — віртуальний код клавіші, не залежить від розкладки
+        if vk in hotkeys_core.VK_MODIFIERS:
+            field.configure(text=hotkeys_core.format_combo(modifiers, None) + "+…")
+            return "break"
+        if vk == _VK_ESCAPE and not modifiers:
+            self._stop_recording(action, apply=True)
+            return "break"
+        key = hotkeys_core.key_name(vk)
+        if key is None:
+            self._set_hotkey_status(action, "цю клавішу не можна використати — оберіть літеру, цифру чи F1–F24")
+            return "break"
+        combo = hotkeys_core.format_combo(modifiers, key)
+        error = hotkeys_core.validate(combo)
+        if error:
+            self._set_hotkey_status(action, f"{combo}: {error}")
+            return "break"
+        self._recording = None
+        error = self._shell().set_hotkey(action, combo)  # реєструє весь набір заново
+        self._refresh_hotkey_rows()
+        if error:
+            self._set_hotkey_status(action, error)
+            sounds.play_error()
+        else:
+            sounds.play_success()
+        self.focus_set()
+        return "break"
+
+    def _reset_hotkey(self, action: str) -> None:
+        if self._recording is not None:
+            self._stop_recording(self._recording, apply=True)
+        shell = self._shell()
+        if shell is None:
+            return
+        error = shell.reset_hotkey(action)
+        self._refresh_hotkey_rows()
+        if error:
+            self._set_hotkey_status(action, error)
+        sounds.play_click()
+
+    # ----------------------------------------------------------- сповіщення
+
+    def _build_notifications_card(self) -> None:
+        card = self._card("Сповіщення Windows")
+        settings = load_settings()
+        self._notify_game_var = self._switch(
+            card, "Автоувімкнення Ігрового режиму", settings.get("notify_game_mode", True),
+            lambda: self._on_toggle_notify("notify_game_mode", self._notify_game_var),
+            "«Ігровий режим увімкнено: <гра>» — коли режим увімкнувся сам після запуску гри.",
+        )
+        self._notify_heat_var = self._switch(
+            card, "Перегрів CPU/GPU", settings.get("notify_overheat", True),
+            lambda: self._on_toggle_notify("notify_overheat", self._notify_heat_var),
+            "Коли температура перевищує поріг із картки «Монітор» — не частіше ніж раз на 5 хв.",
+        )
+        if not tray_core.is_available():
+            self._hint(card, "Сповіщення показуються через іконку в треї — потрібен pystray.",
+                       theme.WARNING).pack(padx=theme.PAD_M, pady=(0, 12), anchor="w")
+
+    def _on_toggle_notify(self, key: str, var) -> None:
+        update_setting(key, bool(var.get()))
+        sounds.play_click()
+
     # ---------------------------------------------------------- інтерфейс
 
     def _build_interface_card(self) -> None:
@@ -535,6 +790,11 @@ class SettingsTab(ctk.CTkFrame):
             target=sensors.set_enabled, args=(defaults.get("advanced_sensors_enabled", True),), daemon=True,
         ).start()
         sounds.reset_volumes(defaults.get("sounds_volume", 0.25), defaults.get("sounds_hover_ratio", 0.5))
+        shell = self._shell()
+        if shell is not None:
+            shell.set_overlay_enabled(defaults.get("overlay_enabled", False))
+            shell.apply_overlay_settings()
+            shell.apply_hotkeys()
 
     # --------------------------------------------------------- про програму
 

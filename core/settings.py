@@ -11,6 +11,7 @@ import os
 import threading
 import time
 
+from core.hotkeys import DEFAULT_HOTKEYS
 from core.migrate import migrate_if_needed
 
 SETTINGS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "settings.json")
@@ -46,6 +47,20 @@ DEFAULT_SETTINGS = {
     # і чи показувати сповіщення з «Скасувати» при автоувімкненні.
     "game_mode_default_level": "balanced",
     "game_mode_auto_toast": True,
+    # Сповіщення Windows (через іконку в треї): автоувімкнення Ігрового режиму
+    # і перегрів CPU/GPU (поріг — temp_threshold_c, не частіше ніж раз на 5 хв).
+    "notify_game_mode": True,
+    "notify_overheat": True,
+    # Оверлей поверх ігор (ui/overlay.py). overlay_position — [x, y] після
+    # перетягування (Ctrl + миша); None — від кута overlay_corner.
+    "overlay_enabled": False,
+    "overlay_size": "small",
+    "overlay_opacity": 0.85,
+    "overlay_metrics": {"cpu": True, "gpu": True, "ram": True, "gpu_temp": True, "cpu_temp": True},
+    "overlay_corner": "top_left",
+    "overlay_position": None,
+    # Глобальні гарячі клавіші (core/hotkeys.py); порожній рядок — вимкнено.
+    "hotkeys": dict(DEFAULT_HOTKEYS),
 }
 
 

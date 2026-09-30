@@ -212,6 +212,8 @@ class GameModeTab(ctk.CTkFrame):
         self._monitor_tab = None
         self._auto_pending = False         # показано сповіщення автоувімкнення, чекаємо 5 с
         self._auto_toast = None
+        self._auto_game_name = ""          # для сповіщення Windows після автоувімкнення
+        self._reported_active = None       # останній стан, про який повідомили вікну (трей)
         self._games_task = None
         self._advanced_built = False
         self._others_expanded = False
@@ -519,6 +521,11 @@ class GameModeTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         active = bool(self.state.get("is_active"))
+        if active != self._reported_active:
+            self._reported_active = active
+            hook = getattr(self.winfo_toplevel(), "on_game_mode_changed", None)
+            if hook is not None:
+                hook(active)  # галочка й робот у треї
         self.robot.set_mood(robot_view.GAMING if active else robot_view.SLEEPY)
         self.switch.set_on(active)
         self.switch.set_busy(self._busy)
@@ -690,6 +697,24 @@ class GameModeTab(ctk.CTkFrame):
         if not self._busy and not self.is_active():
             self._request_enable()
 
+    def toggle_from_shortcut(self) -> None:
+        """Трей / гаряча клавіша. Якщо потрібен діалог (підтвердити закриття програм,
+        батарея + Ultra, «відкрити закриті програми знову?») — спершу показуємо вікно на
+        цій вкладці: підтвердження ніколи не пропускається (правило core/process_control)."""
+        if self._busy:
+            return
+        window = self.winfo_toplevel()
+        if self.is_active():
+            if self.state.get("closed_apps"):
+                window.show_window("game_mode")
+            self._start_deactivate()
+            return
+        needs_dialog = bool(self._current_apps() or self._current_extras()) or (
+            self._plan_value() == game_mode_core.ULTRA and power_plans.on_battery())
+        if needs_dialog:
+            window.show_window("game_mode")
+        self._request_enable()
+
     def _on_switch_clicked(self) -> None:
         if self._busy:
             return
@@ -763,6 +788,10 @@ class GameModeTab(ctk.CTkFrame):
             problems.append(report["plan_error"])
         self._note = ("Не все вдалося: " + "; ".join(problems[:3])) if problems else report.get("note", "")
         self._render()
+        if self._auto_enabled and self.is_active():
+            hook = getattr(self.winfo_toplevel(), "notify_game_mode_auto", None)
+            if hook is not None:
+                hook(self._auto_game_name)
 
     def _start_deactivate(self, offer_reopen: bool = True) -> None:
         self._busy = True
@@ -1012,6 +1041,7 @@ class GameModeTab(ctk.CTkFrame):
             return
         get_audit_logger().info("Ігровий режим увімкнено автоматично для гри «%s» (%s) — лише план живлення",
                                 game["name"], game["key"])
+        self._auto_game_name = game["name"]
         self._busy = True
         self._render()
         bg.start_thread(self, "Ігровий режим: автоувімкнення", self._activate_worker, True)

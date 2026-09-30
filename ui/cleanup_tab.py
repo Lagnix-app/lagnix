@@ -296,6 +296,13 @@ class CleanupTab(ctk.CTkFrame):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def rescan_targets(self, keys: list[str]) -> None:
+        """Після «Швидкого очищення» з трею — оновити розміри цих рядків (якщо зараз
+        вкладка сама нічого не сканує й не чистить)."""
+        keys = [key for key in keys if key in self.rows]
+        if keys and not (self._static_scanning or self._cleaning_in_progress):
+            self._scan_static(keys)
+
     def _set_scan_controls(self, enabled: bool):
         state = "normal" if enabled else "disabled"
         for button in (self.rescan_button, self.select_recommended_button, self.select_none_button):
