@@ -16,6 +16,7 @@ from core.logging_setup import get_logger
 from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
 from ui.widgets.cleaner_bot import CleanerBotAnimation
+from core.i18n import t
 
 _logger = get_logger(__name__)
 
@@ -30,7 +31,7 @@ class InfoCard(ctk.CTkFrame):
             padx=14, pady=(12, 4), anchor="w"
         )
         self.body_label = ctk.CTkLabel(
-            self, text="Завантаження...", text_color="gray", font=ctk.CTkFont(size=12),
+            self, text=t("common.loading_dots"), text_color="gray", font=ctk.CTkFont(size=12),
             justify="left", anchor="w", wraplength=360,
         )
         self.body_label.pack(padx=14, pady=(0, 14), anchor="w")
@@ -46,7 +47,7 @@ class InfoCard(ctk.CTkFrame):
         # set_text пропускає однаковий текст: частота CPU оновлюється кожні 1.5 с
         theme.set_text(self.body_label, "\n".join(lines), text_color=("gray10", "gray90"))
 
-    def set_error(self, text: str = "Недоступно") -> None:
+    def set_error(self, text: str = t("common.unavailable")) -> None:
         theme.set_text(self.body_label, text, text_color="gray")
 
 
@@ -59,7 +60,7 @@ class DiskCard(ctk.CTkFrame):
 
         top = theme.plain_frame(self)
         top.pack(fill="x", padx=14, pady=(12, 4))
-        ctk.CTkLabel(top, text=f"Диск {disk['letter']}", font=ctk.CTkFont(size=14, weight="bold")).pack(
+        ctk.CTkLabel(top, text=t("system.disk", letter=disk['letter']), font=ctk.CTkFont(size=14, weight="bold")).pack(
             side="left"
         )
         ctk.CTkLabel(top, text=disk["type"], text_color="gray", font=ctk.CTkFont(size=11)).pack(side="right")
@@ -95,9 +96,9 @@ class TipCard(ctk.CTkFrame):
 
         if tip.get("action"):
             ctk.CTkButton(
-                row, text=tip.get("button", "Як виправити"), width=130, height=28, font=ctk.CTkFont(size=12),
+                row, text=tip.get("button", t("system.how_to_fix")), width=130, height=28, font=ctk.CTkFont(size=12),
                 fg_color="#e0a52f", hover_color="#f0c060", text_color="#151c2c",
-                command=lambda t=tip: on_fix(t),
+                command=lambda tw=tip: on_fix(tw),
             ).grid(row=0, column=1, padx=(10, 0))
 
 
@@ -176,11 +177,11 @@ class SystemTab(ctk.CTkFrame):
         row.pack(fill="x", padx=6, pady=(14, 10))
         row.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(row, text="Система", font=ctk.CTkFont(size=22, weight="bold")).grid(
+        ctk.CTkLabel(row, text=t("tabs.system"), font=ctk.CTkFont(size=22, weight="bold")).grid(
             row=0, column=0, sticky="w"
         )
         self.copy_info_button = ctk.CTkButton(
-            row, text="Скопіювати інформацію про систему", width=260,
+            row, text=t("system.copy_info"), width=260,
             command=self._copy_system_info,
         )
         self.copy_info_button.grid(row=0, column=1, sticky="e")
@@ -190,48 +191,48 @@ class SystemTab(ctk.CTkFrame):
         grid.pack(fill="x", padx=6, pady=(0, 10))
         grid.grid_columnconfigure((0, 1), weight=1)
 
-        self.cpu_card = InfoCard(grid, "Процесор")
+        self.cpu_card = InfoCard(grid, t("system.cpu"))
         self.cpu_card.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
-        self.gpu_card = InfoCard(grid, "Відеокарта")
+        self.gpu_card = InfoCard(grid, t("system.gpu"))
         self.gpu_card.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
 
-        self.ram_card = InfoCard(grid, "Оперативна пам'ять")
+        self.ram_card = InfoCard(grid, t("system.ram"))
         self.ram_card.grid(row=1, column=0, padx=6, pady=6, sticky="nsew")
 
         self.windows_card = InfoCard(grid, "Windows")
         self.windows_card.grid(row=1, column=1, padx=6, pady=6, sticky="nsew")
 
     def _build_disks_section(self):
-        ctk.CTkLabel(self.scroll, text="Диски", font=ctk.CTkFont(size=16, weight="bold")).pack(
+        ctk.CTkLabel(self.scroll, text=t("system.disks"), font=ctk.CTkFont(size=16, weight="bold")).pack(
             padx=6, pady=(6, 4), anchor="w"
         )
         self.disks_frame = theme.plain_frame(self.scroll)
         self.disks_frame.pack(fill="x", padx=6, pady=(0, 10))
         self.disks_frame.grid_columnconfigure((0, 1), weight=1)
-        ctk.CTkLabel(self.disks_frame, text="Завантаження...", text_color="gray").grid(
+        ctk.CTkLabel(self.disks_frame, text=t("common.loading_dots"), text_color="gray").grid(
             row=0, column=0, sticky="w"
         )
 
     def _build_monitors_section(self):
-        ctk.CTkLabel(self.scroll, text="Монітори", font=ctk.CTkFont(size=16, weight="bold")).pack(
+        ctk.CTkLabel(self.scroll, text=t("system.monitors"), font=ctk.CTkFont(size=16, weight="bold")).pack(
             padx=6, pady=(6, 4), anchor="w"
         )
         self.monitors_frame = theme.plain_frame(self.scroll)
         self.monitors_frame.pack(fill="x", padx=6, pady=(0, 10))
         self.monitors_frame.grid_columnconfigure((0, 1), weight=1)
-        ctk.CTkLabel(self.monitors_frame, text="Завантаження...", text_color="gray").grid(
+        ctk.CTkLabel(self.monitors_frame, text=t("common.loading_dots"), text_color="gray").grid(
             row=0, column=0, sticky="w"
         )
 
     def _build_tips_section(self):
-        ctk.CTkLabel(self.scroll, text="Підказки", font=ctk.CTkFont(size=16, weight="bold")).pack(
+        ctk.CTkLabel(self.scroll, text=t("system.tips"), font=ctk.CTkFont(size=16, weight="bold")).pack(
             padx=6, pady=(6, 4), anchor="w"
         )
         self.tips_frame = theme.plain_frame(self.scroll)
         self.tips_frame.pack(fill="x", padx=6, pady=(0, 10))
         self.tips_frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self.tips_frame, text="Завантаження...", text_color="gray").grid(
+        ctk.CTkLabel(self.tips_frame, text=t("common.loading_dots"), text_color="gray").grid(
             row=0, column=0, sticky="w"
         )
 
@@ -240,15 +241,15 @@ class SystemTab(ctk.CTkFrame):
         section.pack(fill="x", padx=6, pady=(4, 20))
 
         ctk.CTkLabel(
-            section, text="Звіт: що гальмує мій ПК", font=ctk.CTkFont(size=16, weight="bold"),
+            section, text=t("system.report.title"), font=ctk.CTkFont(size=16, weight="bold"),
         ).pack(padx=16, pady=(14, 2), anchor="w")
         ctk.CTkLabel(
-            section, text="60 секунд вимірює навантаження CPU, RAM, GPU і диска та шукає головних винуватців.",
+            section, text=t("system.report.hint"),
             text_color="gray", font=ctk.CTkFont(size=11),
         ).pack(padx=16, pady=(0, 10), anchor="w")
 
         self.report_start_button = ctk.CTkButton(
-            section, text="Почати перевірку (60 с)", height=42,
+            section, text=t("system.report.start"), height=42,
             font=ctk.CTkFont(size=14, weight="bold"), command=self._start_report,
         )
         self.report_start_button.pack(padx=16, pady=(0, 14))
@@ -285,10 +286,10 @@ class SystemTab(ctk.CTkFrame):
         buttons = theme.plain_frame(self.report_result_frame)
         buttons.pack(fill="x", padx=16, pady=(0, 16))
         ctk.CTkButton(
-            buttons, text="Повторити перевірку", width=180, command=self._start_report,
+            buttons, text=t("system.report.repeat"), width=180, command=self._start_report,
         ).pack(side="left", padx=(0, 8))
         ctk.CTkButton(
-            buttons, text="Скопіювати звіт", width=160, command=self._copy_report,
+            buttons, text=t("system.report.copy"), width=160, command=self._copy_report,
         ).pack(side="left")
 
     # ------------------------------------------------------------- снапшот
@@ -302,7 +303,7 @@ class SystemTab(ctk.CTkFrame):
                 # що в UI-потоці підвішувало б інтерфейс
                 tips = system_info_core.build_smart_tips(snapshot)
             except Exception:
-                _logger.exception("Не вдалося зібрати інформацію про систему")
+                _logger.exception("Failed to collect system information")
                 snapshot = None
             bg.ui_call(self, self._apply_snapshot, snapshot, tips)
 
@@ -314,7 +315,7 @@ class SystemTab(ctk.CTkFrame):
 
         if snapshot is None:
             for card in (self.cpu_card, self.gpu_card, self.ram_card, self.windows_card):
-                card.set_error("Не вдалося отримати дані")
+                card.set_error(t("system.load_failed"))
             return
 
         self._snapshot = snapshot
@@ -327,9 +328,9 @@ class SystemTab(ctk.CTkFrame):
     def _cpu_lines(cpu: dict) -> list[str]:
         core_bits = []
         if cpu.get("cores_physical"):
-            core_bits.append(f"{cpu['cores_physical']} ядер")
+            core_bits.append(t("sysinfo.cores", count=cpu['cores_physical']))
         if cpu.get("cores_logical"):
-            core_bits.append(f"{cpu['cores_logical']} потоків")
+            core_bits.append(t("sysinfo.threads", count=cpu['cores_logical']))
         lines = [cpu["model"]]
         if core_bits:
             lines.append(" / ".join(core_bits))
@@ -346,31 +347,31 @@ class SystemTab(ctk.CTkFrame):
         gpu = snapshot["gpu"]
         gpu_lines = [gpu["model"]]
         if gpu.get("memory_mb"):
-            gpu_lines.append(f"Пам'ять: {gpu['memory_mb'] / 1024:.1f} ГБ")
-        driver_line = f"Драйвер: {gpu['driver_version']}"
+            gpu_lines.append(t("system.gpu_mem", gb=gpu['memory_mb'] / 1024))
+        driver_line = t("system.gpu_driver", driver_version=gpu['driver_version'])
         if gpu.get("driver_date"):
             driver_line += f" ({gpu['driver_date'].strftime('%d.%m.%Y')})"
         gpu_lines.append(driver_line)
         self.gpu_card.set_lines(gpu_lines)
 
         ram = snapshot["ram"]
-        ram_lines = [f"Всього: {ram['total_gb']:.1f} ГБ"]
+        ram_lines = [t("system.ram_total", total_gb=ram['total_gb'])]
         modules = system_info_core.format_ram_modules(ram)
         if modules:
-            ram_lines.append(f"Модулі: {modules}")
+            ram_lines.append(t("system.ram_modules", modules=modules))
         speed = system_info_core.format_ram_speed(ram)
         if speed:
-            ram_lines.append(f"Частота: {speed}")
+            ram_lines.append(t("system.ram_speed", speed=speed))
         channels = system_info_core.format_ram_channels(ram)
         if channels:
             ram_lines.append(channels)
-        ram_lines.append(f"Зайнято: {ram['used_gb']:.1f} ГБ ({ram['percent']:.0f}%) · вільно {ram['free_gb']:.1f} ГБ")
+        ram_lines.append(t("system.ram_used", used_gb=ram['used_gb'], percent=ram['percent'], free_gb=ram['free_gb']))
         self.ram_card.set_lines(ram_lines)
 
         windows = snapshot["windows"]
         self.windows_card.set_lines([
-            f"{windows['version']} (збірка {windows['build']})",
-            f"Час роботи: {windows['uptime_text']}",
+            t("system.windows_build", version=windows['version'], build=windows['build']),
+            t("system.uptime", uptime_text=windows['uptime_text']),
         ])
 
     def _render_disks(self, disks):
@@ -378,7 +379,7 @@ class SystemTab(ctk.CTkFrame):
             widget.destroy()
 
         if not disks:
-            ctk.CTkLabel(self.disks_frame, text="Диски не знайдено", text_color="gray").grid(
+            ctk.CTkLabel(self.disks_frame, text=t("system.no_disks"), text_color="gray").grid(
                 row=0, column=0, sticky="w"
             )
             return
@@ -392,15 +393,15 @@ class SystemTab(ctk.CTkFrame):
 
         if not monitors:
             ctk.CTkLabel(
-                self.monitors_frame, text="Не вдалося визначити монітори", text_color="gray",
+                self.monitors_frame, text=t("system.no_monitors"), text_color="gray",
             ).grid(row=0, column=0, sticky="w")
             return
 
         for i, mon in enumerate(monitors):
-            card = InfoCard(self.monitors_frame, mon["name"] or f"Монітор {i + 1}")
-            freq = f"Частота: {mon['current_hz']} Гц зараз"
+            card = InfoCard(self.monitors_frame, mon["name"] or t("sysinfo.monitor_n", n=i + 1))
+            freq = t("system.monitor_hz", current_hz=mon['current_hz'])
             if mon["max_hz"]:
-                freq += f" · максимум {mon['max_hz']} Гц"
+                freq += t("system.monitor_max", max_hz=mon['max_hz'])
             card.set_lines([f"{mon['width']}×{mon['height']}", freq])
             card.grid(row=i // 2, column=i % 2, padx=6, pady=6, sticky="nsew")
 
@@ -410,7 +411,7 @@ class SystemTab(ctk.CTkFrame):
 
         if not tips:
             ctk.CTkLabel(
-                self.tips_frame, text="Проблем не знайдено — усе гаразд.", text_color="#2ee59d",
+                self.tips_frame, text=t("system.no_problems"), text_color="#2ee59d",
             ).grid(row=0, column=0, sticky="w")
             return
 
@@ -438,13 +439,13 @@ class SystemTab(ctk.CTkFrame):
         elif action == "switch_to_balanced":
             self._switch_power_plan()
         elif action == "xmp_help":
-            messagebox.showinfo("XMP / DOCP / EXPO", system_info_core.XMP_HELP_TEXT, parent=self)
+            messagebox.showinfo("XMP / DOCP / EXPO", t(system_info_core.XMP_HELP_TEXT), parent=self)
 
     def _open_uri(self, uri: str):
         try:
             os.startfile(uri)
         except OSError:
-            messagebox.showerror("Помилка", "Не вдалося відкрити параметри Windows.", parent=self)
+            messagebox.showerror(t("common.error"), t("system.err.settings"), parent=self)
 
     def _go_to_tab(self, key: str):
         toplevel = self.winfo_toplevel()
@@ -455,7 +456,7 @@ class SystemTab(ctk.CTkFrame):
     def _switch_power_plan(self):
         def worker():
             success, error = game_mode_core.set_active_power_scheme(
-                game_mode_core.POWER_PLANS["Збалансований"]
+                game_mode_core.POWER_PLANS["balanced"]
             )
             bg.ui_call(self, self._on_power_switch_done, success, error)
 
@@ -465,10 +466,10 @@ class SystemTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         if success:
-            messagebox.showinfo("Готово", "Увімкнено план живлення «Збалансований».", parent=self)
+            messagebox.showinfo(t("common.done"), t("system.balanced_on"), parent=self)
             self._load_snapshot()
         else:
-            messagebox.showerror("Помилка", error or "Не вдалося змінити план живлення", parent=self)
+            messagebox.showerror(t("common.error"), error or t("game_mode.err.switch_plan"), parent=self)
 
     # ----------------------------------------------------------------- звіт
 
@@ -483,7 +484,7 @@ class SystemTab(ctk.CTkFrame):
 
         self._report_stop_event = threading.Event()
         self._report_started_at = time.monotonic()
-        self.report_bot.start(f"Аналізую систему… {system_info_core.REPORT_DURATION_SEC} с", tool="scan")
+        self.report_bot.start(t("system.analyzing", seconds=system_info_core.REPORT_DURATION_SEC), tool="scan")
         self._tick_report()
 
         stop_event = self._report_stop_event
@@ -502,7 +503,7 @@ class SystemTab(ctk.CTkFrame):
         duration = system_info_core.REPORT_DURATION_SEC
         remaining = max(0.0, duration - elapsed)
         progress = min(1.0, elapsed / duration)
-        self.report_bot.update(f"Аналізую систему… {remaining:.0f} с", progress)
+        self.report_bot.update(t("system.analyzing_left", seconds=remaining), progress)
 
         if elapsed >= duration:
             self._report_after_id = None
@@ -515,7 +516,7 @@ class SystemTab(ctk.CTkFrame):
             return
 
         success = report["score"] >= 60
-        self.report_bot.finish("Готово!" if success else "Знайшов над чим попрацювати", success=success)
+        self.report_bot.finish(t("network.done") if success else t("system.found_work"), success=success)
 
         self._last_report_text = system_info_core.build_report_text(report)
         self._render_report_result(report)
@@ -529,13 +530,12 @@ class SystemTab(ctk.CTkFrame):
         gpu_text = f"   GPU: {report['gpu_avg']:.0f}%" if report["gpu_avg"] is not None else ""
         self.report_stats_label.configure(
             text=(
-                f"CPU: {report['cpu_avg']:.0f}%   RAM: {report['ram_avg']:.0f}%   "
-                f"Диск: {report['disk_avg']:.0f}%{gpu_text}"
+                t("system.report.load", cpu_avg=report['cpu_avg'], ram_avg=report['ram_avg'], disk_avg=report['disk_avg'], gpu_text=gpu_text)
             )
         )
 
         if report["top_offenders"]:
-            lines = ["Найбільше навантажували систему:"]
+            lines = [t("sysinfo.report.top")]
             for proc in report["top_offenders"]:
                 lines.append(f"•  {proc['name']} — CPU {proc['cpu_avg']:.0f}%, RAM {proc['ram_avg']:.0f}%")
             self.report_offenders_label.configure(text="\n".join(lines))
@@ -556,7 +556,8 @@ class SystemTab(ctk.CTkFrame):
 
             tab_key = item.get("tab_key")
             if tab_key:
-                label = system_info_core.ADVICE_TAB_LABELS.get(tab_key, "Перейти")
+                label = (t(system_info_core.ADVICE_TAB_LABELS[tab_key]) if tab_key in system_info_core.ADVICE_TAB_LABELS
+                         else t("system.go_to"))
                 ctk.CTkButton(
                     row, text=label, width=150, height=26, font=ctk.CTkFont(size=11),
                     command=lambda k=tab_key: self._go_to_tab(k),
@@ -572,7 +573,7 @@ class SystemTab(ctk.CTkFrame):
 
     def _copy_system_info(self):
         if self._snapshot is None:
-            messagebox.showinfo("Інфо", "Дані про систему ще завантажуються.", parent=self)
+            messagebox.showinfo(t("common.info"), t("system.still_loading"), parent=self)
             return
         self._snapshot["cpu"]["current_ghz"] = system_info_core.current_cpu_freq_ghz(self._monitor_snapshot())
         text = system_info_core.build_system_info_text(self._snapshot)
@@ -597,3 +598,7 @@ class SystemTab(ctk.CTkFrame):
                 pass
             self._freq_after_id = None
         self._report_stop_event.set()
+
+    def is_busy(self) -> bool:
+        """Триває операція, яку не можна перервати перебудовою вкладки (зміна мови)."""
+        return bool(self._report_running)

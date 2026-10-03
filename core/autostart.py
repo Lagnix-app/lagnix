@@ -25,6 +25,7 @@ from ctypes import wintypes
 from core.admin import is_admin
 from core.logging_setup import get_logger
 from core.app_data import load_data, update_data
+from core.i18n import TDict, t
 
 _RUN_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _RUN_SUBKEY_WOW64 = r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"
@@ -35,13 +36,13 @@ SOURCE_HKLM32 = "HKLM32"
 SOURCE_STARTUP_USER = "StartupUser"
 SOURCE_STARTUP_COMMON = "StartupCommon"
 
-SOURCE_LABELS = {
-    SOURCE_HKCU: "Реєстр — поточний користувач",
-    SOURCE_HKLM: "Реєстр — усі користувачі",
-    SOURCE_HKLM32: "Реєстр — усі користувачі (32-біт)",
-    SOURCE_STARTUP_USER: "Папка автозавантаження — користувач",
-    SOURCE_STARTUP_COMMON: "Папка автозавантаження — усі користувачі",
-}
+SOURCE_LABELS = TDict({
+    SOURCE_HKCU: "autostart.source.hkcu",
+    SOURCE_HKLM: "autostart.source.hklm",
+    SOURCE_HKLM32: "autostart.source.hklm32",
+    SOURCE_STARTUP_USER: "autostart.source.startup_user",
+    SOURCE_STARTUP_COMMON: "autostart.source.startup_common",
+})
 
 # (джерело, hive, шлях підключа, потрібні права адміністратора)
 _REGISTRY_SOURCES = (
@@ -62,12 +63,12 @@ _TECHNICAL_NAME_RE = re.compile(
 
 _HIGH_IMPACT_KEYWORDS = ("steam", "teams", "vanguard", "easyanticheat", "battleye", "faceit")
 _MEDIUM_IMPACT_KEYWORDS = ("discord", "onedrive", "edge", "skype", "spotify", "slack", "zoom", "dropbox")
-_IMPACT_HIGH, _IMPACT_MEDIUM, _IMPACT_LOW = "висока", "середня", "низька"
+_IMPACT_HIGH, _IMPACT_MEDIUM, _IMPACT_LOW = "high", "medium", "low"  # підпис — t("autostart.impact.<id>")
 
 _PROTECTED_NAME_KEYWORDS = ("securityhealth", "windowsdefender", "defender")
 
 _ANTICHEAT_KEYWORDS = ("vanguard", "easyanticheat", "battleye", "faceit")
-ANTICHEAT_WARNING = "Якщо вимкнути, ігри з цим античитом не запустяться до перезавантаження."
+ANTICHEAT_WARNING = "autostart.anticheat_warning"  # ключ перекладу
 
 _version_field_cache: dict[tuple[str, str], str | None] = {}
 
@@ -250,7 +251,7 @@ def _read_version_field(exe_path: str, field: str) -> str | None:
 
 
 read_version_field = _read_version_field
-"""Публічна назва: поле VERSIONINFO exe (CompanyName тощо), з кешем."""
+"Public name: an exe VERSIONINFO field (CompanyName, etc.), cached."
 
 
 def _read_version_field_uncached(exe_path: str, field: str) -> str | None:
@@ -447,7 +448,7 @@ def open_location(entry: dict) -> tuple[bool, str]:
     """Відкриває Провідник із виділеним файлом запису (exe/ярлик)."""
     path = entry.get("resolved_path")
     if not path or not os.path.exists(path):
-        return False, "Не вдалося визначити розташування файлу"
+        return False, t("autostart.err.no_location")
     try:
         subprocess.Popen(["explorer", "/select,", path])
         return True, ""
@@ -464,15 +465,15 @@ def disable_entry(entry: dict) -> tuple[bool, str]:
     if source in (SOURCE_HKCU, SOURCE_HKLM, SOURCE_HKLM32):
         hive, subkey_path, requires_admin = _registry_source_info(source)
         if requires_admin and not is_admin():
-            get_logger("core.autostart").error("Немає прав адміністратора для зміни")
-            return False, "Потрібні права адміністратора"
+            get_logger("core.autostart").error("No administrator rights for the change")
+            return False, t("common.err.need_admin")
         if not _delete_run_value(hive, subkey_path, entry["name"]):
-            return False, "Не вдалося видалити запис із реєстру"
+            return False, t("autostart.err.delete_registry")
 
     elif source in (SOURCE_STARTUP_USER, SOURCE_STARTUP_COMMON):
         if requires_admin_for(source) and not is_admin():
-            get_logger("core.autostart").error("Немає прав адміністратора для зміни")
-            return False, "Потрібні права адміністратора"
+            get_logger("core.autostart").error("No administrator rights for the change")
+            return False, t("common.err.need_admin")
         directory = _startup_dir_for(source)
         disabled_dir = os.path.join(directory, _DISABLED_DIR_NAME)
         try:
@@ -481,7 +482,7 @@ def disable_entry(entry: dict) -> tuple[bool, str]:
         except OSError as exc:
             return False, str(exc)
     else:
-        return False, "Невідоме джерело автозапуску"
+        return False, t("autostart.err.unknown_source")
 
     disabled = _disabled_state()
     disabled[entry["id"]] = {"source": source, "name": entry["name"], "command": entry["command"]}
@@ -494,22 +495,22 @@ def enable_entry(entry_id: str) -> tuple[bool, str]:
     disabled = _disabled_state()
     record = disabled.get(entry_id)
     if record is None:
-        return False, "Запис не знайдено серед вимкнених"
+        return False, t("autostart.err.not_found_disabled")
 
     source = record["source"]
 
     if source in (SOURCE_HKCU, SOURCE_HKLM, SOURCE_HKLM32):
         hive, subkey_path, requires_admin = _registry_source_info(source)
         if requires_admin and not is_admin():
-            get_logger("core.autostart").error("Немає прав адміністратора для зміни")
-            return False, "Потрібні права адміністратора"
+            get_logger("core.autostart").error("No administrator rights for the change")
+            return False, t("common.err.need_admin")
         if not _write_run_value(hive, subkey_path, record["name"], record["command"]):
-            return False, "Не вдалося відновити запис у реєстрі"
+            return False, t("autostart.err.restore_registry")
 
     elif source in (SOURCE_STARTUP_USER, SOURCE_STARTUP_COMMON):
         if requires_admin_for(source) and not is_admin():
-            get_logger("core.autostart").error("Немає прав адміністратора для зміни")
-            return False, "Потрібні права адміністратора"
+            get_logger("core.autostart").error("No administrator rights for the change")
+            return False, t("common.err.need_admin")
         directory = _startup_dir_for(source)
         disabled_path = os.path.join(directory, _DISABLED_DIR_NAME, record["name"])
         try:
@@ -517,7 +518,7 @@ def enable_entry(entry_id: str) -> tuple[bool, str]:
         except OSError as exc:
             return False, str(exc)
     else:
-        return False, "Невідоме джерело автозапуску"
+        return False, t("autostart.err.unknown_source")
 
     del disabled[entry_id]
     _save_disabled_state(disabled)

@@ -14,6 +14,7 @@ import psutil
 from core import perf_counters, process_groups, process_snapshot, sensors
 from core.settings import load_settings
 from core.system_processes import is_hidden
+from core.i18n import t
 
 try:
     import wmi as _wmi
@@ -307,10 +308,10 @@ def get_uptime_text() -> str:
     hours, minutes = divmod(rem_minutes, 60)
 
     if days > 0:
-        return f"{days} дн {hours} год"
+        return t("duration.d_h", days=days, hours=hours)
     if hours > 0:
-        return f"{hours} год {minutes} хв"
-    return f"{minutes} хв"
+        return t("duration.h_m_short", hours=hours, minutes=minutes)
+    return t("duration.m", minutes=minutes)
 
 
 def get_process_overview() -> tuple[list[dict], list[dict], float | None]:

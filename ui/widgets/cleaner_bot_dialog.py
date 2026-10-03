@@ -8,6 +8,7 @@ import tkinter as tk
 import customtkinter as ctk
 
 from ui.widgets.cleaner_bot import CleanerBotAnimation
+from core.i18n import t
 
 _WIDTH = 420
 _HEIGHT = 380
@@ -17,7 +18,7 @@ _AUTO_CLOSE_MS = 5000
 class CleanerBotDialog(ctk.CTkToplevel):
     """Модальне вікно: робот-прибиральник, статус, прогрес-бар, лічильник звільненого."""
 
-    def __init__(self, master, title: str = "Очищення", show_freed_counter: bool = True):
+    def __init__(self, master, title: str = t("tabs.cleanup"), show_freed_counter: bool = True):
         super().__init__(master)
         self.title(title)
         self.geometry(f"{_WIDTH}x{_HEIGHT}")
@@ -33,12 +34,12 @@ class CleanerBotDialog(ctk.CTkToplevel):
         self.bot = CleanerBotAnimation(self, height=175)
         self.bot.pack(fill="x", padx=16, pady=(16, 8))
 
-        self.freed_label = ctk.CTkLabel(self, text="Звільнено: 0 Б", font=ctk.CTkFont(size=13))
+        self.freed_label = ctk.CTkLabel(self, text=t("dialog.freed_zero"), font=ctk.CTkFont(size=13))
         if self._show_freed:
             self.freed_label.pack(pady=(0, 10))
 
         self.close_button = ctk.CTkButton(
-            self, text="Закрити", width=140, state="disabled", command=self._cancel_or_close
+            self, text=t("common.close"), width=140, state="disabled", command=self._cancel_or_close
         )
         self.close_button.pack(pady=(0, 16))
 
@@ -84,7 +85,7 @@ class CleanerBotDialog(ctk.CTkToplevel):
         self._status_text = text
         self.bot.start(text)
         if self._show_freed:
-            self.freed_label.configure(text="Звільнено: 0 Б")
+            self.freed_label.configure(text=t("dialog.freed_zero"))
 
     def set_status(self, text: str) -> None:
         """Оновлює назву поточного пункту, не чіпаючи прогрес."""
@@ -94,7 +95,7 @@ class CleanerBotDialog(ctk.CTkToplevel):
     def set_progress(self, progress: float, freed_text: str | None = None) -> None:
         self.bot.update(self._status_text, progress)
         if freed_text is not None and self._show_freed:
-            self.freed_label.configure(text=f"Звільнено: {freed_text}")
+            self.freed_label.configure(text=t("dialog.freed", freed=freed_text))
 
     def set_indeterminate(self, active: bool) -> None:
         """Для операцій без відомого прогресу (наприклад, очікування деінсталятора)."""
@@ -105,7 +106,7 @@ class CleanerBotDialog(ctk.CTkToplevel):
             self.bot.progress.stop()
             self.bot.progress.configure(mode="determinate")
 
-    def allow_cancel(self, on_cancel, label: str = "Не чекати") -> None:
+    def allow_cancel(self, on_cancel, label: str = t("programs.dont_wait")) -> None:
         """Дозволяє закрити вікно до завершення: on_cancel() сповіщає, що чекати більше не треба."""
         self._on_cancel = on_cancel
         self._closable = True
@@ -113,7 +114,7 @@ class CleanerBotDialog(ctk.CTkToplevel):
 
     def finish(self, text: str, success: bool = True) -> None:
         self._on_cancel = None
-        self.close_button.configure(text="Закрити")
+        self.close_button.configure(text=t("common.close"))
         if self.bot.progress.cget("mode") == "indeterminate":
             self.bot.progress.stop()
             self.bot.progress.configure(mode="determinate")

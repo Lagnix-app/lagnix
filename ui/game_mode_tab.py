@@ -28,30 +28,22 @@ from ui.widgets.game_widgets import (
     BigSwitch, ChipBoard, GamesList, IconCache, ScrollPage, SessionsList,
     fmt_mem, fmt_pct, fmt_temp,
 )
+from core.i18n import t
 
 GAME_CHECK_INTERVAL_SEC = 2.0
 PREVIEW_INTERVAL_SEC = 3.0
 SESSION_END_GRACE_TICKS = 2  # гра «зникла» на стільки перевірок поспіль — сесія завершена
 AUTO_TOAST_SECONDS = 5       # сповіщення «Ігровий режим увімкнено для…» з «Скасувати»
 GAMES_SCAN_TIMEOUT_S = 60
-PROFILE_NAMES = ("Гра", "Стрім", "Робота")
 _LIST_HEIGHT_DP = 300
-_COMMIT_KEYS = ("is_active", "active_profile", "closed_apps", "freed_mb", "plan_name",
+_COMMIT_KEYS = ("is_active", "active_profile", "closed_apps", "freed_mb", "plan_name", "plan_value",
                 "previous_power_plan", "ultra_guid")
 
 _logger = get_logger(__name__)
 
 
-def _plural(n: int, one: str, few: str, many: str) -> str:
-    if n % 10 == 1 and n % 100 != 11:
-        return one
-    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
-        return few
-    return many
-
-
 def _fmt_freed(mb: float) -> str:
-    return f"~{mb / 1024:.1f} ГБ" if mb >= 1024 else f"~{max(round(mb / 10) * 10, 10):.0f} МБ"
+    return t("units.approx_gb", gb=mb / 1024) if mb >= 1024 else t("units.approx_mb", mb=max(round(mb / 10) * 10, 10))
 
 
 # ======================================================= ручний вибір процесів
@@ -166,7 +158,7 @@ class ProcessCheckList(CanvasList):
         item = self.items[index]
         text = process_info.tooltip_text(item["name"], item.get("pid"))
         if len(item["names"]) > 1:
-            text += "\n\nЗакриваються разом: " + ", ".join(item["names"])
+            text += t("game_mode.closed_together") + ", ".join(item["names"])
         return text
 
     def click(self, index: int, region: str) -> None:
@@ -176,9 +168,8 @@ class ProcessCheckList(CanvasList):
         anticheat = [n for n in item["names"] if process_info.is_anticheat(n)]
         if not item["checked"] and anticheat:
             if not messagebox.askyesno(
-                "Античит",
-                f"«{anticheat[0]}» — античит.\n\n{process_info.ANTICHEAT_WARNING}\n\n"
-                "Усе одно закривати його під час увімкнення профілю?",
+                t("game_mode.anticheat.title"),
+                t("game_mode.anticheat.question", name=anticheat[0], warning=process_info.anticheat_warning()),
                 parent=self,
             ):
                 return
@@ -209,7 +200,7 @@ class GameModeTab(ctk.CTkFrame):
         self._running_mem: dict[str, float] = {}  # назва exe -> RAM (для ручних процесів профілю)
         self._on_battery = False
         self._note = ""
-        self._monitor_tab = None
+        self._tab_frames: dict = {}  # MainWindow.tab_frames (той самий словник: вкладки перебудовуються при зміні мови)
         self._auto_pending = False         # показано сповіщення автоувімкнення, чекаємо 5 с
         self._auto_toast = None
         self._auto_game_name = ""          # для сповіщення Windows після автоувімкнення
@@ -221,18 +212,7 @@ class GameModeTab(ctk.CTkFrame):
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
-        self.page = ScrollPage(self)
-        self.page.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
-        inner = self.page.inner
-        inner.grid_columnconfigure((0, 1), weight=1, uniform="cols")
-
-        ctk.CTkLabel(inner, text="Ігровий режим", font=theme.font_title()).grid(
-            row=0, column=0, columnspan=2, padx=20, pady=(20, 8), sticky="w")
-        self._build_hero(inner)
-        self._build_apps_card(inner)
-        self._build_games_card(inner)
-        self._build_sessions_card(inner)
-        self._build_advanced_card(inner)
+        self._build_view()
 
         bg.ensure_pump(self)
         self._reset_on_startup()
@@ -245,6 +225,43 @@ class GameModeTab(ctk.CTkFrame):
         self.after(0, self._start_workers)
 
     # ------------------------------------------------------------ побудова
+
+    def _build_view(self) -> None:
+        self.page = ScrollPage(self)
+        self.page.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
+        inner = self.page.inner
+        inner.grid_columnconfigure((0, 1), weight=1, uniform="cols")
+
+        ctk.CTkLabel(inner, text=t("tabs.game_mode"), font=theme.font_title()).grid(
+            row=0, column=0, columnspan=2, padx=20, pady=(20, 8), sticky="w")
+        self._build_hero(inner)
+        self._build_apps_card(inner)
+        self._build_games_card(inner)
+        self._build_sessions_card(inner)
+        self._build_advanced_card(inner)
+
+    def rebuild_view(self) -> None:
+        """Зміна мови інтерфейсу: перебудувати лише вигляд. Стан режиму, фонові
+        потоки, сесія гри й автоувімкнення лишаються як є — повне перестворення
+        вкладки вимкнуло б активний Ігровий режим (_reset_on_startup)."""
+        adv_open = self.adv_body is not None and bool(self.adv_body.winfo_manager())
+        try:
+            fraction = self.page.canvas.yview()[0]
+        except Exception:
+            fraction = 0.0
+        self.page.destroy()
+        self._advanced_built = False
+        self._build_view()
+        self._render()
+        self._render_sessions()
+        if self._games:
+            self._refresh_games_list()
+        elif self._games_task is not None and not self._games_task.finished:
+            theme.set_text(self.games_info, t("game_mode.games.searching"), text_color=theme.TEXT_DIM)
+        if adv_open:
+            self._toggle_advanced()
+        self.robot.set_running(self._visible)
+        self.after(120, lambda: self.page.winfo_exists() and self.page.controller.moveto_now(fraction))
 
     def _card(self, parent, row: int, column: int = 0, columnspan: int = 2, pady=(0, 14)):
         card = theme.PlainFrame(parent, fg_color=theme.BG_PANEL, corner_radius=14)
@@ -266,7 +283,7 @@ class GameModeTab(ctk.CTkFrame):
         body.grid_columnconfigure(1, weight=1)
         self.switch = BigSwitch(body, self._on_switch_clicked)
         self.switch.grid(row=0, column=0, rowspan=2, padx=(0, 14), sticky="w")
-        ctk.CTkLabel(body, text="Ігровий режим", font=theme.font_header(), anchor="w").grid(
+        ctk.CTkLabel(body, text=t("tabs.game_mode"), font=theme.font_header(), anchor="w").grid(
             row=0, column=1, sticky="sw")
         self.status_label = ctk.CTkLabel(body, text="", font=ctk.CTkFont(size=14, weight="bold"), anchor="w")
         self.status_label.grid(row=1, column=1, sticky="nw")
@@ -294,7 +311,7 @@ class GameModeTab(ctk.CTkFrame):
         header = ctk.CTkFrame(card, fg_color="transparent")
         header.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
-        self.apps_title = ctk.CTkLabel(header, text="Фонові програми для закриття", font=theme.font_header())
+        self.apps_title = ctk.CTkLabel(header, text=t("game_mode.apps.title"), font=theme.font_header())
         self.apps_title.grid(row=0, column=0, sticky="w")
         self.apps_info = ctk.CTkLabel(header, text="", font=theme.font_small(), text_color=theme.TEXT_DIM)
         self.apps_info.grid(row=0, column=1, sticky="e")
@@ -344,24 +361,24 @@ class GameModeTab(ctk.CTkFrame):
         header = ctk.CTkFrame(card, fg_color="transparent")
         header.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(header, text="Ігри", font=theme.font_header()).grid(row=0, column=0, sticky="w")
-        self.games_info = ctk.CTkLabel(header, text="Шукаю ігри…", font=theme.font_small(), text_color=theme.TEXT_DIM)
+        ctk.CTkLabel(header, text=t("game_mode.games.title"), font=theme.font_header()).grid(row=0, column=0, sticky="w")
+        self.games_info = ctk.CTkLabel(header, text=t("game_mode.games.searching"), font=theme.font_small(), text_color=theme.TEXT_DIM)
         self.games_info.grid(row=0, column=1, padx=(8, 10), sticky="e")
-        ctk.CTkLabel(header, text="Авто:", font=theme.font_small(), text_color=theme.TEXT_DIM).grid(
+        ctk.CTkLabel(header, text=t("game_mode.games.auto"), font=theme.font_small(), text_color=theme.TEXT_DIM).grid(
             row=0, column=2, padx=(0, 4))
-        self._small_button(header, "усі", lambda: self._set_all_auto(True), width=34).grid(row=0, column=3, padx=(0, 4))
-        self._small_button(header, "жодної", lambda: self._set_all_auto(False), width=52).grid(
+        self._small_button(header, t("game_mode.games.auto_all"), lambda: self._set_all_auto(True), width=34).grid(row=0, column=3, padx=(0, 4))
+        self._small_button(header, t("game_mode.games.auto_none"), lambda: self._set_all_auto(False), width=52).grid(
             row=0, column=4, padx=(0, 8))
-        self._icon_button(header, self._rescan_games, "Шукати ігри знову").grid(row=0, column=5)
-        self.games_retry_button = self._small_button(header, "Повторити", self._rescan_games, width=90)
+        self._icon_button(header, self._rescan_games, t("game_mode.games.rescan")).grid(row=0, column=5)
+        self.games_retry_button = self._small_button(header, t("common.retry"), self._rescan_games, width=90)
         self.games_retry_button.grid(row=1, column=0, columnspan=6, pady=(6, 0), sticky="w")
         self.games_retry_button.grid_remove()
         self.games_list = GamesList(card, on_toggle=self._on_game_toggle, on_group=self._toggle_other_group)
         self.games_list.canvas.configure(width=10, height=round(_LIST_HEIGHT_DP * self._get_widget_scaling()))
         self.games_list.grid(row=1, column=0, padx=(12, 8), pady=(0, 6), sticky="nsew")
-        self.games_list.set_empty_text("Шукаю встановлені ігри…")
+        self.games_list.set_empty_text(t("game_mode.games.searching_installed"))
         ctk.CTkLabel(
-            card, text="Перемикач «Авто» — вмикати режим, коли гра запускається, і вимикати після виходу.",
+            card, text=t("game_mode.games.hint"),
             font=theme.font_small(), text_color=theme.TEXT_DIM, wraplength=330, justify="left",
         ).grid(row=2, column=0, padx=16, pady=(0, 12), sticky="w")
 
@@ -371,8 +388,8 @@ class GameModeTab(ctk.CTkFrame):
         header = ctk.CTkFrame(card, fg_color="transparent")
         header.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(header, text="Підсумок сесії", font=theme.font_header()).grid(row=0, column=0, sticky="w")
-        self._small_button(header, "Очистити", self._clear_sessions, width=76,
+        ctk.CTkLabel(header, text=t("game_mode.sessions.title"), font=theme.font_header()).grid(row=0, column=0, sticky="w")
+        self._small_button(header, t("settings.data.clear"), self._clear_sessions, width=76,
                            fg_color=theme.BG_PANEL_LIGHT, hover_color="#a8283f").grid(row=0, column=1)
 
         self.last_card = theme.PlainFrame(card, fg_color=theme.BG_PANEL_LIGHT, corner_radius=12)
@@ -384,8 +401,8 @@ class GameModeTab(ctk.CTkFrame):
                                      anchor="w", justify="left")
         self.last_sub.grid(row=1, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
         self._tiles = {}
-        for i, (key, title) in enumerate((("cpu", "CPU (сер. / макс.)"), ("gpu", "GPU (сер. / макс.)"),
-                                          ("cpu_temp", "Макс. темп. CPU"), ("gpu_temp", "Макс. темп. GPU"))):
+        for i, (key, title) in enumerate((("cpu", t("game_mode.sessions.cpu")), ("gpu", t("game_mode.sessions.gpu")),
+                                          ("cpu_temp", t("game_mode.sessions.cpu_temp")), ("gpu_temp", t("game_mode.sessions.gpu_temp")))):
             ctk.CTkLabel(self.last_card, text=title, font=theme.font_small(), text_color=theme.TEXT_DIM,
                          anchor="w").grid(row=2 + (i // 2) * 2, column=i % 2, padx=12, sticky="ew")
             value = ctk.CTkLabel(self.last_card, text="—", font=theme.font_header(), anchor="w")
@@ -395,12 +412,12 @@ class GameModeTab(ctk.CTkFrame):
         self.sessions_list = SessionsList(card)
         self.sessions_list.canvas.configure(width=10, height=round(150 * self._get_widget_scaling()))
         self.sessions_list.grid(row=2, column=0, padx=(12, 8), pady=(0, 14), sticky="nsew")
-        self.sessions_list.set_empty_text("Історія порожня — зіграй у гру, і тут з'явиться підсумок")
+        self.sessions_list.set_empty_text(t("game_mode.sessions.empty"))
 
     def _build_advanced_card(self, inner) -> None:
         self.adv_card = self._card(inner, 4, pady=(0, 20))
         self.adv_button = ctk.CTkButton(
-            self.adv_card, text="▸  Розширені", anchor="w", height=40, corner_radius=14,
+            self.adv_card, text=t("game_mode.advanced.collapsed"), anchor="w", height=40, corner_radius=14,
             font=theme.font_header(), fg_color="transparent", hover_color=theme.BG_PANEL_LIGHT,
             text_color=theme.TEXT_MAIN, command=self._toggle_advanced,
         )
@@ -410,9 +427,9 @@ class GameModeTab(ctk.CTkFrame):
     # ------------------------------------------------------------- потоки
 
     def _start_workers(self) -> None:
-        self._monitor_tab = getattr(self.winfo_toplevel(), "tab_frames", {}).get("monitor")
-        bg.start_thread(self, "Ігровий режим: список програм", self._preview_loop)
-        bg.start_thread(self, "Ігровий режим: стеження за іграми", self._watch_loop)
+        self._tab_frames = getattr(self.winfo_toplevel(), "tab_frames", {})
+        bg.start_thread(self, "Game Mode: program list", self._preview_loop)
+        bg.start_thread(self, "Game Mode: game watcher", self._watch_loop)
         self._rescan_games()
 
     def _post(self, callback, *args) -> None:
@@ -449,7 +466,7 @@ class GameModeTab(ctk.CTkFrame):
                             mem[m["name"].lower()] = mem.get(m["name"].lower(), 0.0) + m["memory_mb"]
                     self._post(self._apply_preview, running, mem, power_plans.on_battery())
                 except Exception:
-                    _logger.exception("Не вдалося зібрати список програм для закриття")
+                    _logger.exception("Failed to collect the list of programs to close")
             self._wake.wait(PREVIEW_INTERVAL_SEC)
             self._wake.clear()
 
@@ -531,11 +548,11 @@ class GameModeTab(ctk.CTkFrame):
         self.switch.set_busy(self._busy)
 
         if self._busy:
-            status, color = ("Вимикаю…" if active else "Вмикаю…"), theme.ACCENT_BLUE
+            status, color = (t("game_mode.status.disabling") if active else t("game_mode.status.enabling")), theme.ACCENT_BLUE
         elif active:
-            status, color = "● Увімкнено", theme.ACCENT_GREEN
+            status, color = t("game_mode.status.on"), theme.ACCENT_GREEN
         else:
-            status, color = "Вимкнено", theme.TEXT_DIM
+            status, color = t("game_mode.status.off"), theme.TEXT_DIM
         theme.set_text(self.status_label, status, text_color=color)
 
         apps, extras = self._current_apps(), self._current_extras()
@@ -544,13 +561,13 @@ class GameModeTab(ctk.CTkFrame):
             summary = self._active_summary(len(closed))
             chips = [{"key": (c.get("name") or c["title"]).lower(), "title": c["title"],
                       "memory_mb": c.get("memory_mb", 0), "exe_path": c.get("exe_path"),
-                      "category_label": "Закрито PulseFPS", "note": "Після вимкнення режиму запропоную відкрити знову"}
+                      "category_label": t("game_mode.closed_by"), "note": t("game_mode.reopen_note")}
                      for c in closed]
-            self.chips.set_chips(chips, False, "Режим не закривав жодних програм.")
+            self.chips.set_chips(chips, False, t("game_mode.closed_none"))
             self.chips.grid()
             self.apps_panel.grid_remove()
-            theme.set_text(self.apps_title, "Закрито PulseFPS")
-            theme.set_text(self.apps_info, f"звільнено {_fmt_freed(self.state.get('freed_mb', 0))} RAM"
+            theme.set_text(self.apps_title, t("game_mode.closed_by"))
+            theme.set_text(self.apps_info, t("game_mode.freed_ram", freed=_fmt_freed(self.state.get('freed_mb', 0)))
                            if self.state.get("freed_mb") else "")
         else:
             summary = self._idle_summary(apps, extras)
@@ -562,16 +579,15 @@ class GameModeTab(ctk.CTkFrame):
                 self.state.get("collapsed_groups", []), game_mode_core.never_close_of(self.state),
                 self.state.get("never_close") is None,
             )
-            theme.set_text(self.apps_title, "Фонові програми для закриття")
+            theme.set_text(self.apps_title, t("game_mode.apps.title"))
             n = len(apps) + len(extras)
             total = sum(a["memory_mb"] for a in apps) + sum(self._running_mem.get(p.lower(), 0) for p in extras)
-            theme.set_text(self.apps_info, f"закрию {n} · {fmt_mem(total)} RAM" if n else "")
+            theme.set_text(self.apps_info, t("game_mode.apps.info", n=n, total=fmt_mem(total)) if n else "")
         theme.set_text(self.summary_label, summary)
 
         note = self._note
         if not note and not active and self._plan_value() == game_mode_core.ULTRA and self._on_battery:
-            note = ("Ноутбук працює від батареї: «PulseFPS Ultra» швидко її розряджає й автоматично "
-                    "не вмикається. Вручну — спитаю підтвердження.")
+            note = (t("game_mode.battery_note"))
         theme.set_text(self.note_label, note)
         if note:
             self.note_label.grid()
@@ -581,26 +597,27 @@ class GameModeTab(ctk.CTkFrame):
 
     def _plan_phrase(self, plan: str) -> str:
         if not plan:
-            return "план живлення не змінюватиму"
-        return f"увімкну план «{game_mode_core.power_plan_name(plan)}»"
+            return t("game_mode.plan.keep")
+        return t("game_mode.plan.switch", plan=game_mode_core.power_plan_name(plan))
 
     def _idle_summary(self, apps: list[dict], extras: list[str]) -> str:
         n = len(apps) + len(extras)
         freed = sum(a["memory_mb"] for a in apps) + sum(self._running_mem.get(p.lower(), 0) for p in extras)
         plan = self._plan_phrase(self._plan_value())
         if not n:
-            return f"Фонових програм для закриття немає, {plan}."
-        text = f"Закрию {n} {_plural(n, 'фонову програму', 'фонові програми', 'фонових програм')}, {plan}"
-        return f"{text}, звільню {_fmt_freed(freed)} RAM" if freed >= 10 else text
+            return t("game_mode.summary.nothing", plan=plan)
+        text = t("game_mode.summary.will_close", count=n, plan=plan)
+        return t("game_mode.summary.will_free", text=text, freed=_fmt_freed(freed)) if freed >= 10 else text
 
     def _active_summary(self, closed: int) -> str:
-        plan = self.state.get("plan_name")
-        parts = [f"Закрито {closed} {_plural(closed, 'програму', 'програми', 'програм')}"
-                 if closed else "Програм для закриття не було"]
+        plan_value = self.state.get("plan_value")
+        plan = game_mode_core.power_plan_name(plan_value) if plan_value else self.state.get("plan_name")
+        parts = [t("game_mode.summary.closed", count=closed)
+                 if closed else t("game_mode.summary.nothing_closed")]
         freed = self.state.get("freed_mb", 0)
         if freed >= 10:
-            parts.append(f"звільнено {_fmt_freed(freed)} RAM")
-        parts.append(f"план «{plan}»" if plan else "план живлення не змінено")
+            parts.append(t("game_mode.freed_ram", freed=_fmt_freed(freed)))
+        parts.append(t("game_mode.summary.plan", plan=plan) if plan else t("game_mode.summary.plan_unchanged"))
         return ", ".join(parts) + "."
 
     # --------------------------------------------------- чіпи (розумний список)
@@ -727,11 +744,8 @@ class GameModeTab(ctk.CTkFrame):
         plan_override = None
         if self._plan_value() == game_mode_core.ULTRA and power_plans.on_battery():
             answer = messagebox.askyesnocancel(
-                "Ноутбук працює від батареї",
-                "«PulseFPS Ultra» тримає процесор на максимумі й швидко розряджає батарею.\n\n"
-                "Так — усе одно ввімкнути план Ultra\n"
-                "Ні — увімкнути режим без зміни плану живлення\n"
-                "Скасувати — нічого не робити",
+                t("game_mode.battery.title"),
+                t("game_mode.battery.question"),
                 parent=self,
             )
             if answer is None:
@@ -742,11 +756,11 @@ class GameModeTab(ctk.CTkFrame):
         action = None
         if apps or extras:
             names = [a["title"] for a in apps] + extras
-            shown = "\n".join("• " + n for n in names[:12]) + (f"\n… і ще {len(names) - 12}" if len(names) > 12 else "")
+            shown = "\n".join("• " + n for n in names[:12]) + (t("game_mode.and_more", count=len(names) - 12) if len(names) > 12 else "")
             action = process_control.ask_user_action(
-                self, "Ігровий режим",
-                f"Буде закрито:\n{shown}\n\nНезбережені дані в цих програмах можуть загубитись. Продовжити?",
-                reason="Ігровий режим → перемикач «Увімкнути»",
+                self, t("tabs.game_mode"),
+                t("game_mode.confirm_close", shown=shown),
+                reason="Game Mode → \"Turn on\" switch",
             )
             if action is None:
                 return
@@ -769,9 +783,9 @@ class GameModeTab(ctk.CTkFrame):
             self._commit(work)
             self._auto_enabled = auto
             if auto:
-                report["note"] = "Увімкнено автоматично (гра запущена): лише план живлення, програми не закривались."
+                report["note"] = t("game_mode.auto_note")
         except Exception as exc:
-            _logger.exception("Не вдалося ввімкнути ігровий режим")
+            _logger.exception("Failed to turn on Game Mode")
             report = {"errors": [str(exc)], "plan_error": "", "closed": []}
         self._post(self._on_activated, report)
 
@@ -786,7 +800,7 @@ class GameModeTab(ctk.CTkFrame):
         problems = list(report.get("errors", []))
         if report.get("plan_error"):
             problems.append(report["plan_error"])
-        self._note = ("Не все вдалося: " + "; ".join(problems[:3])) if problems else report.get("note", "")
+        self._note = (t("game_mode.partial_fail") + "; ".join(problems[:3])) if problems else report.get("note", "")
         self._render()
         if self._auto_enabled and self.is_active():
             hook = getattr(self.winfo_toplevel(), "notify_game_mode_auto", None)
@@ -806,7 +820,7 @@ class GameModeTab(ctk.CTkFrame):
             closed = game_mode_core.deactivate(work)
             self._commit(work)
         except Exception:
-            _logger.exception("Не вдалося вимкнути ігровий режим")
+            _logger.exception("Failed to turn off Game Mode")
         self._auto_enabled = False
         self._post(self._on_deactivated, closed if offer_reopen else [])
 
@@ -821,8 +835,8 @@ class GameModeTab(ctk.CTkFrame):
     def _offer_reopen(self, closed: list[dict]) -> None:
         names = "\n".join("• " + c["title"] for c in closed[:12])
         if messagebox.askyesno(
-            "Відкрити програми знову?",
-            f"Під час ігрового режиму PulseFPS закрив:\n{names}\n\nВідкрити їх знову?",
+            t("game_mode.reopen.title"),
+            t("game_mode.reopen.question", names=names),
             parent=self,
         ):
             threading.Thread(target=self._reopen_worker, args=(closed,), daemon=True).start()
@@ -830,7 +844,7 @@ class GameModeTab(ctk.CTkFrame):
     def _reopen_worker(self, closed: list[dict]) -> None:
         failed = smart_apps.reopen_apps(closed)
         if failed:
-            self._post(self._set_note, "Не вдалося відкрити: " + ", ".join(failed))
+            self._post(self._set_note, t("game_mode.reopen.failed") + ", ".join(failed))
 
     def _set_note(self, note: str) -> None:
         self._note = note
@@ -851,13 +865,12 @@ class GameModeTab(ctk.CTkFrame):
             self._save()
         previous = work.get("previous_power_plan")
         get_audit_logger().info(
-            "Запуск PulseFPS: збережений стан «Ігровий режим увімкнено» не відновлюється — режим вимкнено "
-            "(план живлення: %s; раніше режим закривав: %s)",
-            f"повертаю «{game_mode_core.power_plan_name(game_mode_core.normal_plan_target(previous))}»"
-            if previous else "без змін", ", ".join(closed) or "нічого",
+            "PulseFPS startup: the saved \"Game Mode on\" state is not restored — the mode is off (power plan: %s; previously the mode closed: %s)",
+            f'restoring "{game_mode_core.power_plan_name(game_mode_core.normal_plan_target(previous))}"'
+            if previous else "unchanged", ", ".join(closed) or "nothing",
         )
         if previous:
-            bg.start_thread(self, "Ігровий режим: повернення плану", game_mode_core.deactivate, work)
+            bg.start_thread(self, "Game Mode: restoring the plan", game_mode_core.deactivate, work)
 
     # ------------------------------------------------------------------ ігри
 
@@ -865,17 +878,17 @@ class GameModeTab(ctk.CTkFrame):
         if self._games_task is not None and not self._games_task.finished:
             return
         self.games_retry_button.grid_remove()
-        theme.set_text(self.games_info, "Шукаю ігри…", text_color=theme.TEXT_DIM)
+        theme.set_text(self.games_info, t("game_mode.games.searching"), text_color=theme.TEXT_DIM)
         if not self._games:
-            self.games_list.set_empty_text("Шукаю встановлені ігри…")
-        self._games_task = bg.run_task(self, "Ігровий режим: пошук ігор", game_scanner.scan_games,
+            self.games_list.set_empty_text(t("game_mode.games.searching_installed"))
+        self._games_task = bg.run_task(self, "Game Mode: game search", game_scanner.scan_games,
                                        self._apply_games, self._on_games_failed, timeout=GAMES_SCAN_TIMEOUT_S)
 
     def _on_games_failed(self, exc: BaseException) -> None:
         if not self.winfo_exists():
             return
-        theme.set_text(self.games_info, "Не вдалося завантажити", text_color=theme.ERROR)
-        self.games_list.set_empty_text(f"Не вдалося завантажити ігри ({bg.error_text(exc)}) — натисніть «Повторити»")
+        theme.set_text(self.games_info, t("game_mode.games.load_failed"), text_color=theme.ERROR)
+        self.games_list.set_empty_text(t("game_mode.games.load_failed_long", exc=bg.error_text(exc)))
         if not self._games:
             self.games_list.set_items([])
         self.games_retry_button.grid()
@@ -897,15 +910,15 @@ class GameModeTab(ctk.CTkFrame):
         others = [row(g) for g in self._games if g.get("kind", "game") != "game"]
         items = list(games)
         if others:
-            items.append({"key": "__other__", "group": True, "name": "Інше (не ігри)", "count": len(others),
+            items.append({"key": "__other__", "group": True, "name": t("game_mode.games.other_group"), "count": len(others),
                           "expanded": self._others_expanded})
             if self._others_expanded:
                 items += others
-        self.games_list.set_empty_text("Ігор Steam, Epic, Riot, Battle.net, EA чи Ubisoft не знайдено")
+        self.games_list.set_empty_text(t("game_mode.games.none_found"))
         self.games_list.set_items(items)
         enabled = sum(1 for i in games if i["auto"])
-        theme.set_text(self.games_info, f"{len(games)} {_plural(len(games), 'гра', 'гри', 'ігор')} · "
-                                        f"авто: {enabled}" if games else "")
+        theme.set_text(self.games_info, t("game_mode.games.count", count=len(games), enabled=enabled)
+                       if games else "")
 
     def _toggle_other_group(self) -> None:
         self._others_expanded = not self._others_expanded
@@ -951,7 +964,7 @@ class GameModeTab(ctk.CTkFrame):
         return table
 
     def _monitor_snapshot(self):
-        tab = self._monitor_tab
+        tab = self._tab_frames.get("monitor")  # звичайний dict — без звернень до Tk із потоку
         return tab.latest_snapshot() if tab is not None else None
 
     def _watch_loop(self) -> None:
@@ -984,7 +997,7 @@ class GameModeTab(ctk.CTkFrame):
                         self._finish_session(tracker)
                         tracker = None
                         if self._auto_pending:
-                            self._post(self._cancel_auto_offer, "гру закрито до автоувімкнення")
+                            self._post(self._cancel_auto_offer, "the game was closed before auto-enable")
                         if self._auto_enabled and self.state.get("is_active") and not self._busy:
                             self._busy = True
                             self._post(self._render)
@@ -994,12 +1007,12 @@ class GameModeTab(ctk.CTkFrame):
                 if keys != self._running_game_keys:
                     self._running_game_keys = keys
                     self._post(self._refresh_games_list)
-                text = f"Запущено: {tracker.game}" if tracker else "Ігри не запущені"
+                text = t("game_mode.running", game=tracker.game) if tracker else t("game_mode.not_running")
                 if text != detected_text:
                     detected_text = text
                     self._post(self._update_detect_label, text)
             except Exception:
-                _logger.exception("Помилка стеження за іграми")
+                _logger.exception("Game watcher error")
             self._stop_event.wait(GAME_CHECK_INTERVAL_SEC)
 
     def _maybe_offer_auto_enable(self, game: dict) -> None:
@@ -1007,7 +1020,7 @@ class GameModeTab(ctk.CTkFrame):
         exe з теки гри, і показуємо сповіщення з «Скасувати». Нічого не закриває."""
         proc = game_mode_core.find_game_process(game["exes"], game["folder"])
         if proc is None:
-            _logger.error("Автоувімкнення пропущено для «%s»: процес %s запущено не з теки гри (%s)",
+            _logger.error("Auto-enable skipped for \"%s\": process %s was not started from the game folder (%s)",
                           game["name"], "/".join(sorted(game["exes"])), game["folder"])
             return
         self._auto_pending = True
@@ -1017,8 +1030,8 @@ class GameModeTab(ctk.CTkFrame):
         if not self.winfo_exists() or self.state.get("is_active") or self._busy:
             self._auto_pending = False
             return
-        get_audit_logger().info("Гра «%s» запущена (%s, PID %s, %s) — пропоную автоувімкнення Ігрового режиму",
-                                game["name"], proc["name"], proc["pid"], proc["exe"] or "шлях невідомий")
+        get_audit_logger().info("Game \"%s\" started (%s, PID %s, %s) — offering to auto-enable Game Mode",
+                                game["name"], proc["name"], proc["pid"], proc["exe"] or "path unknown")
         if not load_settings().get("game_mode_auto_toast", True):
             # сповіщення вимкнено в «Налаштуваннях» — одразу лише план живлення (програми не закриваються)
             self._auto_offer_accepted(game)
@@ -1026,10 +1039,10 @@ class GameModeTab(ctk.CTkFrame):
         apps = list(self._current_apps())
         extra = None
         if apps:
-            extra = (f"Закрити програми ({len(apps)})…", lambda: self._auto_offer_close_apps(game))
+            extra = (t("game_mode.toast.close_apps", count=len(apps)), lambda: self._auto_offer_close_apps(game))
         self._auto_toast = CountdownToast(
-            self.winfo_toplevel(), f"Ігровий режим увімкнено для {game['name']}",
-            "План живлення буде змінено на ігровий. Програми не закриваються без вашого підтвердження.",
+            self.winfo_toplevel(), t("game_mode.toast.title", name=game['name']),
+            t("game_mode.toast.text"),
             AUTO_TOAST_SECONDS, on_timeout=lambda: self._auto_offer_accepted(game),
             on_cancel=lambda: self._auto_offer_cancelled(game), extra=extra,
         )
@@ -1039,22 +1052,22 @@ class GameModeTab(ctk.CTkFrame):
         self._auto_pending = False
         if self.state.get("is_active") or self._busy:
             return
-        get_audit_logger().info("Ігровий режим увімкнено автоматично для гри «%s» (%s) — лише план живлення",
+        get_audit_logger().info("Game Mode enabled automatically for game \"%s\" (%s) — power plan only",
                                 game["name"], game["key"])
         self._auto_game_name = game["name"]
         self._busy = True
         self._render()
-        bg.start_thread(self, "Ігровий режим: автоувімкнення", self._activate_worker, True)
+        bg.start_thread(self, "Game Mode: auto-enable", self._activate_worker, True)
 
     def _auto_offer_cancelled(self, game: dict) -> None:
         self._auto_toast = None
         self._auto_pending = False  # повторно не запропонуємо, доки гра не закриється
-        get_audit_logger().info("Автоувімкнення Ігрового режиму для «%s» скасовано користувачем", game["name"])
+        get_audit_logger().info("Game Mode auto-enable for \"%s\" cancelled by the user", game["name"])
 
     def _auto_offer_close_apps(self, game: dict) -> None:
         self._auto_toast = None
         self._auto_pending = False
-        get_audit_logger().info("Сповіщення для «%s»: користувач обрав «Закрити програми…»", game["name"])
+        get_audit_logger().info("Notification for \"%s\": the user chose \"Close programs…\"", game["name"])
         self._request_enable()  # звичайний шлях: список програм + підтвердження
 
     def _cancel_auto_offer(self, reason: str) -> None:
@@ -1062,7 +1075,7 @@ class GameModeTab(ctk.CTkFrame):
         toast, self._auto_toast = self._auto_toast, None
         if toast is not None:
             toast.dismiss()
-            get_audit_logger().info("Сповіщення автоувімкнення прибрано: %s", reason)
+            get_audit_logger().info("Auto-enable notification dismissed: %s", reason)
 
     def _finish_session(self, tracker) -> None:
         summary = tracker.finish()
@@ -1103,7 +1116,7 @@ class GameModeTab(ctk.CTkFrame):
     def _clear_sessions(self) -> None:
         if not game_sessions.load_sessions():
             return
-        if messagebox.askyesno("Історія сесій", "Очистити історію ігрових сесій?", parent=self):
+        if messagebox.askyesno(t("game_mode.sessions.history"), t("game_mode.sessions.clear_question"), parent=self):
             game_sessions.clear_sessions()
             self._render_sessions()
 
@@ -1112,14 +1125,14 @@ class GameModeTab(ctk.CTkFrame):
     def _toggle_advanced(self) -> None:
         if self.adv_body is None:
             self._build_advanced_body()
-            self.adv_button.configure(text="▾  Розширені")
+            self.adv_button.configure(text=t("game_mode.advanced.expanded"))
             self.after(50, self._scroll_to_advanced)
         elif self.adv_body.winfo_manager():
             self.adv_body.grid_remove()
-            self.adv_button.configure(text="▸  Розширені")
+            self.adv_button.configure(text=t("game_mode.advanced.collapsed"))
         else:
             self.adv_body.grid()
-            self.adv_button.configure(text="▾  Розширені")
+            self.adv_button.configure(text=t("game_mode.advanced.expanded"))
             self.after(50, self._scroll_to_advanced)
 
     def _scroll_to_advanced(self) -> None:
@@ -1135,19 +1148,20 @@ class GameModeTab(ctk.CTkFrame):
         left = ctk.CTkFrame(body, fg_color="transparent")
         left.grid(row=0, column=0, padx=(0, 10), sticky="nsew")
         left.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(left, text="Профіль", font=theme.font_body()).grid(row=0, column=0, sticky="w")
-        self.profile_var = tk.StringVar(value=self.state["active_profile"])
-        self._menu(left, self.profile_var, list(PROFILE_NAMES), self._on_profile_selected).grid(
+        ctk.CTkLabel(left, text=t("game_mode.profile"), font=theme.font_body()).grid(row=0, column=0, sticky="w")
+        self._profile_names = {game_mode_core.profile_name(p): p for p in game_mode_core.PROFILE_IDS}
+        self.profile_var = tk.StringVar(value=game_mode_core.profile_name(self.state["active_profile"]))
+        self._menu(left, self.profile_var, list(self._profile_names), self._on_profile_selected).grid(
             row=1, column=0, pady=(2, 10), sticky="w")
-        ctk.CTkLabel(left, text="План живлення профілю", font=theme.font_body()).grid(row=2, column=0, sticky="w")
+        ctk.CTkLabel(left, text=t("game_mode.profile_plan"), font=theme.font_body()).grid(row=2, column=0, sticky="w")
         self._plan_choices = game_mode_core.plan_choices()
         self.power_plan_var = tk.StringVar()
         self.power_plan_menu = self._menu(left, self.power_plan_var, list(self._plan_choices),
                                           self._on_power_plan_selected)
         self.power_plan_menu.grid(row=3, column=0, pady=(2, 10), sticky="w")
-        self._small_button(left, "Повернути звичайний план", self._on_restore_plan, width=10).grid(
+        self._small_button(left, t("game_mode.restore_plan"), self._on_restore_plan, width=10).grid(
             row=4, column=0, pady=(0, 2), sticky="w")
-        self._small_button(left, "Видалити план PulseFPS Ultra…", self._on_delete_ultra, width=10,
+        self._small_button(left, t("game_mode.delete_ultra"), self._on_delete_ultra, width=10,
                            fg_color="transparent", hover_color=theme.BG_PANEL_LIGHT, text_color=theme.ERROR).grid(
             row=5, column=0, pady=(0, 6), sticky="w")
         self.adv_result = ctk.CTkLabel(left, text="", font=theme.font_small(), text_color=theme.TEXT_DIM,
@@ -1162,18 +1176,18 @@ class GameModeTab(ctk.CTkFrame):
         head = ctk.CTkFrame(right, fg_color="transparent")
         head.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         head.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(head, text="Процеси для закриття (вручну)", font=theme.font_body()).grid(
+        ctk.CTkLabel(head, text=t("game_mode.manual_processes"), font=theme.font_body()).grid(
             row=0, column=0, sticky="w")
         self.show_system_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(head, text="Показати системні", variable=self.show_system_var,
+        ctk.CTkCheckBox(head, text=t("game_mode.show_system"), variable=self.show_system_var,
                         command=self._render_process_list, font=theme.font_small(), text_color=theme.TEXT_DIM,
                         checkbox_width=16, checkbox_height=16, border_width=2, corner_radius=4).grid(
             row=0, column=1, padx=(8, 8))
-        self._icon_button(head, self._refresh_process_list, "Оновити список процесів").grid(row=0, column=2)
+        self._icon_button(head, self._refresh_process_list, t("game_mode.refresh_processes")).grid(row=0, column=2)
         self.process_list = ProcessCheckList(right, on_toggle=self._on_process_toggle)
         self.process_list.canvas.configure(width=10, height=round(230 * S))
         self.process_list.grid(row=1, column=0, sticky="nsew")
-        self.process_list.set_empty_text("Збираю процеси…")
+        self.process_list.set_empty_text(t("game_mode.collecting_processes"))
 
         # --- ігри вручну
         games = ctk.CTkFrame(body, fg_color="transparent")
@@ -1182,18 +1196,18 @@ class GameModeTab(ctk.CTkFrame):
         head = ctk.CTkFrame(games, fg_color="transparent")
         head.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         head.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(head, text="Ігри, додані вручну (.exe) — режим вмикається автоматично",
+        ctk.CTkLabel(head, text=t("game_mode.manual_games"),
                      font=theme.font_body()).grid(row=0, column=0, sticky="w")
-        self.game_detect_label = ctk.CTkLabel(head, text="Ігри не запущені", font=theme.font_small(),
+        self.game_detect_label = ctk.CTkLabel(head, text=t("game_mode.not_running"), font=theme.font_small(),
                                               text_color=theme.TEXT_DIM)
         self.game_detect_label.grid(row=0, column=1, sticky="e")
         entry_row = ctk.CTkFrame(games, fg_color="transparent")
         entry_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         entry_row.grid_columnconfigure(0, weight=1)
-        self.game_entry = ctk.CTkEntry(entry_row, placeholder_text="назва.exe", height=26)
+        self.game_entry = ctk.CTkEntry(entry_row, placeholder_text=t("game_mode.exe_placeholder"), height=26)
         self.game_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        self._small_button(entry_row, "Огляд...", self._browse_game).grid(row=0, column=1, padx=(0, 6))
-        self._small_button(entry_row, "Додати", self._add_game, fg_color=theme.ACCENT_BLUE_DIM,
+        self._small_button(entry_row, t("common.browse"), self._browse_game).grid(row=0, column=1, padx=(0, 6))
+        self._small_button(entry_row, t("common.add"), self._add_game, fg_color=theme.ACCENT_BLUE_DIM,
                            hover_color=theme.ACCENT_BLUE).grid(row=0, column=2)
         list_row = ctk.CTkFrame(games, fg_color="transparent")
         list_row.grid(row=2, column=0, sticky="ew")
@@ -1203,7 +1217,7 @@ class GameModeTab(ctk.CTkFrame):
             highlightthickness=0, borderwidth=0,
         )
         self.games_listbox.grid(row=0, column=0, sticky="ew")
-        self._small_button(list_row, "Видалити", self._remove_selected_game, width=90,
+        self._small_button(list_row, t("common.remove"), self._remove_selected_game, width=90,
                            hover_color="#a8283f").grid(row=0, column=1, padx=(8, 0), sticky="n")
 
         self._advanced_built = True
@@ -1217,7 +1231,7 @@ class GameModeTab(ctk.CTkFrame):
 
     def _on_profile_selected(self, value: str) -> None:
         with self._lock:
-            self.state["active_profile"] = value
+            self.state["active_profile"] = self._profile_names.get(value, value)
             self._save()
         self._load_profile_into_ui()
         self._render_process_list()
@@ -1235,9 +1249,8 @@ class GameModeTab(ctk.CTkFrame):
 
     def _on_delete_ultra(self) -> None:
         if not messagebox.askyesno(
-            "План PulseFPS Ultra",
-            "Видалити план живлення «PulseFPS Ultra» з Windows?\n\nПрофілі, що його використовували, "
-            "перейдуть на «Високу продуктивність».", parent=self,
+            t("game_mode.ultra.title"),
+            t("game_mode.ultra.delete_question"), parent=self,
         ):
             return
         threading.Thread(target=self._delete_ultra_worker, daemon=True).start()
@@ -1254,14 +1267,14 @@ class GameModeTab(ctk.CTkFrame):
         self._post(self._on_ultra_deleted, ok, message)
 
     def _on_ultra_deleted(self, ok: bool, message: str) -> None:
-        self._set_adv_result("План «PulseFPS Ultra» видалено." if ok else f"Не вдалося видалити: {message}", not ok)
+        self._set_adv_result(t("game_mode.ultra.deleted") if ok else t("game_mode.ultra.delete_failed", message=message), not ok)
         self._load_profile_into_ui()
         self._render()
 
     def _on_restore_plan(self) -> None:
         if self.is_active():
             self._start_deactivate()  # вимкнення режиму саме повертає попередній план
-            self._set_adv_result("Режим вимкнено, попередній план повернуто.")
+            self._set_adv_result(t("game_mode.restore.mode_off"))
             return
         threading.Thread(target=self._restore_plan_worker, daemon=True).start()
 
@@ -1273,8 +1286,8 @@ class GameModeTab(ctk.CTkFrame):
                 self.state["previous_power_plan"] = None
                 game_mode_core.save_game_mode(self.state)
         self._post(self._set_adv_result,
-                   "Повернуто план «Збалансований»." if ok and target == power_plans.BALANCED_GUID
-                   else ("Попередній план повернуто." if ok else f"Не вдалося: {message}"), not ok)
+                   t("game_mode.restore.balanced") if ok and target == power_plans.BALANCED_GUID
+                   else (t("game_mode.restore.previous") if ok else t("game_mode.restore.failed", message=message)), not ok)
 
     # --- ручні процеси профілю
 
@@ -1285,7 +1298,7 @@ class GameModeTab(ctk.CTkFrame):
         try:
             groups = monitor_core.get_process_groups()
         except Exception:
-            _logger.exception("Не вдалося зібрати процеси")
+            _logger.exception("Failed to collect processes")
             return
         self._post(self._apply_process_groups, groups)
 
@@ -1323,7 +1336,7 @@ class GameModeTab(ctk.CTkFrame):
             item["label"] = item["title"] if item["count"] <= 1 else f"{item['title']} ({item['count']})"
             items.append(item)
         items.sort(key=lambda i: (not i["checked"], i["title"].lower()))
-        self.process_list.set_empty_text("Процесів не знайдено")
+        self.process_list.set_empty_text(t("game_mode.no_processes"))
         self.process_list.set_items(items)
 
     def _on_process_toggle(self, names: list[str], checked: bool) -> None:
@@ -1342,8 +1355,8 @@ class GameModeTab(ctk.CTkFrame):
 
     def _browse_game(self) -> None:
         path = filedialog.askopenfilename(
-            title="Виберіть виконуваний файл гри",
-            filetypes=[("Виконувані файли", "*.exe"), ("Усі файли", "*.*")],
+            title=t("game_mode.pick_exe"),
+            filetypes=[(t("common.executables"), "*.exe"), (t("common.all_files"), "*.*")],
             parent=self,
         )
         if not path:
@@ -1358,7 +1371,7 @@ class GameModeTab(ctk.CTkFrame):
         if not name.lower().endswith(".exe"):
             name += ".exe"
         if name.lower() in {g.lower() for g in self.state["games"]}:
-            messagebox.showinfo("Інфо", f"«{name}» вже є у списку.", parent=self)
+            messagebox.showinfo(t("common.info"), t("game_mode.already_listed", name=name), parent=self)
             return
         with self._lock:
             self.state["games"].append(name)

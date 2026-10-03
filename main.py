@@ -23,6 +23,8 @@ def _enable_dpi_awareness() -> None:
 _enable_dpi_awareness()
 
 from core import admin as admin_core  # noqa: E402
+from core import i18n  # noqa: E402
+from core.settings import load_settings  # noqa: E402
 
 
 def _ensure_admin() -> None:
@@ -40,7 +42,6 @@ def _ensure_admin() -> None:
 import customtkinter as ctk  # noqa: E402
 
 from core import launch_on_windows, sensors  # noqa: E402
-from core.settings import load_settings  # noqa: E402
 from core.sounds import ensure_sounds_exist  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
 
@@ -48,6 +49,7 @@ _THEME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets",
 
 
 def main():
+    i18n.set_language(load_settings().get("language"))  # до першого вікна (зокрема запиту прав)
     _ensure_admin()
 
     ctk.set_appearance_mode("dark")

@@ -16,9 +16,9 @@ def main() -> None:
     seconds = int(sys.argv[1]) if len(sys.argv) > 1 else 15
     monitor.prime()
     time.sleep(1.0)
-    print(f"Базова частота CPU: {monitor._get_cpu_base_mhz()} МГц")
-    print(f"{'t':>3} | {'GPU 3D (PDH)':>12} | {'GPU NVML':>8} | {'GPU показ.':>10} | "
-          f"{'CPU perf%':>9} | {'CPU ГГц (PDH)':>13} | {'CPU ГГц (psutil)':>16} | {'CPU ГГц показ.':>14}")
+    print(f"Base CPU frequency: {monitor._get_cpu_base_mhz()} MHz")
+    print(f"{'t':>3} | {'GPU 3D (PDH)':>12} | {'GPU NVML':>8} | {'GPU shown':>10} | "
+          f"{'CPU perf%':>9} | {'CPU GHz (PDH)':>13} | {'CPU GHz (psutil)':>16} | {'CPU GHz shown':>14}")
     for i in range(seconds):
         perf = perf_counters.sample()
         nvml = monitor._gpu_info_nvml()

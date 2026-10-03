@@ -39,6 +39,7 @@ from typing import Callable
 from core.admin import is_admin
 from core.logging_setup import get_logger
 from core.app_data import load_data, update_data
+from core.i18n import TDict, t
 
 _logger = get_logger(__name__)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -53,11 +54,11 @@ EFFECT_NOTICEABLE = "noticeable"
 EFFECT_SMALL = "small"
 EFFECT_DEPENDS = "depends"
 
-EFFECT_LABELS: dict[str, str] = {
-    EFFECT_NOTICEABLE: "помітний",
-    EFFECT_SMALL: "невеликий",
-    EFFECT_DEPENDS: "залежить від ПК",
-}
+EFFECT_LABELS = TDict({
+    EFFECT_NOTICEABLE: "tweaks.effect.noticeable",
+    EFFECT_SMALL: "tweaks.effect.small",
+    EFFECT_DEPENDS: "tweaks.effect.depends",
+})
 
 GROUP_GAMES = "games"
 GROUP_NETWORK = "network"
@@ -69,14 +70,14 @@ GROUP_SYSTEM = "system"
 GROUP_ORDER: tuple[str, ...] = (
     GROUP_GAMES, GROUP_NETWORK, GROUP_INPUT, GROUP_APPEARANCE, GROUP_PRIVACY, GROUP_SYSTEM,
 )
-GROUP_LABELS: dict[str, str] = {
-    GROUP_GAMES: "Ігри і затримка",
-    GROUP_NETWORK: "Мережа",
-    GROUP_INPUT: "Миша і клавіатура",
-    GROUP_APPEARANCE: "Вигляд",
-    GROUP_PRIVACY: "Конфіденційність і фон",
-    GROUP_SYSTEM: "Система",
-}
+GROUP_LABELS = TDict({
+    GROUP_GAMES: "tweaks.group.games",
+    GROUP_NETWORK: "tweaks.group.network",
+    GROUP_INPUT: "tweaks.group.input",
+    GROUP_APPEARANCE: "tweaks.group.appearance",
+    GROUP_PRIVACY: "tweaks.group.privacy",
+    GROUP_SYSTEM: "tweaks.group.system",
+})
 
 # Твіки блоку "Режим Windows" (перемикаються разом кнопками
 # «Максимальна швидкодія» / «Повернути гарну Windows»).
@@ -119,8 +120,9 @@ class RegEntry:
 @dataclass(frozen=True)
 class Tweak:
     id: str
-    title: str
-    description: str
+    # ключі перекладів (locales/*.json); текст поточною мовою — властивості title/description/risk_note
+    title_key: str
+    description_key: str
     risk: str
     group: str
     entries: tuple[RegEntry, ...] = ()
@@ -132,7 +134,7 @@ class Tweak:
     missing_state: bool = False
     # Побічний ефект / ризик простими словами — показується в підтвердженні
     # (для жовтих — поруч з описом, для червоних — окремим попередженням).
-    risk_note: str = ""
+    risk_note_key: str = ""
     # Після зміни пропонувати перезапуск Провідника («Застосувати зараз»).
     needs_explorer: bool = False
     # Записи, які визначаються на льоту (напр. по мережевих адаптерах) — замість entries.
@@ -150,6 +152,18 @@ class Tweak:
     # Потрібні права адміністратора, навіть якщо entries лише в HKCU.
     needs_admin: bool = False
 
+    @property
+    def title(self) -> str:
+        return t(self.title_key)
+
+    @property
+    def description(self) -> str:
+        return t(self.description_key)
+
+    @property
+    def risk_note(self) -> str:
+        return t(self.risk_note_key) if self.risk_note_key else ""
+
 
 @dataclass(frozen=True)
 class SettingsLink:
@@ -157,9 +171,17 @@ class SettingsLink:
     його у двійковому форматі CloudStore) — показується рядком із кнопкою, що
     відкриває потрібну сторінку «Параметрів», а не фальшивим перемикачем."""
     group: str
-    title: str
-    description: str
+    title_key: str
+    description_key: str
     uri: str
+
+    @property
+    def title(self) -> str:
+        return t(self.title_key)
+
+    @property
+    def description(self) -> str:
+        return t(self.description_key)
 
 
 # ------------------------------------------------------- допоміжні для твіків
@@ -171,7 +193,7 @@ def _run(args: list[str], timeout: float = 60) -> subprocess.CompletedProcess | 
             creationflags=_NO_WINDOW,
         )
     except (subprocess.SubprocessError, OSError) as exc:
-        _logger.error("Не вдалося виконати %s: %s", " ".join(args), exc)
+        _logger.error("Failed to run %s: %s", " ".join(args), exc)
         return None
 
 
@@ -187,9 +209,9 @@ def _set_service_disabled(name: str, disabled: bool, enabled_start: str) -> tupl
     if result is None or result.returncode != 0:
         out = result.stdout.decode("cp866", "replace").strip() if result is not None else ""
         _logger.error("sc config %s: %s", name, out)
-        return False, f"Не вдалося змінити тип запуску служби {name}"
+        return False, t("tweaks.err.service_start_type", name=name)
     _run(["sc.exe", "stop" if disabled else "start", name], timeout=30)
-    _logger.info("Служба %s: %s", name, "вимкнена" if disabled else f"тип запуску {enabled_start}")
+    _logger.info("Service %s: %s", name, "disabled" if disabled else f"startup type {enabled_start}")
     return True, ""
 
 
@@ -207,7 +229,7 @@ def _hiberfil_path() -> str:
 def _set_hibernation_off(off: bool) -> tuple[bool, str]:
     result = _run(["powercfg.exe", "/hibernate", "off" if off else "on"])
     if result is None or result.returncode != 0:
-        return False, "powercfg не зміг змінити гібернацію"
+        return False, t("tweaks.err.hibernation")
     return True, ""
 
 
@@ -216,7 +238,7 @@ def _hibernation_detail() -> str:
         size = os.path.getsize(_hiberfil_path())
     except OSError:
         return ""
-    return f"Зараз hiberfil.sys займає {size / 1024 ** 3:.1f} ГБ."
+    return t("tweaks.detail.hiberfil", size_gb=size / 1024 ** 3)
 
 
 def _active_interfaces() -> list[str]:
@@ -242,7 +264,7 @@ def _active_interfaces() -> list[str]:
                 if any(a and a != "0.0.0.0" for a in addresses):
                     result.append(guid)
     except OSError as exc:
-        _logger.error("Не вдалося прочитати список мережевих адаптерів: %s", exc)
+        _logger.error("Failed to read the list of network adapters: %s", exc)
     return sorted(result)
 
 
@@ -256,7 +278,7 @@ def _nagle_entries() -> tuple[RegEntry, ...]:
 
 
 def _nagle_check() -> str:
-    return "" if _active_interfaces() else "Не знайдено мережевого адаптера з IP-адресою."
+    return "" if _active_interfaces() else t("tweaks.block.no_adapter")
 
 
 # Тип системного диска визначається у фоні (PowerShell, ~1 с): detect_system_disk().
@@ -280,7 +302,7 @@ def detect_system_disk() -> str:
         if result is not None and result.returncode == 0:
             kind = result.stdout.decode("utf-8", "replace").strip()
         if not kind:
-            _logger.error("Не вдалося визначити тип системного диска")
+            _logger.error("Failed to detect the system disk type")
         _system_disk_kind = kind
         return kind
 
@@ -293,23 +315,23 @@ def system_disk_kind() -> str | None:
 def _sysmain_check() -> str:
     kind = _system_disk_kind
     if kind is None:
-        return "Визначаю тип системного диска…"
+        return t("tweaks.block.detecting_disk")
     if kind == "SSD":
         return ""
     if kind == "HDD":
-        return "Системний диск — HDD: на ньому SysMain помітно пришвидшує запуск програм, вимикати не варто."
-    return "Не вдалося визначити, що системний диск — SSD, тому вимкнення недоступне."
+        return t("tweaks.block.sysmain_hdd")
+    return t("tweaks.block.sysmain_unknown")
 
 
 def _hvci_detail() -> str:
     if _read_value(winreg.HKEY_LOCAL_MACHINE, _HVCI, "Enabled") is None:
-        return "На цьому ПК цілісність пам'яті й так не вмикалась — тому перемикач уже ввімкнений."
+        return t("tweaks.detail.hvci_never_on")
     return ""
 
 
 def _hvci_check() -> str:
     if _read_value(winreg.HKEY_LOCAL_MACHINE, _HVCI_POLICY, "HypervisorEnforcedCodeIntegrity") is not None:
-        return "Цілісність пам'яті задана груповою політикою — змінити її звідси не вийде."
+        return t("tweaks.block.hvci_policy")
     return ""
 
 
@@ -326,7 +348,7 @@ def _apply_keyboard(enabled: bool) -> tuple[bool, str]:
         user32.SystemParametersInfoW(_SPI_SETKEYBOARDDELAY, delay, None, _SPIF_SENDCHANGE)
         user32.SystemParametersInfoW(_SPI_SETKEYBOARDSPEED, 31, None, _SPIF_SENDCHANGE)
     except (AttributeError, OSError) as exc:  # значення в реєстрі вже записані — діятиме після виходу
-        _logger.error("SystemParametersInfo (клавіатура): %s", exc)
+        _logger.error("SystemParametersInfo (keyboard): %s", exc)
     return True, ""
 
 
@@ -339,11 +361,8 @@ TWEAKS: tuple[Tweak, ...] = (
     # ------------------------------------------------------------- ІГРИ І ЗАТРИМКА
     Tweak(
         id="game_dvr",
-        title="Xbox Game DVR / фоновий запис",
-        description=(
-            "Вимикає фоновий запис геймплею через Xbox Game Bar — він може забирати "
-            "ресурси процесора й диска під час гри."
-        ),
+        title_key="tweaks.game_dvr.title",
+        description_key="tweaks.game_dvr.desc",
         risk=RISK_SAFE,
         effect=EFFECT_NOTICEABLE,
         group=GROUP_GAMES,
@@ -354,12 +373,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="game_bar_off",
-        title="Вимкнути Game Bar і його оверлей",
-        description=(
-            "Game Bar більше не відкриватиметься кнопкою Xbox на геймпаді й не показуватиме "
-            "стартову підказку, а запис і трансляція ігор вимикаються політикою. "
-            "Сполучення Win+G вручну все ще може відкрити порожню панель."
-        ),
+        title_key="tweaks.game_bar_off.title",
+        description_key="tweaks.game_bar_off.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_GAMES,
@@ -371,11 +386,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="game_mode",
-        title="Game Mode Windows",
-        description=(
-            "Вбудований режим Windows, який надає грі пріоритет над фоновими "
-            "процесами й оновленнями під час запуску."
-        ),
+        title_key="tweaks.game_mode.title",
+        description_key="tweaks.game_mode.desc",
         risk=RISK_SAFE,
         effect=EFFECT_DEPENDS,
         group=GROUP_GAMES,
@@ -387,12 +399,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="fullscreen_opt_off",
-        title="Повноекранні оптимізації (глобально)",
-        description=(
-            "Вимикає системну обробку повноекранного режиму Windows одразу для "
-            "всіх ігор — у деяких іграх це дає стабільнішу частоту кадрів у "
-            "справжньому повноекранному режимі."
-        ),
+        title_key="tweaks.fullscreen_opt_off.title",
+        description_key="tweaks.fullscreen_opt_off.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_DEPENDS,
         group=GROUP_GAMES,
@@ -401,16 +409,12 @@ TWEAKS: tuple[Tweak, ...] = (
             RegEntry(_HKCU, r"System\GameConfigStore", "GameDVR_HonorUserFSEBehaviorMode", "dword", 1, 0),
             RegEntry(_HKCU, r"System\GameConfigStore", "GameDVR_DXGIHonorFSEWindowsCompatible", "dword", 1, 0),
         ),
-        risk_note="Перемикання Alt+Tab у частині ігор може стати повільнішим.",
+        risk_note_key="tweaks.fullscreen_opt_off.risk",
     ),
     Tweak(
         id="gpu_scheduling",
-        title="Апаратне планування GPU",
-        description=(
-            "Передає керування чергою кадрів відеокарті замість CPU. На частині "
-            "систем підвищує продуктивність, на інших може дати нестабільність — "
-            "залежить від драйвера відеокарти."
-        ),
+        title_key="tweaks.gpu_scheduling.title",
+        description_key="tweaks.gpu_scheduling.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_DEPENDS,
         group=GROUP_GAMES,
@@ -421,12 +425,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="game_scheduler_priority",
-        title="Пріоритет ігор у планувальнику завдань",
-        description=(
-            "Піднімає пріоритет процесора й черги GPU для ігор у профілі "
-            "мультимедійного планувальника Windows "
-            "(SystemProfile\\Tasks\\Games: GPU Priority, Priority, Scheduling Category)."
-        ),
+        title_key="tweaks.game_scheduler_priority.title",
+        description_key="tweaks.game_scheduler_priority.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_SMALL,
         group=GROUP_GAMES,
@@ -438,11 +438,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="system_responsiveness",
-        title="SystemResponsiveness для мультимедіа",
-        description=(
-            "Зменшує частку процесора, яку Windows резервує для фонових служб, "
-            "на користь мультимедійних та ігрових потоків (SystemResponsiveness = 10)."
-        ),
+        title_key="tweaks.system_responsiveness.title",
+        description_key="tweaks.system_responsiveness.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_SMALL,
         group=GROUP_GAMES,
@@ -452,26 +449,20 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="network_throttling_off",
-        title="Вимкнути обмеження мережі для мультимедіа",
-        description=(
-            "Поки грає музика чи відео, Windows штучно обмежує обробку мережевих "
-            "пакетів. NetworkThrottlingIndex = ffffffff прибирає це обмеження."
-        ),
+        title_key="tweaks.network_throttling_off.title",
+        description_key="tweaks.network_throttling_off.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_SMALL,
         group=GROUP_GAMES,
         entries=(
             RegEntry(_HKLM, _MULTIMEDIA_PROFILE, "NetworkThrottlingIndex", "dword", 0xFFFFFFFF, 10),
         ),
-        risk_note="На слабких ПК під час великих завантажень звук може зрідка переривчасто «заїкатися».",
+        risk_note_key="tweaks.network_throttling_off.risk",
     ),
     Tweak(
         id="foreground_priority",
-        title="Пріоритет активного вікна",
-        description=(
-            "Win32PrioritySeparation = 0x26: програма, з якою ви зараз працюєте (гра), "
-            "отримує довші й частіші кванти процесора, ніж фонові."
-        ),
+        title_key="tweaks.foreground_priority.title",
+        description_key="tweaks.foreground_priority.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_SMALL,
         group=GROUP_GAMES,
@@ -479,16 +470,12 @@ TWEAKS: tuple[Tweak, ...] = (
             RegEntry(_HKLM, r"SYSTEM\CurrentControlSet\Control\PriorityControl",
                      "Win32PrioritySeparation", "dword", 0x26, 0x2),
         ),
-        risk_note="Фонові задачі (архівація, рендер, завантаження) під час гри йтимуть трохи повільніше.",
+        risk_note_key="tweaks.foreground_priority.risk",
     ),
     Tweak(
         id="power_throttling_off",
-        title="Вимкнути Power Throttling для фонових програм",
-        description=(
-            "Windows сповільнює «неважливі» фонові програми, щоб заощадити енергію. "
-            "Вимкнення прибирає це сповільнення для всіх програм — корисно, якщо "
-            "стрім, запис чи голосовий чат працюють у фоні під час гри."
-        ),
+        title_key="tweaks.power_throttling_off.title",
+        description_key="tweaks.power_throttling_off.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_DEPENDS,
         group=GROUP_GAMES,
@@ -496,16 +483,12 @@ TWEAKS: tuple[Tweak, ...] = (
             RegEntry(_HKLM, _POWER + r"\PowerThrottling", "PowerThrottlingOff", "dword", 1, None),
         ),
         requires_reboot=True,
-        risk_note="На ноутбуці від батареї заряд триматиметься менше, а корпус може бути теплішим.",
+        risk_note_key="tweaks.power_throttling_off.risk",
     ),
     Tweak(
         id="mpo_off",
-        title="Вимкнути MPO (Multiplane Overlay)",
-        description=(
-            "Допомагає, якщо бачите мерехтіння, чорні спалахи чи короткі фризи в іграх і "
-            "браузері — особливо з кількома моніторами різної частоти. Якщо таких проблем "
-            "немає, користі не буде. На найновіших збірках Windows 11 може не діяти."
-        ),
+        title_key="tweaks.mpo_off.title",
+        description_key="tweaks.mpo_off.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_DEPENDS,
         group=GROUP_GAMES,
@@ -513,15 +496,12 @@ TWEAKS: tuple[Tweak, ...] = (
             RegEntry(_HKLM, r"SOFTWARE\Microsoft\Windows\Dwm", "OverlayTestMode", "dword", 5, None),
         ),
         requires_reboot=True,
-        risk_note="Може трохи зрости навантаження на відеокарту у віконному режимі й відео.",
+        risk_note_key="tweaks.mpo_off.risk",
     ),
     Tweak(
         id="hvci_off",
-        title="Вимкнути ізоляцію ядра (цілісність пам'яті, VBS/HVCI)",
-        description=(
-            "Цілісність пам'яті перевіряє драйвери за допомогою віртуалізації. Її "
-            "вимкнення може дати кілька відсотків FPS, але знижує захист Windows."
-        ),
+        title_key="tweaks.hvci_off.title",
+        description_key="tweaks.hvci_off.desc",
         risk=RISK_DANGER,
         effect=EFFECT_DEPENDS,
         group=GROUP_GAMES,
@@ -532,25 +512,13 @@ TWEAKS: tuple[Tweak, ...] = (
         requires_reboot=True,
         check_fn=_hvci_check,
         detail_fn=_hvci_detail,
-        risk_note=(
-            "• Шкідливі чи вразливі драйвери зможуть потрапити в ядро системи — це саме "
-            "та атака, від якої захищає ця функція.\n"
-            "• Деякі античити й ігри перевіряють захист системи і можуть відмовитися "
-            "запускатися або вимагати його знову ввімкнути.\n"
-            "• Приріст FPS невеликий (кілька відсотків) і є не на кожному ПК.\n"
-            "• Зміна діє лише після перезавантаження."
-        ),
+        risk_note_key="tweaks.hvci_off.risk",
     ),
     # ------------------------------------------------------------------ МЕРЕЖА
     Tweak(
         id="nagle_off",
-        title="Вимкнути алгоритм Нейгла",
-        description=(
-            "Windows збирає дрібні мережеві пакети в пачки й трохи чекає з "
-            "підтвердженнями. TcpAckFrequency = 1 і TCPNoDelay = 1 на активних адаптерах "
-            "прибирають це очікування — може знизити затримку в старіших онлайн-іграх, "
-            "що працюють через TCP. Більшість сучасних ігор використовують UDP, їм це не допоможе."
-        ),
+        title_key="tweaks.nagle_off.title",
+        description_key="tweaks.nagle_off.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_DEPENDS,
         group=GROUP_NETWORK,
@@ -558,20 +526,12 @@ TWEAKS: tuple[Tweak, ...] = (
         check_fn=_nagle_check,
         backup_keys=((_HKLM, _TCP_INTERFACES),),
         requires_reboot=True,
-        risk_note=(
-            "Трохи більше дрібних пакетів у мережі; на повільному чи мобільному "
-            "інтернеті завантаження можуть стати повільнішими. Новий адаптер (інший "
-            "Wi-Fi) твік не зачепить — його треба ввімкнути ще раз."
-        ),
+        risk_note_key="tweaks.nagle_off.risk",
     ),
     Tweak(
         id="delivery_optimization_p2p_off",
-        title="Вимкнути P2P-роздачу оновлень Windows",
-        description=(
-            "Оптимізація доставки роздає вже завантажені оновлення іншим комп'ютерам "
-            "і тягне їх з інших ПК, витрачаючи ваш канал. Після вимкнення оновлення "
-            "йдуть лише з серверів Microsoft — самі оновлення працюють як раніше."
-        ),
+        title_key="tweaks.delivery_optimization_p2p_off.title",
+        description_key="tweaks.delivery_optimization_p2p_off.desc",
         risk=RISK_SAFE,
         effect=EFFECT_DEPENDS,
         group=GROUP_NETWORK,
@@ -583,11 +543,8 @@ TWEAKS: tuple[Tweak, ...] = (
     # --------------------------------------------------- МИША І КЛАВІАТУРА
     Tweak(
         id="mouse_accel",
-        title="Прискорення миші (Enhance pointer precision)",
-        description=(
-            "Прибирає прискорення курсора, щоб рух миші був однаково передбачуваним "
-            "на будь-якій швидкості — важливо для точності прицілювання в іграх."
-        ),
+        title_key="tweaks.mouse_accel.title",
+        description_key="tweaks.mouse_accel.desc",
         risk=RISK_SAFE,
         effect=EFFECT_NOTICEABLE,
         group=GROUP_INPUT,
@@ -600,11 +557,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="keyboard_repeat",
-        title="Мінімальна затримка і максимальна швидкість повтору клавіш",
-        description=(
-            "Затиснута клавіша почне повторюватися майже одразу й з найбільшою "
-            "швидкістю (KeyboardDelay = 0, KeyboardSpeed = 31). Діє відразу."
-        ),
+        title_key="tweaks.keyboard_repeat.title",
+        description_key="tweaks.keyboard_repeat.desc",
         risk=RISK_SAFE,
         effect=EFFECT_NOTICEABLE,
         group=GROUP_INPUT,
@@ -616,12 +570,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="sticky_keys",
-        title="Гарячі клавіші залипання, фільтрації й перемикання клавіш",
-        description=(
-            "Вимикає випадкову появу вікон спеціальних можливостей (Sticky/Filter/"
-            "Toggle Keys) від багаторазового натискання Shift, утримання клавіш чи "
-            "Num Lock під час гри."
-        ),
+        title_key="tweaks.sticky_keys.title",
+        description_key="tweaks.sticky_keys.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_INPUT,
@@ -634,8 +584,8 @@ TWEAKS: tuple[Tweak, ...] = (
     # -------------------------------------- ВИГЛЯД ("максимальна швидкодія")
     Tweak(
         id="transparency",
-        title="Прозорість інтерфейсу",
-        description="Вимикає ефект прозорості вікон, меню «Пуск» і панелі завдань.",
+        title_key="tweaks.transparency.title",
+        description_key="tweaks.transparency.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_APPEARANCE,
@@ -647,8 +597,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="window_menu_anim",
-        title="Анімації вікон і меню",
-        description="Вимикає анімацію згортання/розгортання вікон і появи меню.",
+        title_key="tweaks.window_menu_anim.title",
+        description_key="tweaks.window_menu_anim.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_APPEARANCE,
@@ -661,11 +611,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="shadows_taskbar_anim",
-        title="Тіні, згладжування й анімація панелі завдань",
-        description=(
-            "Вимикає тінь під підписами значків, прозоре виділення в списках і "
-            "анімацію кнопок панелі завдань."
-        ),
+        title_key="tweaks.shadows_taskbar_anim.title",
+        description_key="tweaks.shadows_taskbar_anim.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_APPEARANCE,
@@ -683,8 +630,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="menu_show_delay",
-        title="Затримка показу меню",
-        description="Прибирає паузу перед розгортанням підменю (MenuShowDelay = 0).",
+        title_key="tweaks.menu_show_delay.title",
+        description_key="tweaks.menu_show_delay.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_APPEARANCE,
@@ -695,11 +642,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="visual_fx_performance",
-        title="Візуальні ефекти «найкраща швидкодія»",
-        description=(
-            "Перемикає загальний пресет візуальних ефектів Windows на «Забезпечити "
-            "найкращу швидкодію» в параметрах швидкодії системи."
-        ),
+        title_key="tweaks.visual_fx_performance.title",
+        description_key="tweaks.visual_fx_performance.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_APPEARANCE,
@@ -714,11 +658,8 @@ TWEAKS: tuple[Tweak, ...] = (
     # ---------------------------------------------- КОНФІДЕНЦІЙНІСТЬ І ФОН
     Tweak(
         id="tips_ads",
-        title="Поради й реклама в Пуск та на екрані блокування",
-        description=(
-            "Прибирає рекламні плитки, підказки й пропозиції застосунків у меню "
-            "Пуск та на екрані блокування."
-        ),
+        title_key="tweaks.tips_ads.title",
+        description_key="tweaks.tips_ads.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_PRIVACY,
@@ -733,11 +674,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="advertising_id",
-        title="Рекламний ідентифікатор",
-        description=(
-            "Забороняє застосункам використовувати рекламний ідентифікатор для "
-            "персоналізованої реклами."
-        ),
+        title_key="tweaks.advertising_id.title",
+        description_key="tweaks.advertising_id.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_PRIVACY,
@@ -747,8 +685,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="bing_search",
-        title="Пошук Bing у меню «Пуск»",
-        description="Вимикає веб-результати Bing при пошуку через меню «Пуск».",
+        title_key="tweaks.bing_search.title",
+        description_key="tweaks.bing_search.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_PRIVACY,
@@ -761,11 +699,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="background_apps",
-        title="Фонові застосунки",
-        description=(
-            "Забороняє застосункам з Microsoft Store працювати у фоні. Може "
-            "вплинути на сповіщення деяких програм (пошта, месенджери)."
-        ),
+        title_key="tweaks.background_apps.title",
+        description_key="tweaks.background_apps.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_SMALL,
         group=GROUP_PRIVACY,
@@ -777,12 +712,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="telemetry",
-        title="Телеметрія Windows",
-        description=(
-            "Знижує обсяг діагностичних даних, які Windows надсилає Microsoft, до "
-            "мінімального рівня. На Windows Home/Pro може не вимкнути збір даних "
-            "повністю."
-        ),
+        title_key="tweaks.telemetry.title",
+        description_key="tweaks.telemetry.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_SMALL,
         group=GROUP_PRIVACY,
@@ -793,12 +724,8 @@ TWEAKS: tuple[Tweak, ...] = (
     # ------------------------------------------------------------ СИСТЕМА
     Tweak(
         id="hibernation_off",
-        title="Вимкнути гібернацію",
-        description=(
-            "powercfg -h off: видаляє файл hiberfil.sys на диску C: (зазвичай кілька "
-            "гігабайтів). Сон працює як і раніше; зникнуть лише «Гібернація» і "
-            "«Швидкий запуск» (після вимкнення ПК стартує з нуля — це навіть надійніше)."
-        ),
+        title_key="tweaks.hibernation_off.title",
+        description_key="tweaks.hibernation_off.desc",
         risk=RISK_SAFE,
         effect=EFFECT_NOTICEABLE,
         group=GROUP_SYSTEM,
@@ -810,11 +737,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="search_indexing_off",
-        title="Вимкнути індексування пошуку",
-        description=(
-            "Зупиняє службу Windows Search, яка постійно сканує файли для швидкого "
-            "пошуку. Менше фонової роботи диска й процесора."
-        ),
+        title_key="tweaks.search_indexing_off.title",
+        description_key="tweaks.search_indexing_off.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_SMALL,
         group=GROUP_SYSTEM,
@@ -822,19 +746,12 @@ TWEAKS: tuple[Tweak, ...] = (
         apply_fn=lambda enabled: _set_service_disabled("WSearch", enabled, "delayed-auto"),
         backup_keys=((_HKLM, rf"{_SERVICES}\WSearch"),),
         needs_admin=True,
-        risk_note=(
-            "Пошук у меню «Пуск» і Провіднику стане помітно повільнішим, а пошук "
-            "у пошті Outlook може не працювати."
-        ),
+        risk_note_key="tweaks.search_indexing_off.risk",
     ),
     Tweak(
         id="sysmain_off",
-        title="Вимкнути SysMain (лише для SSD)",
-        description=(
-            "SysMain (колишній Superfetch) заздалегідь підвантажує часто вживані "
-            "програми в пам'ять. На SSD це майже не пришвидшує запуск, але дає фонові "
-            "звернення до диска. Доступно, лише якщо системний диск — SSD."
-        ),
+        title_key="tweaks.sysmain_off.title",
+        description_key="tweaks.sysmain_off.desc",
         risk=RISK_CAUTION,
         effect=EFFECT_SMALL,
         group=GROUP_SYSTEM,
@@ -843,16 +760,12 @@ TWEAKS: tuple[Tweak, ...] = (
         check_fn=_sysmain_check,
         backup_keys=((_HKLM, rf"{_SERVICES}\SysMain"),),
         needs_admin=True,
-        risk_note="Програми, якими ви давно не користувалися, першого разу можуть відкриватися трохи довше.",
+        risk_note_key="tweaks.sysmain_off.risk",
     ),
     Tweak(
         id="edge_startup_boost_off",
-        title="Вимкнути Startup Boost у Edge",
-        description=(
-            "Edge більше не запускатиметься прихованим у фоні разом із Windows. "
-            "Налаштовується політикою, тож у Edge з'явиться напис «Вашим браузером "
-            "керує організація» — це нормально."
-        ),
+        title_key="tweaks.edge_startup_boost_off.title",
+        description_key="tweaks.edge_startup_boost_off.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_SYSTEM,
@@ -862,11 +775,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="widgets_copilot_off",
-        title="Вимкнути віджети і Copilot на панелі завдань",
-        description=(
-            "Прибирає панель віджетів (новини, погода) і кнопку Copilot з панелі завдань — "
-            "вони тримають у фоні власні процеси з вебвмістом."
-        ),
+        title_key="tweaks.widgets_copilot_off.title",
+        description_key="tweaks.widgets_copilot_off.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_SYSTEM,
@@ -882,8 +792,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="show_hidden_ext",
-        title="Розширення файлів і приховані файли",
-        description="Показує розширення файлів і приховані файли та папки в Провіднику.",
+        title_key="tweaks.show_hidden_ext.title",
+        description_key="tweaks.show_hidden_ext.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_SYSTEM,
@@ -895,8 +805,8 @@ TWEAKS: tuple[Tweak, ...] = (
     ),
     Tweak(
         id="no_auto_suggested_apps",
-        title="Автоматичне встановлення рекомендованих застосунків",
-        description="Забороняє Windows самостійно встановлювати застосунки, які вона «рекомендує».",
+        title_key="tweaks.no_auto_suggested_apps.title",
+        description_key="tweaks.no_auto_suggested_apps.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_SYSTEM,
@@ -912,19 +822,13 @@ TWEAKS: tuple[Tweak, ...] = (
 SETTINGS_LINKS: tuple[SettingsLink, ...] = (
     SettingsLink(
         group=GROUP_SYSTEM,
-        title="Сповіщення під час гри і в повноекранному режимі",
-        description=(
-            "Windows 11 зберігає правила «Не турбувати» у двійковому форматі, який "
-            "неможливо надійно змінити з реєстру, тож тут немає перемикача. Відкрийте "
-            "«Сповіщення» → «Автоматично вмикати режим "
-            "«Не турбувати»» і залиште ввімкненими «Під час гри» та «Під час "
-            "використання програми в повноекранному режимі»."
-        ),
+        title_key="tweaks.link.notifications.title",
+        description_key="tweaks.link.notifications.desc",
         uri="ms-settings:notifications",
     ),
 )
 
-_TWEAKS_BY_ID = {t.id: t for t in TWEAKS}
+_TWEAKS_BY_ID = {tw.id: tw for tw in TWEAKS}
 
 
 def get_tweak(tweak_id: str) -> Tweak | None:
@@ -932,7 +836,7 @@ def get_tweak(tweak_id: str) -> Tweak | None:
 
 
 def get_appearance_tweaks() -> list[Tweak]:
-    return [t for t in TWEAKS if t.id in APPEARANCE_TWEAK_IDS]
+    return [tw for tw in TWEAKS if tw.id in APPEARANCE_TWEAK_IDS]
 
 
 # --------------------------------------------------------------- реєстр io
@@ -961,7 +865,7 @@ def _write_value(entry: RegEntry, value) -> bool:
             winreg.SetValueEx(key, entry.name, 0, vtype, value)
         return True
     except OSError as exc:
-        _logger.error("Не вдалося записати %s\\%s: %s", entry.subkey, entry.name, exc)
+        _logger.error("Failed to write %s\\%s: %s", entry.subkey, entry.name, exc)
         return False
 
 
@@ -973,7 +877,7 @@ def _delete_value(entry: RegEntry) -> bool:
     except FileNotFoundError:
         return True  # значення (чи ключа) вже немає — це і є потрібний стан
     except OSError as exc:
-        _logger.error("Не вдалося видалити %s\\%s: %s", entry.subkey, entry.name, exc)
+        _logger.error("Failed to delete %s\\%s: %s", entry.subkey, entry.name, exc)
         return False
 
 
@@ -1025,8 +929,7 @@ def _create_restore_point() -> bool:
     result = _run(
         [
             "powershell", "-NoProfile", "-NonInteractive", "-Command",
-            "Checkpoint-Computer -Description 'PulseFPS: твіки реєстру' "
-            "-RestorePointType 'MODIFY_SETTINGS'",
+            "Checkpoint-Computer -Description 'PulseFPS: registry tweaks' -RestorePointType 'MODIFY_SETTINGS'",
         ],
         timeout=90,
     )
@@ -1062,10 +965,10 @@ def _backup_keys(keys: list[tuple[int, str]]) -> None:
             safe_subkey = subkey.replace("\\", "_").replace(" ", "_")
             path = os.path.join(BACKUPS_DIR, f"{stamp}_{hive_name}_{safe_subkey}.reg")
             if not _export_key_backup(hive_name, subkey, path):
-                _logger.error("Бекап %s не вдався — ключ не позначено як збережений", tag)
+                _logger.error("Backup of %s failed — the key is not marked as saved", tag)
                 continue
         else:
-            _logger.info("Бекап %s: ключа ще немає, зберігати нічого", tag)
+            _logger.info("Backup of %s: the key does not exist yet, nothing to save", tag)
         done.add(tag)
     update_data("registry_tweaks_backed_up_keys", sorted(done))
 
@@ -1081,8 +984,8 @@ def _ensure_backup_for(tweak: Tweak) -> None:
     if not data.get("registry_tweaks_backup_done", False):
         _create_restore_point()
         keys: list[tuple[int, str]] = []
-        for t in TWEAKS:
-            keys.extend(k for k in _tweak_keys(t) if k not in keys)
+        for tw in TWEAKS:
+            keys.extend(k for k in _tweak_keys(tw) if k not in keys)
         _backup_keys(keys)
         update_data("registry_tweaks_backup_done", True)
     else:
@@ -1097,8 +1000,8 @@ def has_initial_state() -> bool:
 
 def set_tweak(tweak: Tweak, enabled: bool) -> tuple[bool, str]:
     if tweak_requires_admin(tweak) and not is_admin():
-        _logger.error("Немає прав адміністратора для зміни «%s»", tweak.title)
-        return False, "Потрібні права адміністратора"
+        _logger.error("No administrator rights to change \"%s\"", tweak.title)
+        return False, t("tweaks.err.need_admin")
     if enabled:
         reason = blocked_reason(tweak)
         if reason:
@@ -1110,12 +1013,12 @@ def set_tweak(tweak: Tweak, enabled: bool) -> tuple[bool, str]:
         value = entry.on_value if enabled else entry.off_value
         ok = _delete_value(entry) if value is None else _write_value(entry, value)
         if not ok:
-            return False, f"Не вдалося змінити значення «{entry.name}»"
+            return False, t("tweaks.err.write_value", name=entry.name)
     if tweak.apply_fn is not None:
         ok, error = tweak.apply_fn(enabled)
         if not ok:
             return False, error
-    _logger.info("Твік «%s»: %s", tweak.title, "увімкнено" if enabled else "вимкнено")
+    _logger.info("Tweak \"%s\": %s", tweak.title, "enabled" if enabled else "disabled")
     return True, ""
 
 
@@ -1133,26 +1036,26 @@ def apply_tweaks(tweaks: list[Tweak], enabled: bool) -> list[tuple[Tweak, bool, 
 
 def preset_tweaks(preset: str) -> list[Tweak]:
     """Склад пресета. Червоні («ризиковано») не входять у жоден пресет."""
-    def included(t: Tweak) -> bool:
-        if t.risk == RISK_SAFE:
+    def included(tw: Tweak) -> bool:
+        if tw.risk == RISK_SAFE:
             return True
-        if t.risk == RISK_CAUTION:
-            return preset == PRESET_MAX or (preset == PRESET_BALANCED and t.effect == EFFECT_SMALL)
+        if tw.risk == RISK_CAUTION:
+            return preset == PRESET_MAX or (preset == PRESET_BALANCED and tw.effect == EFFECT_SMALL)
         return False
 
-    return [t for t in TWEAKS if included(t)]
+    return [tw for tw in TWEAKS if included(tw)]
 
 
 def preset_pending(preset: str) -> list[tuple[Tweak, str]]:
     """Твіки пресета, які ще не ввімкнені: (твік, причина, чому не можна; "" — можна)."""
-    return [(t, blocked_reason(t)) for t in preset_tweaks(preset) if not get_state(t)]
+    return [(tw, blocked_reason(tw)) for tw in preset_tweaks(preset) if not get_state(tw)]
 
 
 def apply_preset(preset: str, tweak_ids: list[str]) -> list[tuple[Tweak, bool, str]]:
     """Вмикає вибрані користувачем твіки пресета. Усе, що не входить у пресет
     (зокрема червоні), відкидається, навіть якщо його id передали."""
-    allowed = {t.id for t in preset_tweaks(preset)}
-    chosen = [t for t in TWEAKS if t.id in tweak_ids and t.id in allowed]
+    allowed = {tw.id for tw in preset_tweaks(preset)}
+    chosen = [tw for tw in TWEAKS if tw.id in tweak_ids and tw.id in allowed]
     return apply_tweaks(chosen, True)
 
 

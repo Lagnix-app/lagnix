@@ -297,7 +297,7 @@ class FrameSet:
             blink = [render_robot(self.side, self.mood, blink=b, bg=self.bg) for b in _BLINK_CURVE]
             self._images = (breath, blink)
         except Exception:
-            _logger.exception("Не вдалося згенерувати кадри робота")
+            _logger.exception("Failed to generate robot frames")
 
     def ready(self) -> bool:
         """Кадри готові (PhotoImage створюються тут — викликати з потоку UI)."""

@@ -9,6 +9,7 @@ from collections import deque
 from statistics import mean
 
 from core.app_data import load_data, save_data
+from core.i18n import t
 
 try:
     from icmplib import ping as _icmp_ping
@@ -193,9 +194,20 @@ def aggregate_stats(histories: list) -> dict:
     }
 
 
-RATING_LABELS = ("Відмінно", "Добре", "Задовільно", "Погано")
+RATING_LABELS = ("sysinfo.rating.excellent", "sysinfo.rating.good", "sysinfo.rating.fair", "sysinfo.rating.poor")
 RATING_COLORS = ("#2ee59d", "#d4b106", "#e0a52f", "#ff5c7a")
-RATING_COLOR_BY_LABEL = dict(zip(RATING_LABELS, RATING_COLORS))
+
+
+def rating_label(level: int) -> str:
+    """Підпис оцінки поточною мовою (RATING_LABELS — ключі перекладів)."""
+    return t(RATING_LABELS[level])
+
+
+def entry_level(entry: dict) -> int:
+    """Рівень оцінки запису історії (0 — відмінно … 3 — погано) — з його метрик,
+    тож показ не залежить від мови, якою підпис колись зберегли в data.json."""
+    return max(_ping_level(entry.get("avg")), _jitter_level(entry.get("jitter")),
+               _loss_level(entry.get("loss", 0) or 0))
 
 
 def _ping_level(avg: float | None) -> int:
@@ -242,27 +254,27 @@ def rate_test(stats: dict) -> dict:
 
     notes = []
     if ping_level == 0:
-        notes.append("Пінг чудовий — для онлайн-ігор ідеально.")
+        notes.append(t("network.note.ping0"))
     elif ping_level == 1:
-        notes.append("Пінг цілком прийнятний для більшості онлайн-ігор.")
+        notes.append(t("network.note.ping1"))
     elif ping_level == 2:
-        notes.append("Пінг трохи високий — у швидких іграх можуть відчуватись затримки.")
+        notes.append(t("network.note.ping2"))
     else:
-        notes.append("Пінг дуже високий — у динамічних іграх це відчуватиметься як лаги.")
+        notes.append(t("network.note.ping3"))
 
     if jitter_level == 1:
-        notes.append("Є невеликі стрибки пінгу — зрідка можливі короткі лаги.")
+        notes.append(t("network.note.jitter1"))
     elif jitter_level == 3:
-        notes.append("Є стрибки пінгу — можливі лаги, спробуй кабель замість Wi-Fi.")
+        notes.append(t("network.note.jitter3"))
 
     if loss_level in (1, 2):
-        notes.append("Трохи втрачаються пакети — стеж за з'єднанням у важливих матчах.")
+        notes.append(t("network.note.loss12"))
     elif loss_level == 3:
-        notes.append("Втрачаються пакети — перевір роутер або зверніться до провайдера.")
+        notes.append(t("network.note.loss3"))
 
     return {
         "level": level,
-        "label": RATING_LABELS[level],
+        "label": rating_label(level),
         "color": RATING_COLORS[level],
         "notes": notes[:3],
     }
@@ -277,25 +289,25 @@ def explain_entry_rating(avg: float | None, jitter: float | None, loss_percent: 
     }
     worst = max(levels, key=lambda k: levels[k])
     level = levels[worst]
-    label = RATING_LABELS[level]
+    label = rating_label(level)
 
     if worst == "ping":
         if avg is None:
-            return f"{label}: сервери не відповіли — перевір підключення до інтернету"
-        detail = f"пінг {avg:.0f} мс"
-        tail = ("для ігор ідеально", "для більшості ігор прийнятно",
-                "у швидких іграх можливі затримки", "у динамічних іграх будуть лаги")[level]
+            return t("network.explain.no_reply", label=label)
+        detail = t("network.explain.ping", avg=avg)
+        tail = (t("network.explain.ping_tail0"), t("network.explain.ping_tail1"),
+                t("network.explain.ping_tail2"), t("network.explain.ping_tail3"))[level]
     elif worst == "jitter":
         if jitter is None:
-            return f"{label}: не вдалося виміряти стабільність пінгу"
-        detail = f"джитер {jitter:.0f} мс"
-        tail = ("пінг дуже стабільний", "пінг стабільний, зрідка можливі короткі лаги",
-                "пінг помітно скаче", "пінг сильно скаче — можливі лаги")[level]
+            return t("network.explain.no_jitter", label=label)
+        detail = t("network.explain.jitter", jitter=jitter)
+        tail = (t("network.explain.jitter_tail0"), t("network.explain.jitter_tail1"),
+                t("network.explain.jitter_tail2"), t("network.explain.jitter_tail3"))[level]
     else:
-        detail = f"втрати {loss_percent:.0f}%"
-        tail = ("пакети не губляться", "зрідка губляться пакети",
-                "губляться пакети — можливі короткі лаги",
-                "можливі лаги і телепорти в іграх")[level]
+        detail = t("network.explain.loss", loss_percent=loss_percent)
+        tail = (t("network.explain.loss_tail0"), t("network.explain.loss_tail1"),
+                t("network.explain.loss_tail2"),
+                t("network.explain.loss_tail3"))[level]
     return f"{label}: {detail} — {tail}"
 
 

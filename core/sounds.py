@@ -57,7 +57,7 @@ try:
 except ImportError:
     pygame = None
     _HAS_PYGAME = False
-    _logger.error("pygame недоступний — звуки інтерфейсу вимкнені (pip install pygame-ce)")
+    _logger.error("pygame is unavailable — interface sounds are disabled (pip install pygame-ce)")
 
 def _clamp(value) -> float:
     try:
@@ -220,7 +220,7 @@ def ensure_sounds_exist() -> None:
     try:
         _generate_all()
     except Exception:
-        _logger.exception("Не вдалося згенерувати звукові файли в %s", ASSETS_SOUNDS_DIR)
+        _logger.exception("Failed to generate sound files in %s", ASSETS_SOUNDS_DIR)
 
 
 # --------------------------------------------------------------- відтворення
@@ -248,7 +248,7 @@ def _ensure_mixer() -> bool:
         _mixer_ready = True
     except Exception:
         _mixer_failed = True
-        _logger.exception("Не вдалося ініціалізувати аудіомікшер pygame.mixer")
+        _logger.exception("Failed to initialize the pygame.mixer audio mixer")
     return _mixer_ready
 
 
@@ -264,7 +264,7 @@ def _get_sound(name: str):
         snd = pygame.mixer.Sound(path)
         snd.set_volume(_volume_for(name))
     except Exception:
-        _logger.exception("Не вдалося завантажити звук %s", path)
+        _logger.exception("Failed to load sound %s", path)
         return None
     _sounds[name] = snd
     return snd
@@ -285,7 +285,7 @@ def _apply_volumes() -> None:
         try:
             snd.set_volume(_volume_for(name))
         except Exception:
-            _logger.exception("Не вдалося застосувати гучність до вже завантаженого звуку %s", name)
+            _logger.exception("Failed to apply volume to an already loaded sound %s", name)
 
 
 def set_volume(volume: float, persist: bool = True) -> None:
@@ -333,7 +333,7 @@ def _play(name: str, force: bool = False) -> None:
         snd.set_volume(_volume_for(name))
         snd.play()
     except Exception:
-        _logger.exception("Не вдалося відтворити звук %s", name)
+        _logger.exception("Failed to play sound %s", name)
 
 
 def play_hover(force: bool = False) -> None:

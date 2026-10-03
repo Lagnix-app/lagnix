@@ -7,13 +7,14 @@ import tkinter as tk
 import customtkinter as ctk
 
 from ui import theme
+from core.i18n import t
 
 _WIDTH = 440
 
 
 class ConfirmDialog(ctk.CTkToplevel):
     def __init__(self, master, title: str, message: str, confirm_text: str, danger: bool = False,
-                 cancel_text: str = "Скасувати"):
+                 cancel_text: str = t("common.cancel")):
         super().__init__(master)
         self.result = False
         self.title(title)

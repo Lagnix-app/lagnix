@@ -12,6 +12,7 @@ pystray веде власний цикл повідомлень на окрем�
 import os
 
 from core.logging_setup import get_logger
+from core.i18n import t
 
 _logger = get_logger(__name__)
 
@@ -23,7 +24,7 @@ except ImportError:
     pystray = None
     Image = None
     _HAS_PYSTRAY = False
-    _logger.error("pystray недоступний — іконка в треї і сповіщення Windows вимкнені (pip install pystray)")
+    _logger.error("pystray is unavailable — the tray icon and Windows notifications are disabled (pip install pystray)")
 
 _ICON_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "pulsefps-icon-48.png"
@@ -82,7 +83,7 @@ class TrayIcon:
             self._icon = icon
             icon.run_detached()
         except Exception:
-            _logger.exception("Не вдалося показати іконку в треї")
+            _logger.exception("Failed to show the tray icon")
             self._icon = None
 
     def stop(self) -> None:
@@ -92,7 +93,7 @@ class TrayIcon:
         try:
             icon.stop()
         except Exception:
-            _logger.exception("Не вдалося прибрати іконку з трею")
+            _logger.exception("Failed to remove the tray icon")
 
     def set_image(self, image) -> None:
         self._image = image
@@ -100,7 +101,7 @@ class TrayIcon:
             try:
                 self._icon.icon = image
             except Exception:
-                _logger.exception("Не вдалося оновити іконку в треї")
+                _logger.exception("Failed to update the tray icon")
 
     def refresh_menu(self) -> None:
         """Перебудувати меню (галочки): pystray на Windows збирає його заздалегідь."""
@@ -108,7 +109,7 @@ class TrayIcon:
             try:
                 self._icon.update_menu()
             except Exception:
-                _logger.exception("Не вдалося оновити меню трею")
+                _logger.exception("Failed to update the tray menu")
 
     def notify(self, title: str, message: str) -> bool:
         """Сповіщення Windows від імені іконки. False — трею немає."""
@@ -118,7 +119,7 @@ class TrayIcon:
             self._icon.notify(message, title)
             return True
         except Exception:
-            _logger.exception("Не вдалося показати сповіщення «%s»", title)
+            _logger.exception("Failed to show notification \"%s\"", title)
             return False
 
     # ------------------------------------------------------------ внутрішнє
@@ -144,14 +145,19 @@ class TrayIcon:
         return checked
 
     def _menu(self):
+        # текст — функція: pystray питає його при кожній перебудові меню (refresh_menu),
+        # тож після зміни мови меню трею одразу іншою мовою
+        def _text(key):
+            return lambda _item=None: t(key)
+
         item = pystray.MenuItem
         return pystray.Menu(
-            item("Відкрити PulseFPS", self._call("open"), default=True),
+            item(_text("tray.open"), self._call("open"), default=True),
             pystray.Menu.SEPARATOR,
-            item("Ігровий режим", self._call("game_mode"), checked=self._is_checked("game_mode")),
-            item("Оверлей", self._call("overlay"), checked=self._is_checked("overlay")),
+            item(_text("tabs.game_mode"), self._call("game_mode"), checked=self._is_checked("game_mode")),
+            item(_text("tray.overlay"), self._call("overlay"), checked=self._is_checked("overlay")),
             pystray.Menu.SEPARATOR,
-            item("Швидке очищення тимчасових файлів", self._call("cleanup")),
+            item(_text("tray.quick_cleanup"), self._call("cleanup")),
             pystray.Menu.SEPARATOR,
-            item("Вихід", self._call("exit")),
+            item(_text("tray.exit"), self._call("exit")),
         )

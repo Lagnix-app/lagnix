@@ -35,25 +35,26 @@ from core import game_mode as game_mode_core
 from core import monitor as monitor_core
 from core.logging_setup import get_logger
 from core.system_processes import is_hidden
+from core.i18n import t
 
 _logger = get_logger(__name__)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _NVIDIA_SMI = shutil.which("nvidia-smi")
 _LOGICAL_CPU_COUNT = psutil.cpu_count(logical=True) or 1
 
-UNKNOWN = "невідомо"
+UNKNOWN = "sysinfo.unknown"
 
 REPORT_DURATION_SEC = 60
 REPORT_SAMPLE_INTERVAL_SEC = 1.0
 
-_RATING_LABELS = ("Відмінно", "Добре", "Задовільно", "Погано")
+_RATING_LABELS = ("sysinfo.rating.excellent", "sysinfo.rating.good", "sysinfo.rating.fair", "sysinfo.rating.poor")
 _RATING_COLORS = ("#2ee59d", "#d4b106", "#e0a52f", "#ff5c7a")
 
 ADVICE_TAB_LABELS = {
-    "game_mode": "Ігровий режим",
-    "autostart": "Автозапуск",
-    "cleanup": "Очищення",
-    "registry_tweaks": "Твіки реєстру",
+    "game_mode": "tabs.game_mode",
+    "autostart": "tabs.autostart",
+    "cleanup": "tabs.cleanup",
+    "registry_tweaks": "tabs.registry_tweaks",
 }
 
 _DRIVER_PAGES = {
@@ -75,7 +76,7 @@ def _cpu_model_name() -> str:
             name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
             return str(name).strip()
     except OSError:
-        return UNKNOWN
+        return t(UNKNOWN)
 
 
 def get_cpu_info() -> dict:
@@ -110,9 +111,9 @@ def format_cpu_freq(base_ghz: float | None, current_ghz: float | None) -> str | 
     """«3.60 ГГц базова · 4.42 ГГц зараз»."""
     parts = []
     if base_ghz:
-        parts.append(f"{base_ghz:.2f} ГГц базова")
+        parts.append(t("sysinfo.cpu_base", base_ghz=base_ghz))
     if current_ghz:
-        parts.append(f"{current_ghz:.2f} ГГц зараз")
+        parts.append(t("sysinfo.cpu_now", current_ghz=current_ghz))
     return " · ".join(parts) or None
 
 
@@ -181,7 +182,7 @@ def _run_static_cim_query() -> dict:
         ).decode("utf-8", errors="ignore").strip()
         data = json.loads(raw) if raw else {}
     except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError):
-        _logger.exception("Не вдалося зібрати дані WMI/PowerShell для вкладки «Система»")
+        _logger.exception("Failed to collect WMI/PowerShell data for the System tab")
         return result
 
     for entry in data.get("Gpu") or []:
@@ -281,7 +282,7 @@ def get_gpu_info() -> dict:
         nvidia_entries = [g for g in gpu_entries if "nvidia" in g["name"].lower()]
         chosen = nvidia_entries[0] if nvidia_entries else gpu_entries[0]
 
-    model = chosen["name"] if chosen else UNKNOWN
+    model = chosen["name"] if chosen else t(UNKNOWN)
     driver_version = chosen["driver_version"] if chosen else None
     driver_date = chosen["driver_date"] if chosen else None
     memory_mb = chosen["memory_mb"] if chosen else None
@@ -293,9 +294,9 @@ def get_gpu_info() -> dict:
         memory_mb = nv["memory_total_mb"]
 
     return {
-        "model": model or UNKNOWN,
+        "model": model or t(UNKNOWN),
         "memory_mb": memory_mb,
-        "driver_version": driver_version or UNKNOWN,
+        "driver_version": driver_version or t(UNKNOWN),
         "driver_date": driver_date,
     }
 
@@ -398,15 +399,15 @@ def format_ram_modules(ram: dict) -> str | None:
     if not modules:
         return None
     if len(set(modules)) == 1:
-        text = f"{len(modules)} × {modules[0]} ГБ"
+        text = t("sysinfo.ram_modules_same", count=len(modules), size=modules[0])
     else:
-        text = " + ".join(f"{m} ГБ" for m in modules)
+        text = " + ".join(t("sysinfo.gb_int", m=m) for m in modules)
     if ram.get("type"):
         text += f" {ram['type']}"
     if ram.get("makers"):
         text += f" ({', '.join(ram['makers'])})"
     if ram.get("slots") and ram["slots"] >= len(modules):
-        text += f" · {len(modules)} з {ram['slots']} слотів"
+        text += t("sysinfo.ram_slots", count=len(modules), slots=ram['slots'])
     return text
 
 
@@ -415,32 +416,25 @@ def format_ram_speed(ram: dict) -> str | None:
     speed, rated, jedec = ram.get("speed_mhz"), ram.get("rated_mhz"), ram.get("jedec_mhz")
     if not speed:
         return None
-    parts = [f"{speed} МГц зараз"]
+    parts = [t("sysinfo.ram_speed_now", speed=speed)]
     if rated and rated > speed:
-        parts.append(f"номінал модулів {rated} МГц")
+        parts.append(t("sysinfo.ram_speed_rated", rated=rated))
     if jedec and jedec != speed and jedec != rated:
-        parts.append(f"базова {jedec} МГц")
+        parts.append(t("sysinfo.ram_speed_base", jedec=jedec))
     return " · ".join(parts)
 
 
 def format_ram_channels(ram: dict) -> str | None:
     channels = ram.get("channels")
     if channels == "dual":
-        return "Двоканальний режим ✓"
+        return t("sysinfo.ram_dual")
     if channels == "single":
-        return "Одноканальний режим"
+        return t("sysinfo.ram_single")
     return None
 
 
 XMP_HELP_TEXT = (
-    "Як увімкнути XMP / DOCP / EXPO:\n\n"
-    "1. Перезавантаж ПК і під час старту тисни Del (іноді F2) — відкриється BIOS.\n"
-    "2. Знайди пункт XMP (Intel), DOCP (ASUS на AMD) або EXPO (AMD DDR5). Зазвичай він "
-    "на головному екрані або в розділі Ai Tweaker / OC / Extreme Tweaker.\n"
-    "3. Вибери Profile 1 (XMP I / Profile 1).\n"
-    "4. Збережи й вийди: F10 → Yes.\n\n"
-    "Якщо після цього ПК не стартує — зачекай: плата сама повернеться до безпечних "
-    "налаштувань після кількох спроб. Або спробуй нижчу частоту в тому ж меню."
+    "sysinfo.xmp_help"
 )
 
 
@@ -452,10 +446,10 @@ def _format_uptime(seconds: float) -> str:
     hours, minutes = divmod(rem_minutes, 60)
     parts = []
     if days:
-        parts.append(f"{days} дн.")
+        parts.append(t("sysinfo.uptime_days", days=days))
     if hours or days:
-        parts.append(f"{hours} год")
-    parts.append(f"{minutes} хв")
+        parts.append(t("sysinfo.uptime_hours", hours=hours))
+    parts.append(t("sysinfo.uptime_minutes", minutes=minutes))
     return " ".join(parts)
 
 
@@ -487,7 +481,7 @@ def windows_version_name(product_name: str, edition_id: str, build, display_vers
     else:
         base = (product_name or "Windows").strip()
         edition = ""
-    return " ".join(part for part in (base, edition, display_version) if part) or UNKNOWN
+    return " ".join(part for part in (base, edition, display_version) if part) or t(UNKNOWN)
 
 
 def get_windows_info() -> dict:
@@ -511,9 +505,9 @@ def get_windows_info() -> dict:
         edition_id = ""
 
     version_text = windows_version_name(product_name, edition_id, build, display_version)
-    build_text = f"{build}.{ubr}" if build and ubr != "" else (str(build) if build else UNKNOWN)
+    build_text = f"{build}.{ubr}" if build and ubr != "" else (str(build) if build else t(UNKNOWN))
 
-    uptime_text = UNKNOWN
+    uptime_text = t(UNKNOWN)
     uptime_days = None
     try:
         seconds = time.time() - psutil.boot_time()
@@ -553,7 +547,7 @@ def get_disks_info() -> list[dict]:
         elif media == "hdd":
             disk_type = "HDD"
         else:
-            disk_type = UNKNOWN
+            disk_type = t(UNKNOWN)
 
         result.append({
             "letter": f"{letter}:",
@@ -571,8 +565,7 @@ def get_disks_info() -> list[dict]:
 
 def format_disk_usage(disk: dict) -> str:
     """«Зайнято 304 з 465 ГБ (65%) · вільно 161 ГБ» — ті самі числа, що на смужці."""
-    return (f"Зайнято {disk['used_gb']:.0f} з {disk['total_gb']:.0f} ГБ ({disk['used_percent']:.0f}%) · "
-            f"вільно {disk['free_gb']:.0f} ГБ")
+    return (t("sysinfo.disk_usage", used_gb=disk['used_gb'], total_gb=disk['total_gb'], used_percent=disk['used_percent'], free_gb=disk['free_gb']))
 
 
 def disk_bar_color(used_percent: float) -> str:
@@ -727,7 +720,7 @@ def get_monitors_info() -> list[dict]:
                     max_hz = max(max_hz, mode.dmDisplayFrequency)
                 mode_index += 1
 
-            name = _monitor_display_name(user32, device.DeviceName, f"Монітор {len(monitors) + 1}", edid_list)
+            name = _monitor_display_name(user32, device.DeviceName, t("sysinfo.monitor_n", n=len(monitors) + 1), edid_list)
             monitors.append({
                 "name": name,
                 "width": width,
@@ -736,7 +729,7 @@ def get_monitors_info() -> list[dict]:
                 "max_hz": max_hz,
             })
     except Exception:
-        _logger.exception("Не вдалося отримати дані про монітори")
+        _logger.exception("Failed to get monitor data")
         return []
 
     return monitors
@@ -765,8 +758,7 @@ def build_smart_tips(snapshot: dict) -> list[dict]:
             tips.append({
                 "id": f"monitor_hz_{mon['name']}",
                 "text": (
-                    f"Монітор «{mon['name']}» зараз працює на {mon['current_hz']} Гц, хоча підтримує "
-                    f"до {mon['max_hz']} Гц. Вищу частоту можна увімкнути в параметрах дисплея."
+                    t("sysinfo.tip.monitor_hz", name=mon['name'], current_hz=mon['current_hz'], max_hz=mon['max_hz'])
                 ),
                 "action": "open_display_settings",
             })
@@ -776,19 +768,16 @@ def build_smart_tips(snapshot: dict) -> list[dict]:
         tips.append({
             "id": "ram_xmp",
             "text": (
-                f"Пам'ять працює на {ram['speed_mhz']} МГц, а модулі розраховані на {ram['rated_mhz']} МГц. "
-                "Ймовірно, у BIOS вимкнено XMP/DOCP — увімкнення може дати +5–15% FPS у іграх."
+                t("sysinfo.tip.ram_xmp", speed_mhz=ram['speed_mhz'], rated_mhz=ram['rated_mhz'])
             ),
             "action": "xmp_help",
-            "button": "Як увімкнути",
+            "button": t("sysinfo.tip.how_to_enable"),
         })
     if ram.get("channels") == "single" and len(ram.get("modules") or []) == 1:
         tips.append({
             "id": "ram_single",
             "text": (
-                "Встановлено один модуль пам'яті — вона працює в одноканальному режимі. Другий такий "
-                "самий модуль у парний слот (зазвичай A2 + B2) увімкне двоканальний режим — це помітно "
-                "додає FPS, особливо з вбудованою графікою."
+                t("sysinfo.tip.ram_single")
             ),
         })
 
@@ -800,8 +789,7 @@ def build_smart_tips(snapshot: dict) -> list[dict]:
             tips.append({
                 "id": "gpu_driver_old",
                 "text": (
-                    f"Драйвер відеокарти не оновлювався близько {age_days // 30} міс. "
-                    "Новіша версія може покращити продуктивність і стабільність в іграх."
+                    t("sysinfo.tip.gpu_driver_old", months=age_days // 30)
                 ),
                 "action": "open_driver_page",
                 "gpu_model": gpu["model"],
@@ -812,8 +800,7 @@ def build_smart_tips(snapshot: dict) -> list[dict]:
             tips.append({
                 "id": f"disk_low_{disk['letter']}",
                 "text": (
-                    f"На диску {disk['letter']} залишилось лише {disk['free_gb']:.0f} ГБ "
-                    f"({disk['free_percent']:.0f}%) вільного місця."
+                    t("sysinfo.tip.disk_low", letter=disk['letter'], free_gb=disk['free_gb'], free_percent=disk['free_percent'])
                 ),
                 "action": "open_cleanup_tab",
             })
@@ -823,18 +810,17 @@ def build_smart_tips(snapshot: dict) -> list[dict]:
         tips.append({
             "id": "uptime_long",
             "text": (
-                f"Комп'ютер не перезавантажувався {uptime_days} дн. "
-                "Перезавантаження часто прибирає накопичені гальма й зависання."
+                t("sysinfo.tip.uptime", uptime_days=uptime_days)
             ),
             "action": "open_windows_update",
         })
 
     power_guid = game_mode_core.get_active_power_scheme()
-    saver_guid = game_mode_core.POWER_PLANS.get("Економія енергії", "")
+    saver_guid = game_mode_core.POWER_SAVER_GUID
     if power_guid and saver_guid and power_guid.lower() == saver_guid.lower():
         tips.append({
             "id": "power_saver",
-            "text": "Увімкнений план живлення «Економія енергії» — він навмисно знижує швидкодію системи.",
+            "text": t("sysinfo.tip.power_saver"),
             "action": "switch_to_balanced",
         })
 
@@ -849,7 +835,7 @@ def run_diagnostic(duration_sec: float, stop_event: threading.Event) -> dict:
     try:
         monitor_core.prime()
     except Exception:
-        _logger.exception("Не вдалося ініціалізувати збір даних для звіту")
+        _logger.exception("Failed to initialize data collection for the report")
 
     started = time.monotonic()
     cpu_samples: list[float] = []
@@ -951,7 +937,7 @@ def _rate_load(cpu, ram, gpu, disk) -> tuple[int, str, str]:
         level = 2
     else:
         level = 3
-    return score, _RATING_LABELS[level], _RATING_COLORS[level]
+    return score, t(_RATING_LABELS[level]), _RATING_COLORS[level]
 
 
 def _build_advice(cpu, ram, gpu, disk, top_offenders) -> list[dict]:
@@ -960,32 +946,28 @@ def _build_advice(cpu, ram, gpu, disk, top_offenders) -> list[dict]:
     if cpu >= 70:
         advice.append({
             "text": (
-                "Процесор був сильно завантажений майже весь час перевірки. Увімкни "
-                "Ігровий режим перед грою — він закриває зайві фонові програми."
+                t("sysinfo.advice.cpu")
             ),
             "tab_key": "game_mode",
         })
     if ram >= 80:
         advice.append({
             "text": (
-                "Оперативної пам'яті майже не залишається. Перевір автозапуск — можливо, "
-                "забагато програм стартує разом із Windows."
+                t("sysinfo.advice.ram")
             ),
             "tab_key": "autostart",
         })
     if disk >= 55:
         advice.append({
             "text": (
-                "Диск був сильно завантажений операціями читання/запису. Очищення "
-                "тимчасових файлів і кешу може трохи розвантажити його."
+                t("sysinfo.advice.disk")
             ),
             "tab_key": "cleanup",
         })
     if gpu is not None and gpu >= 85:
         advice.append({
             "text": (
-                "Відеокарта працювала майже на межі. Якщо це сталось не під час гри — "
-                "перевір, чи не займає GPU браузер або програма для стрімів."
+                t("sysinfo.advice.gpu")
             ),
             "tab_key": "game_mode",
         })
@@ -995,20 +977,19 @@ def _build_advice(cpu, ram, gpu, disk, top_offenders) -> list[dict]:
         if leader["cpu_avg"] >= 15 or leader["ram_avg"] >= 15:
             advice.append({
                 "text": (
-                    f"Найбільше ресурсів забирав процес «{leader['name']}» "
-                    f"(CPU {leader['cpu_avg']:.0f}%, RAM {leader['ram_avg']:.0f}%)."
+                    t("sysinfo.advice.leader", name=leader['name'], cpu_avg=leader['cpu_avg'], ram_avg=leader['ram_avg'])
                 ),
                 "tab_key": None,
             })
 
     if not advice:
         advice.append({
-            "text": "Суттєвих проблем під час перевірки не знайдено — система в непоганому стані.",
+            "text": t("sysinfo.advice.all_good"),
             "tab_key": None,
         })
 
     advice.append({
-        "text": "Ігрові твіки реєстру можуть додати трохи продуктивності в іграх.",
+        "text": t("sysinfo.advice.tweaks"),
         "tab_key": "registry_tweaks",
     })
 
@@ -1022,43 +1003,42 @@ def build_system_info_text(snapshot: dict) -> str:
 
     core_bits = []
     if cpu.get("cores_physical"):
-        core_bits.append(f"{cpu['cores_physical']} ядер")
+        core_bits.append(t("sysinfo.cores", count=cpu['cores_physical']))
     if cpu.get("cores_logical"):
-        core_bits.append(f"{cpu['cores_logical']} потоків")
-    cpu_line = f"Процесор: {cpu['model']}"
+        core_bits.append(t("sysinfo.threads", count=cpu['cores_logical']))
+    cpu_line = t("sysinfo.text.cpu", model=cpu['model'])
     if core_bits:
         cpu_line += f", {' / '.join(core_bits)}"
     freq = format_cpu_freq(cpu.get("freq_ghz"), cpu.get("current_ghz"))
     if freq:
         cpu_line += f", {freq}"
 
-    gpu_line = f"Відеокарта: {gpu['model']}"
+    gpu_line = t("sysinfo.text.gpu", model=gpu['model'])
     if gpu.get("memory_mb"):
-        gpu_line += f", {gpu['memory_mb'] / 1024:.1f} ГБ"
-    gpu_line += f", драйвер {gpu['driver_version']}"
+        gpu_line += t("sysinfo.text.gpu_mem", gb=gpu['memory_mb'] / 1024)
+    gpu_line += t("sysinfo.text.gpu_driver", driver_version=gpu['driver_version'])
     if gpu.get("driver_date"):
-        gpu_line += f" від {gpu['driver_date'].strftime('%d.%m.%Y')}"
+        gpu_line += t("sysinfo.text.gpu_driver_date", date=gpu['driver_date'].strftime('%d.%m.%Y'))
 
-    ram_line = f"Оперативна пам'ять: {ram['total_gb']:.1f} ГБ"
+    ram_line = t("sysinfo.text.ram", total_gb=ram['total_gb'])
     for extra in (format_ram_modules(ram), format_ram_speed(ram), format_ram_channels(ram)):
         if extra:
             ram_line += f", {extra}"
-    ram_line += f", зайнято {ram['used_gb']:.1f} ГБ ({ram['percent']:.0f}%)"
+    ram_line += t("sysinfo.text.ram_used", used_gb=ram['used_gb'], percent=ram['percent'])
 
     lines = [
-        "=== Інформація про систему (PulseFPS) ===",
-        f"Windows: {windows['version']} (збірка {windows['build']}), час роботи: {windows['uptime_text']}",
+        t("sysinfo.text.header"),
+        t("sysinfo.text.windows", version=windows['version'], build=windows['build'], uptime_text=windows['uptime_text']),
         cpu_line,
         gpu_line,
         ram_line,
     ]
 
     for disk in snapshot["disks"]:
-        lines.append(f"Диск {disk['letter']} ({disk['type']}): {format_disk_usage(disk)}")
+        lines.append(t("sysinfo.text.disk", letter=disk['letter'], type=disk['type'], disk=format_disk_usage(disk)))
     for mon in snapshot["monitors"]:
         lines.append(
-            f"Монітор «{mon['name']}»: {mon['width']}x{mon['height']}, {mon['current_hz']} Гц "
-            f"(макс. {mon['max_hz']} Гц)"
+            t("sysinfo.text.monitor", name=mon['name'], width=mon['width'], height=mon['height'], current_hz=mon['current_hz'], max_hz=mon['max_hz'])
         )
 
     return "\n".join(lines)
@@ -1066,21 +1046,20 @@ def build_system_info_text(snapshot: dict) -> str:
 
 def build_report_text(report: dict) -> str:
     lines = [
-        "=== Звіт: що гальмує ПК (PulseFPS) ===",
-        f"Оцінка: {report['label']} ({report['score']}/100)",
+        t("sysinfo.report.header"),
+        t("sysinfo.report.score", label=report['label'], score=report['score']),
         (
-            f"CPU: {report['cpu_avg']:.0f}%   RAM: {report['ram_avg']:.0f}%   "
-            f"Диск: {report['disk_avg']:.0f}%"
+            t("sysinfo.report.load", cpu_avg=report['cpu_avg'], ram_avg=report['ram_avg'], disk_avg=report['disk_avg'])
             + (f"   GPU: {report['gpu_avg']:.0f}%" if report["gpu_avg"] is not None else "")
         ),
     ]
 
     if report["top_offenders"]:
-        lines.append("Найбільше навантажували систему:")
+        lines.append(t("sysinfo.report.top"))
         for proc in report["top_offenders"]:
             lines.append(f"  • {proc['name']} — CPU {proc['cpu_avg']:.0f}%, RAM {proc['ram_avg']:.0f}%")
 
-    lines.append("Поради:")
+    lines.append(t("sysinfo.report.tips"))
     for item in report["advice"]:
         lines.append(f"  • {item['text']}")
 

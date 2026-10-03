@@ -13,38 +13,35 @@ from core import network as network_core
 from core import settings as app_settings
 from ui import bg, theme
 from ui.widgets.cleaner_bot import CleanerBotAnimation
+from core.i18n import TDict, t
 
 GRAPH_POINTS = 60
 
-# Тексти вкладки (системи перекладів у проєкті ще немає — усе в одному місці,
-# щоб згодом легко винести).
-TXT_TEST_INTRO = (
-    "Перевіримо, наскільки стабільний твій інтернет для онлайн-ігор: "
-    "пінг, стрибки затримки і втрату пакетів. Тест триває 30 секунд."
-)
-TXT_TEST_HINT = "Для точності закрий завантаження і стріми."
-TXT_HELP_SHOW = "Що це означає?"
-TXT_HELP_HIDE = "Сховати пояснення"
+# Тексти вкладки — ключі перекладів (locales/*.json): показуються через t().
+TXT_TEST_INTRO = "network.intro"
+TXT_TEST_HINT = "network.intro_hint"
+TXT_HELP_SHOW = "network.help_show"
+TXT_HELP_HIDE = "network.help_hide"
 HELP_CARDS = (
-    ("📡", "Пінг", "Час відповіді сервера.", "Для ігор добре: до 50 мс"),
-    ("〰️", "Джитер", "Наскільки пінг «скаче».", "Добре: до 10 мс"),
-    ("📦", "Втрати пакетів", "Скільки даних не дійшло.", "Добре: 0%"),
+    ("📡", "network.help.ping.title", "network.help.ping.text", "network.help.ping.norm"),
+    ("〰️", "network.help.jitter.title", "network.help.jitter.text", "network.help.jitter.norm"),
+    ("📦", "network.help.loss.title", "network.help.loss.text", "network.help.loss.norm"),
 )
-COLUMN_TIPS = {
-    "Дата": "Коли проводився тест.",
-    "Пінг": "Час відповіді сервера. Для ігор добре: до 50 мс.",
-    "Джитер": "Наскільки пінг «скаче». Добре: до 10 мс.",
-    "Втрати": "Скільки даних не дійшло. Добре: 0%.",
-    "Оцінка": "Загальна оцінка за найгіршим із показників. Наведи на оцінку, щоб побачити причину.",
-}
+COLUMN_TIPS = TDict({
+    "network.col.date": "network.col.date.tip",
+    "network.col.ping": "network.col.ping.tip",
+    "network.col.jitter": "network.col.jitter.tip",
+    "network.col.loss": "network.col.loss.tip",
+    "network.col.rating": "network.col.rating.tip",
+})
 SETTING_HELP_COLLAPSED = "network_help_collapsed"
-TXT_HISTORY_TITLE = "Історія тестів"
-TXT_HISTORY_EMPTY = "Ще немає тестів. Натисни «Почати тест», щоб перевірити з'єднання"
-TXT_CLEAR_HISTORY = "Очистити історію"
-TXT_CLEAR_CONFIRM_TITLE = "Очистити історію"
-TXT_CLEAR_CONFIRM = "Видалити всі записи?"
-TXT_ENTRY_DELETED = "Запис видалено"
-TXT_UNDO = "Скасувати"
+TXT_HISTORY_TITLE = "network.history.title"
+TXT_HISTORY_EMPTY = "network.history.empty"
+TXT_CLEAR_HISTORY = "settings.data.clear_history"
+TXT_CLEAR_CONFIRM_TITLE = "settings.data.clear_history"
+TXT_CLEAR_CONFIRM = "network.history.clear_confirm"
+TXT_ENTRY_DELETED = "network.history.deleted"
+TXT_UNDO = "common.undo"
 UNDO_TIMEOUT_MS = 5000
 
 
@@ -85,7 +82,7 @@ class Tooltip:
             self._tip.wm_geometry(f"+{x}+{y}")
             tk.Label(
                 self._tip, text=self.text, justify="left", wraplength=280, bg="#2b2b2b", fg="#e6e6e6",
-                relief="solid", borderwidth=1, padx=8, pady=5, font=("Segoe UI", 9),
+                relief="solid", borderwidth=1, padx=8, pady=5, font=(theme.font_family(), 9),
             ).pack()
         except tk.TclError:
             self._tip = None
@@ -177,7 +174,7 @@ class PingCard(ctk.CTkFrame):
 
         self.stats_label = ctk.CTkLabel(
             self,
-            text="Середній: —  ·  Джитер: —  ·  Втрати: —",
+            text=t("network.card.empty"),
             text_color="gray",
             font=ctk.CTkFont(size=11),
             anchor="w",
@@ -190,23 +187,23 @@ class PingCard(ctk.CTkFrame):
 
     def apply(self, latency: float | None, stats: dict) -> None:
         if latency is None:
-            theme.set_text(self.value_label, "таймаут", text_color="#ff5c7a")
+            theme.set_text(self.value_label, t("network.timeout"), text_color="#ff5c7a")
         else:
-            theme.set_text(self.value_label, f"{latency:.0f} мс", text_color=("gray10", "gray90"))
+            theme.set_text(self.value_label, t("units.ms", v=latency), text_color=("gray10", "gray90"))
         self.graph.push(latency)
 
-        avg = f"{stats['avg']:.0f} мс" if stats["avg"] is not None else "—"
-        jitter = f"{stats['jitter']:.0f} мс" if stats["jitter"] is not None else "—"
+        avg = t("units.ms", v=stats['avg']) if stats["avg"] is not None else "—"
+        jitter = t("units.ms", v=stats['jitter']) if stats["jitter"] is not None else "—"
         loss = stats["loss_percent"]
         loss_text = f"{loss:.0f}%"
         loss_color = "#ff5c7a" if loss > 0 else "gray"
 
         theme.set_text(
-            self.stats_label, f"Середній: {avg}  ·  Джитер: {jitter}  ·  Втрати: {loss_text}",
+            self.stats_label, t("network.card.stats", avg=avg, jitter=jitter, loss_text=loss_text),
             text_color=loss_color,
         )
 
-    def reset(self, idle_text: str = "Середній: —  ·  Джитер: —  ·  Втрати: —") -> None:
+    def reset(self, idle_text: str = t("network.card.empty")) -> None:
         theme.set_text(self.value_label, "—", text_color=("gray10", "gray90"))
         theme.set_text(self.stats_label, idle_text, text_color="gray")
         self.graph.clear()
@@ -219,7 +216,7 @@ class TestHistoryTable(ctk.CTkFrame):
     значення стоять точно під заголовками. Праворуч від рядка при наведенні
     з'являється іконка кошика (on_delete отримує індекс запису)."""
 
-    COLUMNS = ("Дата", "Пінг", "Джитер", "Втрати", "Оцінка")
+    COLUMNS = ("network.col.date", "network.col.ping", "network.col.jitter", "network.col.loss", "network.col.rating")
     TRASH_COL = len(COLUMNS)
 
     def __init__(self, master, on_delete=None):
@@ -236,7 +233,7 @@ class TestHistoryTable(ctk.CTkFrame):
         self._header_labels = []
         for i, title in enumerate(self.COLUMNS):
             head = ctk.CTkLabel(
-                self.grid_frame, text=title, font=ctk.CTkFont(size=11, weight="bold"),
+                self.grid_frame, text=t(title), font=ctk.CTkFont(size=11, weight="bold"),
                 text_color="gray", anchor="w",
             )
             head.grid(row=0, column=i, sticky="ew", pady=(0, 4))
@@ -246,7 +243,7 @@ class TestHistoryTable(ctk.CTkFrame):
         self.empty_frame = ctk.CTkFrame(self, fg_color="transparent")
         ctk.CTkLabel(self.empty_frame, text="🤖", font=ctk.CTkFont(size=34)).pack(pady=(14, 2))
         ctk.CTkLabel(
-            self.empty_frame, text=TXT_HISTORY_EMPTY, text_color="gray",
+            self.empty_frame, text=t(TXT_HISTORY_EMPTY), text_color="gray",
             font=ctk.CTkFont(size=12), wraplength=420, justify="center",
         ).pack(padx=16, pady=(0, 16))
 
@@ -274,14 +271,14 @@ class TestHistoryTable(ctk.CTkFrame):
             loss = entry.get("loss", 0) or 0
             values = (
                 entry.get("date", "—"),
-                f"{avg:.0f} мс" if avg is not None else "—",
-                f"{jitter:.0f} мс" if jitter is not None else "—",
+                t("units.ms", v=avg) if avg is not None else "—",
+                t("units.ms", v=jitter) if jitter is not None else "—",
                 f"{loss:.0f}%",
-                entry.get("label", "—"),
+                network_core.rating_label(network_core.entry_level(entry)),
             )
             row = {"widgets": [], "hover": False, "after": None}
             for c, value in enumerate(values):
-                color = network_core.RATING_COLOR_BY_LABEL.get(value) if c == 4 else None
+                color = network_core.RATING_COLORS[network_core.entry_level(entry)] if c == 4 else None
                 lbl = ctk.CTkLabel(
                     self.grid_frame, text=str(value), font=ctk.CTkFont(size=11),
                     text_color=color or ("gray10", "gray90"), anchor="w",
@@ -362,10 +359,10 @@ class NetworkTab(ctk.CTkFrame):
         row.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
         row.grid_columnconfigure(0, weight=1)
 
-        label = ctk.CTkLabel(row, text="Мережа", font=ctk.CTkFont(size=22, weight="bold"))
+        label = ctk.CTkLabel(row, text=t("tabs.network"), font=ctk.CTkFont(size=22, weight="bold"))
         label.grid(row=0, column=0, sticky="w")
 
-        self.live_switch = ctk.CTkSwitch(row, text="Живий режим", command=self._on_toggle_live)
+        self.live_switch = ctk.CTkSwitch(row, text=t("network.live"), command=self._on_toggle_live)
         self.live_switch.grid(row=0, column=1, sticky="e")
 
     def _build_content(self):
@@ -398,23 +395,23 @@ class NetworkTab(ctk.CTkFrame):
         self.start_section.pack(fill="x", pady=(10, 16))
 
         ctk.CTkLabel(
-            self.start_section, text=TXT_TEST_INTRO, wraplength=560, justify="center",
+            self.start_section, text=t(TXT_TEST_INTRO), wraplength=560, justify="center",
             font=ctk.CTkFont(size=13),
         ).pack(pady=(0, 12))
 
         self.test_custom_entry = ctk.CTkEntry(
-            self.start_section, placeholder_text="Власна адреса (напр. google.com)", width=280,
+            self.start_section, placeholder_text=t("network.custom_placeholder"), width=280,
         )
         self.test_custom_entry.pack(pady=(0, 14))
 
         self.start_button = ctk.CTkButton(
-            self.start_section, text="Почати тест (30 с)", width=260, height=44,
+            self.start_section, text=t("network.start"), width=260, height=44,
             font=ctk.CTkFont(size=16, weight="bold"), command=self._start_test,
         )
         self.start_button.pack()
 
         ctk.CTkLabel(
-            self.start_section, text=TXT_TEST_HINT, text_color="gray", font=ctk.CTkFont(size=10),
+            self.start_section, text=t(TXT_TEST_HINT), text_color="gray", font=ctk.CTkFont(size=10),
         ).pack(pady=(6, 0))
 
         self._build_help_section(self.start_section)
@@ -430,7 +427,7 @@ class NetworkTab(ctk.CTkFrame):
         self.test_cloudflare_card = PingCard(self.live_cards_frame, "Cloudflare (1.1.1.1)", color="#2ee59d")
         self.test_cloudflare_card.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
 
-        self.test_custom_card = PingCard(self.live_cards_frame, "Власна адреса", color="#c77dff")
+        self.test_custom_card = PingCard(self.live_cards_frame, t("network.custom"), color="#c77dff")
         self.test_custom_card.grid(row=0, column=2, padx=6, pady=6, sticky="nsew")
 
         self._build_result_section()
@@ -441,10 +438,10 @@ class NetworkTab(ctk.CTkFrame):
         history_head = ctk.CTkFrame(history_wrap, fg_color="transparent")
         history_head.pack(fill="x", pady=(0, 6))
         ctk.CTkLabel(
-            history_head, text=TXT_HISTORY_TITLE, font=ctk.CTkFont(size=13, weight="bold"),
+            history_head, text=t(TXT_HISTORY_TITLE), font=ctk.CTkFont(size=13, weight="bold"),
         ).pack(side="left")
         self.clear_history_button = ctk.CTkButton(
-            history_head, text=TXT_CLEAR_HISTORY, width=130, height=26,
+            history_head, text=t(TXT_CLEAR_HISTORY), width=130, height=26,
             fg_color="transparent", border_width=1, text_color=("gray20", "gray80"),
             command=self._clear_history,
         )
@@ -467,7 +464,7 @@ class NetworkTab(ctk.CTkFrame):
     def _clear_history(self):
         if not network_core.load_test_history():
             return
-        if not messagebox.askyesno(TXT_CLEAR_CONFIRM_TITLE, TXT_CLEAR_CONFIRM, parent=self):
+        if not messagebox.askyesno(t(TXT_CLEAR_CONFIRM_TITLE), t(TXT_CLEAR_CONFIRM), parent=self):
             return
         self._hide_undo()
         self._show_history(network_core.clear_test_history())
@@ -482,9 +479,9 @@ class NetworkTab(ctk.CTkFrame):
     def _show_undo(self, index: int, entry: dict):
         self._hide_undo()
         self._undo_bar = ctk.CTkFrame(self, corner_radius=10, border_width=1)
-        ctk.CTkLabel(self._undo_bar, text=TXT_ENTRY_DELETED).pack(side="left", padx=(14, 10), pady=8)
+        ctk.CTkLabel(self._undo_bar, text=t(TXT_ENTRY_DELETED)).pack(side="left", padx=(14, 10), pady=8)
         ctk.CTkButton(
-            self._undo_bar, text=TXT_UNDO, width=90, height=26,
+            self._undo_bar, text=t(TXT_UNDO), width=90, height=26,
             command=lambda: self._undo_delete(index, entry),
         ).pack(side="left", padx=(0, 12), pady=8)
         self._undo_bar.place(relx=0.5, rely=1.0, y=-14, anchor="s")
@@ -520,13 +517,13 @@ class NetworkTab(ctk.CTkFrame):
             card = ctk.CTkFrame(self.help_frame, corner_radius=8)
             card.grid(row=0, column=i, padx=4, sticky="nsew")
             ctk.CTkLabel(
-                card, text=f"{icon} {title}", font=ctk.CTkFont(size=12, weight="bold"),
+                card, text=f"{icon} {t(title)}", font=ctk.CTkFont(size=12, weight="bold"),
             ).pack(anchor="w", padx=10, pady=(8, 0))
             ctk.CTkLabel(
-                card, text=text, font=ctk.CTkFont(size=11), wraplength=170, justify="left", anchor="w",
+                card, text=t(text), font=ctk.CTkFont(size=11), wraplength=170, justify="left", anchor="w",
             ).pack(anchor="w", padx=10)
             ctk.CTkLabel(
-                card, text=norm, font=ctk.CTkFont(size=11), text_color="#2ee59d",
+                card, text=t(norm), font=ctk.CTkFont(size=11), text_color="#2ee59d",
                 wraplength=170, justify="left", anchor="w",
             ).pack(anchor="w", padx=10, pady=(0, 8))
         self._apply_help_state()
@@ -534,10 +531,10 @@ class NetworkTab(ctk.CTkFrame):
     def _apply_help_state(self):
         if self._help_collapsed:
             self.help_frame.pack_forget()
-            self.help_toggle.configure(text=TXT_HELP_SHOW)
+            self.help_toggle.configure(text=t(TXT_HELP_SHOW))
         else:
             self.help_frame.pack(fill="x", padx=10)
-            self.help_toggle.configure(text=TXT_HELP_HIDE)
+            self.help_toggle.configure(text=t(TXT_HELP_HIDE))
 
     def _toggle_help(self):
         self._help_collapsed = not self._help_collapsed
@@ -573,12 +570,12 @@ class NetworkTab(ctk.CTkFrame):
         buttons.pack(fill="x", padx=16, pady=(0, 16))
 
         self.repeat_button = ctk.CTkButton(
-            buttons, text="Повторити тест", width=160, command=self._start_test,
+            buttons, text=t("network.retry"), width=160, command=self._start_test,
         )
         self.repeat_button.pack(side="left", padx=(0, 8))
 
         self.copy_button = ctk.CTkButton(
-            buttons, text="Скопіювати результат", width=180, command=self._copy_result,
+            buttons, text=t("network.copy"), width=180, command=self._copy_result,
         )
         self.copy_button.pack(side="left")
 
@@ -604,12 +601,12 @@ class NetworkTab(ctk.CTkFrame):
 
         custom_host = self.test_custom_entry.get().strip()
         if custom_host:
-            self.test_custom_card.set_title(f"Власна адреса ({custom_host})")
+            self.test_custom_card.set_title(t("network.custom_with", host=custom_host))
             self.test_custom_card.reset()
             targets.append((self.test_custom_card, custom_host))
         else:
-            self.test_custom_card.set_title("Власна адреса")
-            self.test_custom_card.reset(idle_text="Адресу не задано")
+            self.test_custom_card.set_title(t("network.custom"))
+            self.test_custom_card.reset(idle_text=t("network.no_address"))
 
         self._test_workers = []
         for card, host in targets:
@@ -623,7 +620,7 @@ class NetworkTab(ctk.CTkFrame):
             worker.start()
 
         self._test_started_at = time.monotonic()
-        self.bot.start("Вимірюємо мережу… 30 с", tool="scan")
+        self.bot.start(t("network.measuring_30"), tool="scan")
         self._tick_test()
 
     def _tick_test(self):
@@ -633,7 +630,7 @@ class NetworkTab(ctk.CTkFrame):
         elapsed = time.monotonic() - self._test_started_at
         remaining = max(0.0, network_core.TEST_DURATION_SEC - elapsed)
         progress = min(1.0, elapsed / network_core.TEST_DURATION_SEC)
-        self.bot.update(f"Вимірюємо мережу… {remaining:.0f} с", progress)
+        self.bot.update(t("network.measuring", remaining=remaining), progress)
 
         if elapsed >= network_core.TEST_DURATION_SEC:
             self._finish_test()
@@ -656,13 +653,13 @@ class NetworkTab(ctk.CTkFrame):
             "avg": stats["avg"],
             "jitter": stats["jitter"],
             "loss": stats["loss_percent"],
-            "label": rating["label"],
+            "level": rating["level"],
         }
         history = network_core.save_test_result(entry)
         self._show_history(history)
 
         success = rating["level"] <= 1
-        self.bot.finish("Готово!" if success else "Хм, не дуже...", success=success)
+        self.bot.finish(t("network.done") if success else t("network.meh"), success=success)
 
         self._last_result_text = self._build_result_text(stats, rating, date_text)
         self._render_result(stats, rating)
@@ -681,11 +678,10 @@ class NetworkTab(ctk.CTkFrame):
         self.result_badge.configure(text=rating["label"], fg_color=rating["color"], text_color="white")
 
         def fmt(v):
-            return f"{v:.0f} мс" if v is not None else "—"
+            return t("units.ms", v=v) if v is not None else "—"
 
         stats_text = (
-            f"Пінг: {fmt(stats['avg'])}  (мін {fmt(stats['min'])} · макс {fmt(stats['max'])})\n"
-            f"Джитер: {fmt(stats['jitter'])}   ·   Втрати пакетів: {stats['loss_percent']:.0f}%"
+            t("network.result.stats", avg=fmt(stats['avg']), min=fmt(stats['min']), max=fmt(stats['max']), jitter=fmt(stats['jitter']), loss_percent=stats['loss_percent'])
         )
         self.result_stats_label.configure(text=stats_text)
         self.result_notes_label.configure(text="\n".join(f"•  {n}" for n in rating["notes"]))
@@ -694,17 +690,17 @@ class NetworkTab(ctk.CTkFrame):
 
     def _build_result_text(self, stats: dict, rating: dict, date_text: str) -> str:
         def fmt(v):
-            return f"{v:.0f} мс" if v is not None else "—"
+            return t("units.ms", v=v) if v is not None else "—"
 
         lines = [
-            f"Тест мережі — {date_text}",
-            f"Оцінка: {rating['label']}",
-            f"Пінг: {fmt(stats['avg'])} (мін {fmt(stats['min'])}, макс {fmt(stats['max'])})",
-            f"Джитер: {fmt(stats['jitter'])}",
-            f"Втрати пакетів: {stats['loss_percent']:.0f}%",
+            t("network.result.title", date=date_text),
+            t("network.result.rating", label=rating['label']),
+            t("network.result.ping", avg=fmt(stats['avg']), min=fmt(stats['min']), max=fmt(stats['max'])),
+            t("network.result.jitter", jitter=fmt(stats['jitter'])),
+            t("network.result.loss", loss_percent=stats['loss_percent']),
         ]
         if rating["notes"]:
-            lines.append("Висновки:")
+            lines.append(t("network.result.conclusions"))
             lines.extend(f"- {n}" for n in rating["notes"])
         return "\n".join(lines)
 
@@ -721,17 +717,17 @@ class NetworkTab(ctk.CTkFrame):
         controls.pack(fill="x", pady=(10, 10))
 
         self.live_custom_entry = ctk.CTkEntry(
-            controls, placeholder_text="Власна адреса (напр. google.com)", width=260,
+            controls, placeholder_text=t("network.custom_placeholder"), width=260,
         )
         self.live_custom_entry.pack(side="left", padx=(0, 10))
 
         self.live_start_button = ctk.CTkButton(
-            controls, text="Старт", width=90, command=self._start_live,
+            controls, text=t("network.live_start"), width=90, command=self._start_live,
         )
         self.live_start_button.pack(side="left", padx=(0, 6))
 
         self.live_stop_button = ctk.CTkButton(
-            controls, text="Стоп", width=90, state="disabled",
+            controls, text=t("network.live_stop"), width=90, state="disabled",
             fg_color="#a8283f", hover_color="#ff5c7a", command=self._stop_live,
         )
         self.live_stop_button.pack(side="left")
@@ -747,7 +743,7 @@ class NetworkTab(ctk.CTkFrame):
         self.live_cloudflare_card = PingCard(cards_frame, "Cloudflare (1.1.1.1)", color="#2ee59d")
         self.live_cloudflare_card.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
 
-        self.live_custom_card = PingCard(cards_frame, "Власна адреса", color="#c77dff")
+        self.live_custom_card = PingCard(cards_frame, t("network.custom"), color="#c77dff")
         self.live_custom_card.grid(row=0, column=2, padx=6, pady=6, sticky="nsew")
 
     def _start_live(self):
@@ -764,12 +760,12 @@ class NetworkTab(ctk.CTkFrame):
 
         custom_host = self.live_custom_entry.get().strip()
         if custom_host:
-            self.live_custom_card.set_title(f"Власна адреса ({custom_host})")
+            self.live_custom_card.set_title(t("network.custom_with", host=custom_host))
             self.live_custom_card.reset()
             targets.append((self.live_custom_card, custom_host))
         else:
-            self.live_custom_card.set_title("Власна адреса")
-            self.live_custom_card.reset(idle_text="Адресу не задано")
+            self.live_custom_card.set_title(t("network.custom"))
+            self.live_custom_card.reset(idle_text=t("network.no_address"))
 
         for card, host in targets:
             worker = network_core.PingWorker(host, on_update=self._make_live_callback(card))
@@ -826,3 +822,7 @@ class NetworkTab(ctk.CTkFrame):
         for worker in self._live_workers:
             worker.stop()
         self._live_workers.clear()
+
+    def is_busy(self) -> bool:
+        """Триває операція, яку не можна перервати перебудовою вкладки (зміна мови)."""
+        return bool(self._test_workers)

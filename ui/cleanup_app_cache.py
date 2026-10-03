@@ -11,6 +11,7 @@ import customtkinter as ctk
 
 from core import app_cache
 from core.cleanup import format_size
+from core.i18n import t
 from ui import bg, theme
 
 _WARNING = "#e0a52f"
@@ -18,16 +19,8 @@ _SUCCESS = "#2ee59d"
 _ICON_SIZE = 26
 
 
-def _files_word(count: int) -> str:
-    if count % 10 == 1 and count % 100 != 11:
-        return "файл"
-    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
-        return "файли"
-    return "файлів"
-
-
 def _count_text(count: int) -> str:
-    return f"{count:,}".replace(",", " ") + " " + _files_word(count)
+    return t("app_cache.files", count=count, n=f"{count:,}".replace(",", " "))
 
 
 class AppCacheRow(ctk.CTkFrame):
@@ -69,7 +62,7 @@ class AppCacheRow(ctk.CTkFrame):
                                        font=ctk.CTkFont(size=13, weight="bold"))
         self.size_label.grid(row=0, column=3, padx=(8, 8))
 
-        self.action_button = ctk.CTkButton(self, text="Очистити", width=150, height=26,
+        self.action_button = ctk.CTkButton(self, text=t("cleanup.clean"), width=150, height=26,
                                            font=ctk.CTkFont(size=11), command=self._on_action)
         self.action_button.grid(row=0, column=4, sticky="e")
 
@@ -89,10 +82,10 @@ class AppCacheRow(ctk.CTkFrame):
                 labels.append(folder["label"])
         meta = f"{_count_text(group['file_count'])} · {', '.join(labels)}"
         if group["running"]:
-            meta = "Програма запущена · " + meta
+            meta = t("app_cache.running_prefix") + meta
         self.meta_label.configure(text=meta, text_color=_WARNING if group["running"] else "gray")
 
-        notes = sorted({f["note"] for f in group["folders"] if f.get("note")})
+        notes = sorted({t(f["note"]) for f in group["folders"] if f.get("note")})
         if notes:
             self.note_label.configure(text="\n".join(notes))
             self.note_label.pack(anchor="w")
@@ -102,9 +95,9 @@ class AppCacheRow(ctk.CTkFrame):
         self.size_label.configure(text=format_size(group["size_bytes"]))
         if group["running"]:
             self.var.set(False)
-            self.action_button.configure(text="Закрити й очистити", fg_color="#9a6a12", hover_color=_WARNING)
+            self.action_button.configure(text=t("cleanup.close_and_clean"), fg_color="#9a6a12", hover_color=_WARNING)
         else:
-            self.action_button.configure(text="Очистити", fg_color=("#3a7ebf", "#1f538d"),
+            self.action_button.configure(text=t("cleanup.clean"), fg_color=("#3a7ebf", "#1f538d"),
                                          hover_color=("#325882", "#14375e"))
         self._apply_lock()
 
@@ -165,7 +158,7 @@ class AppCacheSection(ctk.CTkFrame):
 
         self.select_all_var = ctk.BooleanVar(value=False)
         self.select_all_checkbox = ctk.CTkCheckBox(
-            header, text="Вибрати все", variable=self.select_all_var, font=ctk.CTkFont(size=12),
+            header, text=t("app_cache.select_all"), variable=self.select_all_var, font=ctk.CTkFont(size=12),
             command=lambda: self.select_all(self.select_all_var.get()),
         )
         self.select_all_checkbox.pack(side="right")
@@ -175,8 +168,7 @@ class AppCacheSection(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self,
-            text=("Автопошук кешу в AppData, Microsoft Store і теках лаунчерів. Паролі, cookies, сесії, "
-                  "профілі, збереження й налаштування не зачіпаються."),
+            text=(t("app_cache.intro")),
             text_color="gray", font=ctk.CTkFont(size=11), wraplength=760, justify="left",
         ).pack(padx=14, pady=(0, 6), anchor="w")
 
@@ -191,7 +183,7 @@ class AppCacheSection(ctk.CTkFrame):
         self.list_frame = theme.plain_frame(self)
         self.list_frame.pack(fill="x", padx=14)
 
-        self.empty_label = ctk.CTkLabel(self, text="Кешу програм не знайдено", text_color="gray")
+        self.empty_label = ctk.CTkLabel(self, text=t("app_cache.none"), text_color="gray")
 
         self.small_button = ctk.CTkButton(
             self, text="", height=26, fg_color="transparent", border_width=1,
@@ -221,7 +213,7 @@ class AppCacheSection(ctk.CTkFrame):
             job = app_cache.refresh_running
         else:
             self.progress_bar.set(0)
-            self.progress_label.configure(text="Сканування…")
+            self.progress_label.configure(text=t("app_cache.scanning"))
             self.progress_frame.pack(fill="x", padx=14, pady=(0, 6), before=self.list_frame)
             self.total_label.configure(text="")
             job = self._full_scan_job(generation)
@@ -268,7 +260,7 @@ class AppCacheSection(ctk.CTkFrame):
         if generation != self._scan_generation or not self.winfo_exists():
             return
         self.progress_bar.set(fraction)
-        self.progress_label.configure(text=f"Сканування {int(fraction * 100)}% · {text}")
+        self.progress_label.configure(text=t("app_cache.scanning_pct", percent=int(fraction * 100), text=text))
 
     def _on_scan_done(self, generation, groups, on_done, keep_status=False) -> None:
         if generation != self._scan_generation or not self.winfo_exists():
@@ -329,15 +321,15 @@ class AppCacheSection(ctk.CTkFrame):
             self.empty_label.pack(padx=14, pady=(0, 6), anchor="w", before=self.bottom_pad)
         if small:
             small_size = sum(r.group["size_bytes"] for r in small)
-            arrow = "▴ Сховати дрібні" if self._show_small else "▾ Показати дрібні"
-            self.small_button.configure(text=f"{arrow} (менше 10 МБ: {len(small)} · {format_size(small_size)})")
+            arrow = t("app_cache.hide_small") if self._show_small else t("app_cache.show_small")
+            self.small_button.configure(text=t("app_cache.small_summary", arrow=arrow, count=len(small), size=format_size(small_size)))
             self.small_button.pack(padx=14, pady=(4, 2), anchor="w", before=self.bottom_pad)
             if self._show_small:
                 self.small_frame.pack(fill="x", padx=14, before=self.bottom_pad)
 
         total = sum(r.group["size_bytes"] for r in ordered)
         count = sum(1 for r in ordered if r.group["file_count"])
-        self.total_label.configure(text=f"Усього {format_size(total)} · {count} програм" if count else "")
+        self.total_label.configure(text=t("app_cache.total", total=format_size(total), count=count) if count else "")
 
     def _toggle_small(self) -> None:
         self._show_small = not self._show_small
@@ -402,7 +394,7 @@ class AppCacheSection(ctk.CTkFrame):
     def set_busy(self, key: str) -> None:
         row = self.rows.get(key)
         if row:
-            row.set_status("Очищення…", "gray")
+            row.set_status(t("app_cache.cleaning"), "gray")
 
     def show_result(self, key: str, result: dict) -> None:
         row = self.rows.get(key)
@@ -411,9 +403,9 @@ class AppCacheSection(ctk.CTkFrame):
         if result.get("skipped_reason"):
             row.set_status(result["skipped_reason"], _WARNING)
             return
-        text = f"Звільнено {format_size(result['freed_bytes'])}"
+        text = t("cleanup.freed", freed=format_size(result['freed_bytes']))
         if result["skipped_count"]:
-            text += f" · пропущено {result['skipped_count']} (зайняті)"
+            text += t("app_cache.skipped_busy", count=result['skipped_count'])
         row.set_status(text, _SUCCESS)
 
     def _on_destroy(self, event) -> None:

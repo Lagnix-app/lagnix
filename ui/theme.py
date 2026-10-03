@@ -20,8 +20,11 @@ from __future__ import annotations
 import sys
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 
 import customtkinter as ctk
+
+from core import i18n
 
 # ---------------------------------------------------------------- палітра
 
@@ -45,7 +48,31 @@ PAD_S = 8
 PAD_M = 16
 PAD_L = 20
 
-_FONT_FAMILY = "Segoe UI"
+_FIT_PAD_DP = 28  # поля кнопки (ліворуч і праворуч разом), dp
+
+_TK_NAMED_FONTS = ("TkDefaultFont", "TkTextFont", "TkFixedFont", "TkMenuFont", "TkHeadingFont",
+                   "TkCaptionFont", "TkSmallCaptionFont", "TkIconFont", "TkTooltipFont")
+
+
+def font_family() -> str:
+    """Шрифт інтерфейсу для поточної мови: Segoe UI, а для китайської, японської
+    й корейської — Microsoft YaHei UI / Yu Gothic UI / Malgun Gothic (core/i18n.py)."""
+    return i18n.ui_font_family()
+
+
+def apply_language_fonts(root) -> None:
+    """Шрифт мови — у типовий шрифт CTk (віджети без явного font=) і в іменовані
+    шрифти Tk (tk.Label, меню, діалоги). Викликати до (пере)побудови вкладок."""
+    family = font_family()
+    try:
+        ctk.ThemeManager.theme["CTkFont"]["family"] = family
+    except (KeyError, TypeError):
+        pass
+    for name in _TK_NAMED_FONTS:
+        try:
+            tkfont.nametofont(name, root=root).configure(family=family)
+        except Exception:
+            pass
 
 
 # ----------------------------------------------------- перемикачі анімацій
@@ -115,19 +142,19 @@ def set_text(label, text: str, **options) -> None:
 
 
 def font_title() -> ctk.CTkFont:
-    return ctk.CTkFont(family=_FONT_FAMILY, size=22, weight="bold")
+    return ctk.CTkFont(family=font_family(), size=22, weight="bold")
 
 
 def font_header() -> ctk.CTkFont:
-    return ctk.CTkFont(family=_FONT_FAMILY, size=15, weight="bold")
+    return ctk.CTkFont(family=font_family(), size=15, weight="bold")
 
 
 def font_body() -> ctk.CTkFont:
-    return ctk.CTkFont(family=_FONT_FAMILY, size=13)
+    return ctk.CTkFont(family=font_family(), size=13)
 
 
 def font_small() -> ctk.CTkFont:
-    return ctk.CTkFont(family=_FONT_FAMILY, size=11)
+    return ctk.CTkFont(family=font_family(), size=11)
 
 
 # --------------------------------------------------------------- анімація
@@ -248,8 +275,7 @@ class _Ticker:
 
 _ticker = _Ticker()
 ticker = _ticker
-"""Спільний таймер анімацій: ticker.add(obj, widget) викликає obj._step(now)
-щокадру, доки той повертає True (використовують і списки на Canvas)."""
+"Shared animation timer: ticker.add(obj, widget) calls obj._step(now)\nevery frame while it returns True (also used by Canvas lists)."
 
 
 class _ColorAnimator:
@@ -377,14 +403,40 @@ class AnimatedButton(ctk.CTkButton):
     """
 
     play_hover_sound = False
+    auto_fit = True  # розширюється під довший переклад (мінімум — задана ширина)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._fit_width()
         self._color_anim = _ColorAnimator(self, self._apply_inner_color)
         base = self._bg_color if self._fg_color == "transparent" else self._fg_color
         try:
             self._color_anim.set_immediate(self._apply_appearance_mode(base))
         except tk.TclError:
+            pass
+
+    def configure(self, require_redraw=False, **kwargs):
+        super().configure(require_redraw=require_redraw, **kwargs)
+        if "text" in kwargs or "font" in kwargs or "image" in kwargs:
+            self._fit_width()
+
+    def _fit_width(self) -> None:
+        """Ширина кнопки не менша за текст + поля: довші переклади (німецька,
+        французька, російська…) не обрізаються. Менше за задану ширину не стає."""
+        if not self.auto_fit or isinstance(self.master, ctk.CTkSegmentedButton):
+            return  # у сегментованих перемикачах ширину задає перемикач (_choice_row)
+        text = getattr(self, "_text", "") or ""
+        font = getattr(self, "_font", None)
+        if not text or not isinstance(font, tkfont.Font):
+            return
+        try:
+            need = max(font.measure(line) for line in text.split("\n")) + _FIT_PAD_DP
+            image = getattr(self, "_image", None)
+            if image is not None and getattr(self, "_compound", "left") in ("left", "right"):
+                need += image.cget("size")[0] + 8
+            if need > self._desired_width:
+                ctk.CTkButton.configure(self, width=need)
+        except (tk.TclError, AttributeError, TypeError):
             pass
 
     def _apply_inner_color(self, color: str) -> None:
@@ -429,6 +481,7 @@ class NavButton(AnimatedButton):
     """Пункт бічного меню: як AnimatedButton, але з тихим "тіком" при наведенні."""
 
     play_hover_sound = True
+    auto_fit = False  # ширину бічного меню задає розкладка
 
 
 # ----------------------------------------------------------- AnimatedCard
@@ -581,8 +634,7 @@ def _scrollable_mouse_wheel_all(self, event):
 # написаний код вкладок без жодної правки їхніх файлів.
 
 PlainFrame = ctk.CTkFrame
-"""Оригінальний CTkFrame — для суто декоративних елементів (індикатор
-активної вкладки тощо), де підсвічування рамки при наведенні не потрібне."""
+"The original CTkFrame — for purely decorative elements (the active tab\nindicator, etc.) where hover border highlighting is not needed."
 
 if getattr(ctk, "CTkButton", None) is not AnimatedButton:
     ctk.CTkButton = AnimatedButton

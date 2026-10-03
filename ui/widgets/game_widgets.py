@@ -21,12 +21,12 @@ from ui.widgets import scroll
 from ui.widgets.canvas_list import (
     CanvasList, FastScrollbar, Tooltip, card_image, switch_image,
 )
+from core.i18n import t
 
-_FONT_FAMILY = "Segoe UI"
 
 
 def fmt_mem(mb: float) -> str:
-    return f"{mb / 1024:.1f} ГБ" if mb >= 1024 else f"{mb:.0f} МБ"
+    return t("units.gb_1", v=mb / 1024) if mb >= 1024 else t("units.mb_0", mb=mb)
 
 
 # ================================================================== база
@@ -198,7 +198,7 @@ class ChipBoard(CanvasBox):
     def _font(self, size: int, weight: str = "normal") -> tuple:
         key = (size, weight)
         if key not in self._fonts:
-            self._fonts[key] = (_FONT_FAMILY, -round(size * self.S), weight)
+            self._fonts[key] = (theme.font_family(), -round(size * self.S), weight)
         return self._fonts[key]
 
     def _text_w(self, text: str, font: tuple) -> int:
@@ -274,7 +274,7 @@ class ChipBoard(CanvasBox):
                 measured.pop()
                 hidden += 1
                 more = self._measure_chip({
-                    "key": None, "title": f"ще {hidden}", "memory_mb": 0, "icon": False, "removable": False,
+                    "key": None, "title": t("game_widgets.more", count=hidden), "memory_mb": 0, "icon": False, "removable": False,
                     "hidden_titles": [ch["title"] for ch in self._chips[len(measured):]],
                 })
                 rows, height = self._place(measured + [more], width)
@@ -360,13 +360,13 @@ class ChipBoard(CanvasBox):
 
     def _tooltip_text(self, chip: dict, region: str) -> str | None:
         if chip.get("hidden_titles"):
-            return "Ще закриється:\n" + "\n".join(chip["hidden_titles"])
+            return t("game_widgets.also_closes") + "\n".join(chip["hidden_titles"])
         if region == "x":
-            return "Не закривати цю програму (можна повернути кнопкою «Повернути вилучені»)"
+            return t("game_widgets.dont_close")
         lines = [chip["title"]]
         meta = " · ".join(filter(None, [
             chip.get("category_label"),
-            f"процесів: {chip['count']}" if chip.get("count") else None,
+            t("game_widgets.processes", count=chip['count']) if chip.get("count") else None,
             fmt_mem(chip["memory_mb"]) if chip.get("memory_mb") else None,
         ]))
         if meta:
@@ -431,7 +431,7 @@ class GamesList(CanvasList):
         it["sub"] = c.create_text(0, 0, anchor="nw", font=self.font(11), fill=theme.TEXT_DIM, tags=base)
         it["run"] = c.create_text(0, 0, anchor="nw", font=self.font(11, "bold"), fill=theme.ACCENT_GREEN, tags=(slot.tag,))
         it["switch"] = c.create_image(0, 0, anchor="e", tags=base)
-        it["auto"] = c.create_text(0, 0, anchor="e", font=self.font(11), fill=theme.TEXT_DIM, text="Авто", tags=base)
+        it["auto"] = c.create_text(0, 0, anchor="e", font=self.font(11), fill=theme.TEXT_DIM, text=t("game_widgets.auto"), tags=base)
         it["group"] = c.create_text(0, 0, anchor="w", font=self.font(12, "bold"), fill=theme.TEXT_DIM, tags=(slot.tag,))
 
     def _card_box(self):
@@ -469,7 +469,7 @@ class GamesList(CanvasList):
         self.iset(slot, "sub", text=item["platform"])
         if item.get("running"):
             self.icoords(slot, "run", tx + self.text_width(item["platform"], self.font(11)) + self.px(8), mid + self.px(2))
-            self.iset(slot, "run", text="● запущено", state="normal")
+            self.iset(slot, "run", text=t("game_widgets.running"), state="normal")
         else:
             self.iset(slot, "run", state="hidden")
         self.icoords(slot, "switch", w - self.px(10), mid)
@@ -524,10 +524,9 @@ class GamesList(CanvasList):
     def tooltip_for(self, index: int, region: str):
         item = self.items[index]
         if region == "group":
-            return ("Blender, Wallpaper Engine, SteamVR, редактори та інші не-ігри (за типом програми в Steam).\n"
-                    "Самі режим не вмикають і сесію не записують, доки не ввімкнеш їм «Авто».")
+            return (t("game_widgets.other_group_tip"))
         if region == "switch":
-            return "Вмикати «Ігровий режим» автоматично, коли ця гра запуститься, і вимикати після виходу"
+            return t("game_widgets.auto_tip")
         return f"{item['name']}\n{item['platform']}\n{item.get('folder', '')}"
 
 
@@ -601,10 +600,7 @@ class SessionsList(CanvasList):
     def tooltip_for(self, index: int, region: str):
         s = self.items[index]
         return (
-            f"{s['game']} — {game_sessions.format_duration(s['duration_s'])}\n"
-            f"CPU: середнє {fmt_pct(s.get('cpu_avg'))}, максимум {fmt_pct(s.get('cpu_max'))}\n"
-            f"GPU: середнє {fmt_pct(s.get('gpu_avg'))}, максимум {fmt_pct(s.get('gpu_max'))}\n"
-            f"Макс. температура: CPU {fmt_temp(s.get('cpu_temp_max'))}, GPU {fmt_temp(s.get('gpu_temp_max'))}"
+            t("game_widgets.session_tip", game=s['game'], duration=game_sessions.format_duration(s['duration_s']), cpu_avg=fmt_pct(s.get('cpu_avg')), cpu_max=fmt_pct(s.get('cpu_max')), gpu_avg=fmt_pct(s.get('gpu_avg')), gpu_max=fmt_pct(s.get('gpu_max')), cpu_temp=fmt_temp(s.get('cpu_temp_max')), gpu_temp=fmt_temp(s.get('gpu_temp_max')))
         )
 
 

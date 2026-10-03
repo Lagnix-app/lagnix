@@ -19,18 +19,24 @@ from core import process_control
 from core.admin import is_admin
 from core.logging_setup import get_audit_logger, get_logger
 from core.game_mode import get_running_process_name_set
+from core.i18n import t
 
 WINDOWS_TEMP_PATH = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "Temp")
 
-CAT_TEMP = "Тимчасові файли"
-CAT_BROWSERS = "Кеш браузерів"
-CAT_APPS = "Кеш програм"
-CAT_RECYCLE = "Кошик"
-CAT_SHADERS = "Кеш шейдерів"
-CAT_WINDOWS = "Оновлення та дампи Windows"
-CAT_THUMBNAILS = "Мініатюри"
+CAT_TEMP = "temp"
+CAT_BROWSERS = "browsers"
+CAT_APPS = "apps"
+CAT_RECYCLE = "recycle"
+CAT_SHADERS = "shaders"
+CAT_WINDOWS = "windows"
+CAT_THUMBNAILS = "thumbnails"
 
-SHADER_NOTE = "Перший запуск ігор після очищення триватиме довше — шейдери компілюються заново."
+SHADER_NOTE = "cleanup.shader_note"  # ключ перекладу
+
+
+def category_label(category: str) -> str:
+    """Назва категорії (CAT_*) поточною мовою."""
+    return t(f"cleanup.cat.{category}")
 
 _SHERB_NOCONFIRMATION = 0x00000001
 _SHERB_NOPROGRESSUI = 0x00000002
@@ -70,14 +76,14 @@ def get_targets() -> list[dict]:
     """
     targets = [_folder_target(
         key="user_temp", category=CAT_TEMP,
-        label="Тимчасові файли користувача (%TEMP%)",
+        label=t("cleanup.target.user_temp"),
         patterns=[os.path.abspath(tempfile.gettempdir())],
     )]
 
     if os.path.isdir(WINDOWS_TEMP_PATH):
         targets.append(_folder_target(
             key="windows_temp", category=CAT_TEMP,
-            label=f"Тимчасові файли Windows ({WINDOWS_TEMP_PATH})",
+            label=t("cleanup.target.windows_temp", path=WINDOWS_TEMP_PATH),
             patterns=[os.path.abspath(WINDOWS_TEMP_PATH)],
         ))
 
@@ -86,7 +92,7 @@ def get_targets() -> list[dict]:
 
     if local:
         targets.append(_folder_target(
-            key="chrome_cache", category=CAT_BROWSERS, label="Google Chrome — кеш",
+            key="chrome_cache", category=CAT_BROWSERS, label=t("cleanup.target.chrome"),
             patterns=[
                 os.path.join(local, "Google", "Chrome", "User Data", "*", "Cache"),
                 os.path.join(local, "Google", "Chrome", "User Data", "*", "Code Cache"),
@@ -95,7 +101,7 @@ def get_targets() -> list[dict]:
             process_names=["chrome.exe"],
         ))
         targets.append(_folder_target(
-            key="edge_cache", category=CAT_BROWSERS, label="Microsoft Edge — кеш",
+            key="edge_cache", category=CAT_BROWSERS, label=t("cleanup.target.edge"),
             patterns=[
                 os.path.join(local, "Microsoft", "Edge", "User Data", "*", "Cache"),
                 os.path.join(local, "Microsoft", "Edge", "User Data", "*", "Code Cache"),
@@ -104,17 +110,17 @@ def get_targets() -> list[dict]:
             process_names=["msedge.exe"],
         ))
         targets.append(_folder_target(
-            key="firefox_cache", category=CAT_BROWSERS, label="Mozilla Firefox — кеш",
+            key="firefox_cache", category=CAT_BROWSERS, label=t("cleanup.target.firefox"),
             patterns=[os.path.join(local, "Mozilla", "Firefox", "Profiles", "*", "cache2")],
             process_names=["firefox.exe"],
         ))
         targets.append(_folder_target(
-            key="dx_shader_cache", category=CAT_SHADERS, label="Кеш шейдерів DirectX",
+            key="dx_shader_cache", category=CAT_SHADERS, label=t("cleanup.target.dx_shaders"),
             patterns=[os.path.join(local, "D3DSCache")],
             note=SHADER_NOTE,
         ))
         targets.append(_folder_target(
-            key="nvidia_shader_cache", category=CAT_SHADERS, label="Кеш шейдерів NVIDIA",
+            key="nvidia_shader_cache", category=CAT_SHADERS, label=t("cleanup.target.nvidia_shaders"),
             patterns=[
                 os.path.join(local, "NVIDIA", "DXCache"),
                 os.path.join(local, "NVIDIA", "GLCache"),
@@ -125,7 +131,7 @@ def get_targets() -> list[dict]:
 
     if roaming:
         targets.append(_folder_target(
-            key="opera_cache", category=CAT_BROWSERS, label="Opera — кеш",
+            key="opera_cache", category=CAT_BROWSERS, label=t("cleanup.target.opera"),
             patterns=[
                 os.path.join(roaming, "Opera Software", "Opera Stable", "Cache"),
                 os.path.join(roaming, "Opera Software", "Opera Stable", "Code Cache"),
@@ -137,21 +143,21 @@ def get_targets() -> list[dict]:
     # Кеш програм (CAT_APPS) шукається автоматично — див. core/app_cache.py.
 
     targets.append({
-        "key": "recycle_bin", "category": CAT_RECYCLE, "label": "Кошик",
+        "key": "recycle_bin", "category": CAT_RECYCLE, "label": t("cleanup.target.recycle"),
         "kind": "recycle_bin", "requires_admin": False, "process_names": [], "note": None,
     })
 
     system_root = os.environ.get("SystemRoot", r"C:\Windows")
     targets.append(_folder_target(
         key="windows_update_cache", category=CAT_WINDOWS,
-        label="Кеш оновлень Windows (SoftwareDistribution\\Download)",
+        label=t("cleanup.target.windows_update"),
         patterns=[os.path.join(system_root, "SoftwareDistribution", "Download")],
         requires_admin=True,
     ))
 
     program_data = os.environ.get("ProgramData", r"C:\ProgramData")
     targets.append(_folder_target(
-        key="crash_dumps", category=CAT_WINDOWS, label="Дампи помилок Windows",
+        key="crash_dumps", category=CAT_WINDOWS, label=t("cleanup.target.crash_dumps"),
         patterns=[
             os.path.join(local, "CrashDumps") if local else "",
             os.path.join(program_data, "Microsoft", "Windows", "WER", "ReportQueue"),
@@ -163,7 +169,7 @@ def get_targets() -> list[dict]:
     if local:
         explorer_dir = os.path.join(local, "Microsoft", "Windows", "Explorer")
         targets.append({
-            "key": "thumbnail_cache", "category": CAT_THUMBNAILS, "label": "Кеш мініатюр",
+            "key": "thumbnail_cache", "category": CAT_THUMBNAILS, "label": t("cleanup.target.thumbnails"),
             "kind": "files_glob",
             "patterns": [
                 os.path.join(explorer_dir, "thumbcache_*.db"),
@@ -301,7 +307,7 @@ def scan_target(key: str, running_processes: set[str] | None = None) -> dict:
 
     if target.get("requires_admin") and not is_admin():
         result["admin_blocked"] = True
-        get_logger("core.cleanup").error("Немає прав адміністратора для %s", key)
+        get_logger("core.cleanup").error("No administrator rights for %s", key)
 
     process_names = target.get("process_names") or []
     if process_names:
@@ -363,7 +369,7 @@ def scan_many(keys: list[str], progress_cb=None) -> dict:
 
 def clean_target(key: str, action, running_processes: set[str] | None = None) -> dict:
     """Видаляє файли цілі (лише з UserAction). Зайняті файли й запущені програми пропускаються без помилок."""
-    process_control.require(action, f"очищення {key}")
+    process_control.require(action, f"cleaning {key}")
     audit = get_audit_logger()
     target = _find_target(key)
     result = {"key": key, "freed_bytes": 0, "deleted_count": 0, "skipped_count": 0, "skipped_reason": None}
@@ -371,8 +377,8 @@ def clean_target(key: str, action, running_processes: set[str] | None = None) ->
         return result
 
     if target.get("requires_admin") and not is_admin():
-        result["skipped_reason"] = "Пропущено"
-        get_logger("core.cleanup").error("Немає прав адміністратора для очищення %s", key)
+        result["skipped_reason"] = t("cleanup.skipped")
+        get_logger("core.cleanup").error("No administrator rights to clean %s", key)
         return result
 
     process_names = target.get("process_names") or []
@@ -380,16 +386,16 @@ def clean_target(key: str, action, running_processes: set[str] | None = None) ->
         if running_processes is None:
             running_processes = get_running_process_name_set()
         if any(name.lower() in running_processes for name in process_names):
-            result["skipped_reason"] = "Програма запущена — закрийте її й спробуйте ще раз"
+            result["skipped_reason"] = t("app_cache.err.running")
             return result
 
     kind = target.get("kind", "folder")
 
     if kind == "recycle_bin":
         if not _empty_recycle_bin():
-            result["skipped_reason"] = "Не вдалося очистити кошик"
+            result["skipped_reason"] = t("cleanup.err.recycle")
         else:
-            audit.info("Очищено Кошик — причина: %s", action.reason)
+            audit.info("Recycle Bin emptied — reason: %s", action.reason)
         return result
 
     if kind == "files_glob":
@@ -403,7 +409,7 @@ def clean_target(key: str, action, running_processes: set[str] | None = None) ->
                     deleted += 1
                 except OSError:
                     skipped += 1
-        audit.info("Видалено %d файлів (%d байт, пропущено %d): %s — причина: %s",
+        audit.info("Deleted %d files (%d bytes, skipped %d): %s — reason: %s",
                    deleted, freed, skipped, target["label"], action.reason)
         result.update(freed_bytes=freed, deleted_count=deleted, skipped_count=skipped)
         return result
@@ -412,7 +418,7 @@ def clean_target(key: str, action, running_processes: set[str] | None = None) ->
     for path in _resolve_folder_patterns(target):
         f, d, s = _clean_dir_contents(path)
         if d or s:
-            audit.info("Видалено %d файлів (%d байт, пропущено %d) у %s — причина: %s",
+            audit.info("Deleted %d files (%d bytes, skipped %d) in %s — reason: %s",
                        d, f, s, path, action.reason)
         freed += f
         deleted += d
@@ -422,7 +428,7 @@ def clean_target(key: str, action, running_processes: set[str] | None = None) ->
 
 
 def clean_many(keys: list[str], action, progress_cb=None, start_cb=None) -> dict:
-    process_control.require(action, f"очищення {keys}")
+    process_control.require(action, f"cleaning {keys}")
     running = get_running_process_name_set()
     total_freed = total_deleted = total_skipped = 0
     results = {}
@@ -451,8 +457,8 @@ def clean_many(keys: list[str], action, progress_cb=None, start_cb=None) -> dict
 def format_size(size_bytes: int) -> str:
     """Форматує розмір у байтах у зручний вигляд (Б/КБ/МБ/ГБ/ТБ)."""
     size = float(size_bytes)
-    for unit in ("Б", "КБ", "МБ", "ГБ"):
+    for unit in ("units.b", "units.kb", "units.mb", "units.gb"):
         if size < 1024:
-            return f"{size:.0f} {unit}" if unit == "Б" else f"{size:.1f} {unit}"
+            return f"{size:.0f} {t(unit)}" if unit == "units.b" else f"{size:.1f} {t(unit)}"
         size /= 1024
-    return f"{size:.1f} ТБ"
+    return t("units.tb_value", size=size)

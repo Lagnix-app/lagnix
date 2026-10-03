@@ -41,7 +41,7 @@ def _task_xml() -> str:
     workdir = escape(os.path.dirname(exe if getattr(sys, "frozen", False) else os.path.abspath(sys.argv[0])))
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Запуск PulseFPS при вході в Windows</Description></RegistrationInfo>
+  <RegistrationInfo><Description>Start PulseFPS at Windows sign-in</Description></RegistrationInfo>
   <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>
   <Principals><Principal id="Author"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
@@ -83,7 +83,7 @@ def is_enabled() -> bool:
     try:
         return _schtasks("/Query", "/TN", TASK_NAME).returncode == 0
     except (OSError, subprocess.SubprocessError):
-        _log.exception("Не вдалося перевірити завдання автозапуску")
+        _log.exception("Failed to check the startup task")
         return False
 
 
@@ -113,7 +113,7 @@ def set_enabled(enabled: bool) -> tuple[bool, str]:
             _delete_run_value()
         return True, ""
     except (OSError, subprocess.SubprocessError) as exc:
-        _log.exception("Помилка керування завданням автозапуску")
+        _log.exception("Startup task management error")
         return False, str(exc)
 
 
@@ -122,4 +122,4 @@ def migrate() -> None:
     if _run_value_exists():
         ok, err = set_enabled(True)
         if not ok:
-            _log.error("Міграція автозапуску не вдалась: %s", err)
+            _log.error("Startup migration failed: %s", err)

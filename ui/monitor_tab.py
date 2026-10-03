@@ -23,6 +23,7 @@ from ui.widgets import aa
 from ui.widgets import robot as robot_view
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, card_image, pill_image
 from ui.widgets.game_widgets import ScrollPage
+from core.i18n import TDict, maybe_t, t
 
 DEFAULT_UPDATE_INTERVAL_SEC = 1.0
 # «Бракує оперативної пам'яті»: зайнято понад 85% RAM або Windows уже
@@ -50,29 +51,26 @@ def _level_color(percent: float) -> str:
 def _fmt_rate(mb_per_s: float) -> str:
     """Не довше за «999 МБ/с»: так плитки вміщуються в один ряд."""
     if mb_per_s < 1.0:
-        return f"{mb_per_s * 1024:.0f} КБ/с"
+        return t("units.kb_s", v=mb_per_s * 1024)
     if mb_per_s < 100.0:
-        return f"{mb_per_s:.1f} МБ/с"
+        return t("units.mb_s_1", v=mb_per_s)
     if mb_per_s < 1000.0:
-        return f"{mb_per_s:.0f} МБ/с"
-    return f"{mb_per_s / 1024:.1f} ГБ/с"
+        return t("units.mb_s_0", v=mb_per_s)
+    return t("units.gb_s", v=mb_per_s / 1024)
 
 
 # ----------------------------------------------------------------- ring gauge
 
-_TEMP_HINTS = {
-    "off": "Розширені датчики вимкнені. Увімкніть їх у «Налаштуваннях», щоб бачити температуру процесора.",
-    "starting": "Датчики запускаються — зачекайте кілька секунд.",
-}
-_TEMP_HINT_DEFAULT = (
-    "Не вдалося отримати температуру процесора. Можливо, не встановлено драйвер датчиків "
-    "PawnIO (pawnio.eu) — після встановлення перезапустіть програму."
-)
+_TEMP_HINTS = TDict({
+    "off": "monitor.temp_hint.off",
+    "starting": "monitor.temp_hint.starting",
+})
+_TEMP_HINT_DEFAULT = "monitor.temp_hint.default"
 
 
 def _cpu_temp_hint(sensor_data: dict | None) -> str:
     reason = (sensor_data or {}).get("reason")
-    return _TEMP_HINTS.get(reason, _TEMP_HINT_DEFAULT)
+    return _TEMP_HINTS[reason] if reason in _TEMP_HINTS else t(_TEMP_HINT_DEFAULT)
 
 
 def _cpu_temp_details(s: dict) -> str:
@@ -82,12 +80,12 @@ def _cpu_temp_details(s: dict) -> str:
         lines.append(f"{name}: {value:.0f}°C")
     clocks = s.get("core_clocks") or {}
     if clocks:
-        lines.append(f"Частота: {sum(clocks.values()) / len(clocks) / 1000:.2f} ГГц (середня)")
+        lines.append(t("monitor.cpu_freq_avg", ghz=sum(clocks.values()) / len(clocks) / 1000))
     if s.get("power_w") is not None:
-        lines.append(f"Споживання CPU: {s['power_w']:.0f} Вт")
+        lines.append(t("monitor.cpu_power", power_w=s['power_w']))
     for name, rpm in s.get("fans", []):
         if rpm > 0:
-            lines.append(f"{name}: {rpm:.0f} об/хв")
+            lines.append(t("monitor.fan_rpm", name=name, rpm=rpm))
     return "\n".join(lines) or None
 
 
@@ -122,7 +120,7 @@ class RingGauge(ctk.CTkFrame):
         self._image_item = self.canvas.create_image(0, 0, anchor="nw")
         self._value_text = self.canvas.create_text(
             px / 2, px / 2, text="—",
-            font=("Segoe UI", -round(29 * self._scale), "bold"), fill=theme.TEXT_MAIN,
+            font=(theme.font_family(), -round(29 * self._scale), "bold"), fill=theme.TEXT_MAIN,
         )
         self._build_base()
 
@@ -155,7 +153,7 @@ class RingGauge(ctk.CTkFrame):
             px = round(RING_SIZE * self._scale)
             self.canvas.configure(width=px, height=px)
             self.canvas.coords(self._value_text, px / 2, px / 2)
-            self.canvas.itemconfigure(self._value_text, font=("Segoe UI", -round(29 * self._scale), "bold"))
+            self.canvas.itemconfigure(self._value_text, font=(theme.font_family(), -round(29 * self._scale), "bold"))
             self._build_base()
             self._render(self._percent_anim.current or 0.0, force=True)
 
@@ -229,7 +227,7 @@ class InfoTile(ctk.CTkFrame):
         ).pack(padx=12, pady=(10, 0), fill="x")
 
         self.value_label = ctk.CTkLabel(
-            self, text="—", font=ctk.CTkFont(family="Segoe UI", size=_TILE_VALUE_SIZE, weight="bold"),
+            self, text="—", font=ctk.CTkFont(family=theme.font_family(), size=_TILE_VALUE_SIZE, weight="bold"),
             anchor="w", justify="left",
         )
         self.value_label.pack(padx=12, pady=(2, 10), anchor="w")
@@ -247,8 +245,8 @@ class InfoTile(ctk.CTkFrame):
         cached = getattr(self, "_required", None)
         if cached is not None and cached[0] == S:
             return cached[1]
-        small = tkfont.Font(family="Segoe UI", size=-round(11 * S))
-        header = tkfont.Font(family="Segoe UI", size=-round(_TILE_VALUE_SIZE * S), weight="bold")
+        small = tkfont.Font(family=theme.font_family(), size=-round(11 * S))
+        header = tkfont.Font(family=theme.font_family(), size=-round(_TILE_VALUE_SIZE * S), weight="bold")
         text_w = max(
             small.measure(self._title),
             max(header.measure(line) for line in self._widest_value.split("\n")),
@@ -269,7 +267,7 @@ class InfoTile(ctk.CTkFrame):
         tip.wm_geometry(f"+{event.x_root + 12}+{event.y_root + 18}")
         tk.Label(
             tip, text=self._tooltip_text, background="#1a1a1a", foreground="#dce4ee",
-            font=("Segoe UI", 10), padx=8, pady=4, relief="solid", borderwidth=1,
+            font=(theme.font_family(), 10), padx=8, pady=4, relief="solid", borderwidth=1,
             wraplength=240, justify="left",
         ).pack()
         self._tooltip_win = tip
@@ -296,7 +294,7 @@ class LoadGraph(ctk.CTkFrame):
     """
 
     SERIES = (("cpu", "CPU", theme.ACCENT_BLUE), ("gpu", "GPU", "#c77dff"), ("ram", "RAM", theme.ACCENT_GREEN),
-              ("temp", "Темп. CPU °C", "#ffb454"))
+              ("temp", "monitor.series.cpu_temp", "#ffb454"))
     NO_FILL = frozenset({"temp"})  # температура — лише лінія, без заливки
     OPTIONAL = frozenset({"gpu", "temp"})  # у легенді лише поки є дані (немає GPU / датчика CPU)
     FILL_ALPHA = 0.42  # прозорість заливки біля лінії (далі згасає до 0 донизу)
@@ -309,7 +307,7 @@ class LoadGraph(ctk.CTkFrame):
 
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=16, pady=(14, 4))
-        ctk.CTkLabel(header, text="Навантаження за останні 60 с", font=theme.font_header()).pack(side="left")
+        ctk.CTkLabel(header, text=t("monitor.graph_title"), font=theme.font_header()).pack(side="left")
 
         legend = ctk.CTkFrame(header, fg_color="transparent")
         legend.pack(side="right")
@@ -326,7 +324,7 @@ class LoadGraph(ctk.CTkFrame):
                 bg=theme.BG_PANEL, bd=0, highlightthickness=0, cursor="hand2",
             )
             dot.pack(side="left", padx=(0, 5))
-            text = ctk.CTkLabel(item, text=label, font=theme.font_small(), text_color=theme.TEXT_DIM, cursor="hand2")
+            text = ctk.CTkLabel(item, text=maybe_t(label), font=theme.font_small(), text_color=theme.TEXT_DIM, cursor="hand2")
             text.pack(side="left")
             self._legend_labels[key] = text
             for widget in (dot, text):
@@ -340,7 +338,7 @@ class LoadGraph(ctk.CTkFrame):
         self._labels = [
             (frac, self.canvas.create_text(
                 4, 0, text=text, anchor="w", fill=theme.TEXT_DIM,
-                font=("Segoe UI", -round(11 * self._scale)),
+                font=(theme.font_family(), -round(11 * self._scale)),
             ))
             for frac, text in ((0.0, "0%"), (0.5, "50%"), (1.0, "100%"))
         ]
@@ -361,7 +359,7 @@ class LoadGraph(ctk.CTkFrame):
         self._scale = args[0]
         if hasattr(self, "canvas"):
             self.canvas.configure(height=round(GRAPH_MIN_DP * self._scale))
-            font = ("Segoe UI", -round(11 * self._scale))
+            font = (theme.font_family(), -round(11 * self._scale))
             for _frac, item in self._labels:
                 self.canvas.itemconfigure(item, font=font)
             self._size = (0, 0)
@@ -621,7 +619,7 @@ class ProcessList(CanvasList):
         it["badge_bg"] = c.create_image(0, 0, anchor="w", tags=opt)
         it["badge"] = c.create_text(0, 0, anchor="center", font=self.font(10, "bold"), tags=opt)
         it["kill_bg"] = c.create_image(0, 0, anchor="nw", tags=opt)
-        it["kill"] = c.create_text(0, 0, anchor="center", text="Завершити", fill="#ffffff",
+        it["kill"] = c.create_text(0, 0, anchor="center", text=t("monitor.end_task"), fill="#ffffff",
                                    font=self.font(12), tags=opt)
 
     def bind_slot(self, slot, index: int) -> None:
@@ -738,12 +736,12 @@ class ProcessList(CanvasList):
         row = self.rows[index]
         text = process_info.tooltip_text(row["name"], row["pid"])
         if row["kind"] == "group" and row["count"] > 1:
-            text += f"\n\nПроцесів у групі: {row['count']} (стрілка ▸ — показати окремо)"
+            text += t("monitor.group_count", count=row['count'])
         return text
 
 
 def _fmt_mem(mb: float) -> str:
-    return f"{mb / 1024:.1f} ГБ" if mb >= 10 * 1024 else f"{mb:.0f} МБ"
+    return t("units.gb_1", v=mb / 1024) if mb >= 10 * 1024 else t("units.mb_0", mb=mb)
 
 
 class ProcessTable(ctk.CTkFrame):
@@ -759,14 +757,14 @@ class ProcessTable(ctk.CTkFrame):
 
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=16, pady=(14, 6))
-        ctk.CTkLabel(header, text="Процеси", font=theme.font_header()).pack(side="left")
+        ctk.CTkLabel(header, text=t("monitor.processes"), font=theme.font_header()).pack(side="left")
 
-        self.toggle = ctk.CTkSegmentedButton(header, values=["За CPU", "За RAM"], command=self._on_toggle)
-        self.toggle.set("За CPU")
+        self.toggle = ctk.CTkSegmentedButton(header, values=[t("monitor.sort_cpu"), t("monitor.sort_ram")], command=self._on_toggle)
+        self.toggle.set(t("monitor.sort_cpu"))
         self.toggle.pack(side="right")
 
         self.group_switch = ctk.CTkSwitch(
-            header, text="Групувати", font=theme.font_small(), command=self._on_group_switch, width=40,
+            header, text=t("monitor.group"), font=theme.font_small(), command=self._on_group_switch, width=40,
         )
         if self._grouped:
             self.group_switch.select()
@@ -775,18 +773,18 @@ class ProcessTable(ctk.CTkFrame):
         columns = ctk.CTkFrame(self, fg_color="transparent")
         columns.pack(fill="x", padx=(22, 22))
         columns.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(columns, text="Процес", text_color=theme.TEXT_DIM, font=theme.font_small()).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(columns, text=t("monitor.col_process"), text_color=theme.TEXT_DIM, font=theme.font_small()).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(columns, text="CPU", text_color=theme.TEXT_DIM, font=theme.font_small(), width=56, anchor="e").grid(row=0, column=1, sticky="e", padx=(0, 10))
-        ctk.CTkLabel(columns, text="Пам'ять", text_color=theme.TEXT_DIM, font=theme.font_small(), width=80, anchor="e").grid(row=0, column=2, sticky="e", padx=(0, 10))
+        ctk.CTkLabel(columns, text=t("monitor.col_memory"), text_color=theme.TEXT_DIM, font=theme.font_small(), width=80, anchor="e").grid(row=0, column=2, sticky="e", padx=(0, 10))
         ctk.CTkLabel(columns, text="", width=_COL_ACTION_W).grid(row=0, column=3, sticky="e", padx=(0, 6))
 
         self.list = ProcessList(self, on_terminate, self._toggle_expand)
         self.list.canvas.configure(height=round(_PROC_ROW_DP * 5 * self.list.S))  # ≥ 5 рядків
         self.list.pack(fill="both", expand=True, padx=(16, 8), pady=(2, 14))
-        self.list.set_empty_text("Завантаження…")
+        self.list.set_empty_text(t("common.loading"))
 
     def _on_toggle(self, value: str) -> None:
-        self._sort_key = "cpu" if value == "За CPU" else "ram"
+        self._sort_key = "cpu" if value == t("monitor.sort_cpu") else "ram"
         self._render()
 
     def _on_group_switch(self) -> None:
@@ -882,10 +880,10 @@ class StatusRobot(ctk.CTkFrame):
         self.robot = robot_view.RobotView(self.body, size=ROBOT_SIZE, mood=robot_view.CALM, bg=card_color)
         self.robot.grid(row=0, column=0, rowspan=3, padx=(12, 10), pady=8)
 
-        ctk.CTkLabel(self.body, text="Статус системи", font=ctk.CTkFont(size=13, weight="bold"),
+        ctk.CTkLabel(self.body, text=t("monitor.status"), font=ctk.CTkFont(size=13, weight="bold"),
                      anchor="w").grid(row=0, column=1, padx=(0, 12), pady=(8, 0), sticky="sw")
         self.phrase_label = ctk.CTkLabel(
-            self.body, text="Збираємо дані…", font=theme.font_small(), text_color=theme.TEXT_DIM,
+            self.body, text=t("monitor.collecting"), font=theme.font_small(), text_color=theme.TEXT_DIM,
             wraplength=150, justify="left", anchor="w",
         )
         self.phrase_label.grid(row=1, column=1, padx=(0, 12), sticky="nw")
@@ -941,7 +939,7 @@ class StatusRobot(ctk.CTkFrame):
         text = self._action[0]
         short = self._action[2] if len(self._action) > 2 else text
         avail = self.winfo_width() - round((ROBOT_SIZE + 40) * self._scale)
-        font = tkfont.Font(family="Segoe UI", size=-round(11 * self._scale))
+        font = tkfont.Font(family=theme.font_family(), size=-round(11 * self._scale))
         needed = font.measure(text) + round(24 * self._scale)
         wanted = text if needed <= avail or avail <= 0 else short
         if self.action_button.cget("text") != wanted:
@@ -1011,7 +1009,7 @@ class MonitorTab(ctk.CTkFrame):
     # ------------------------------------------------------------------ UI
 
     def _build_header(self):
-        label = ctk.CTkLabel(self._body, text="Монітор", font=theme.font_title())
+        label = ctk.CTkLabel(self._body, text=t("tabs.monitor"), font=theme.font_title())
         label.grid(row=0, column=0, columnspan=2, padx=20, pady=(20, 4), sticky="w")
 
         self.warning_label = ctk.CTkLabel(
@@ -1045,12 +1043,12 @@ class MonitorTab(ctk.CTkFrame):
         tiles_frame = self._tiles_frame = ctk.CTkFrame(main, fg_color="transparent")
         tiles_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
 
-        self.tile_gpu_temp = InfoTile(tiles_frame, "Температура GPU", "100°C")
-        self.tile_cpu_temp = InfoTile(tiles_frame, "Температура CPU", "100°C")
-        self.tile_disk = InfoTile(tiles_frame, "Диск", "Чит. 99.9 МБ/с\nЗап. 99.9 МБ/с")
-        self.tile_network = InfoTile(tiles_frame, "Мережа", "↓ 99.9 МБ/с\n↑ 99.9 МБ/с")
-        self.tile_uptime = InfoTile(tiles_frame, "Час роботи ПК", "99 дн 23 год")
-        self.tile_disk.set_tooltip("Чит. — читання з дисків, Зап. — запис на диски (усі диски разом).")
+        self.tile_gpu_temp = InfoTile(tiles_frame, t("monitor.gpu_temp"), "100°C")
+        self.tile_cpu_temp = InfoTile(tiles_frame, t("monitor.cpu_temp"), "100°C")
+        self.tile_disk = InfoTile(tiles_frame, t("monitor.disk"), t("monitor.disk_sample"))
+        self.tile_network = InfoTile(tiles_frame, t("tabs.network"), t("monitor.net_sample"))
+        self.tile_uptime = InfoTile(tiles_frame, t("monitor.uptime"), t("monitor.uptime_sample"))
+        self.tile_disk.set_tooltip(t("monitor.disk_tip"))
         self._tiles = [self.tile_gpu_temp, self.tile_cpu_temp, self.tile_disk, self.tile_network, self.tile_uptime]
         self._tile_columns = None
         tk.Misc.bind(tiles_frame, "<Configure>", lambda _e: self._layout_tiles(), "+")
@@ -1111,13 +1109,13 @@ class MonitorTab(ctk.CTkFrame):
         try:
             monitor_core.prime()
         except Exception:
-            _logger.exception("Не вдалося ініціалізувати збір даних монітора (prime)")
+            _logger.exception("Failed to initialize monitor data collection (prime)")
 
         while not self._stop_event.is_set():
             try:
                 data = monitor_core.collect_snapshot(include_processes=self._visible)
             except Exception as exc:
-                _logger.exception("Помилка збору даних монітора")
+                _logger.exception("Monitor data collection error")
                 data = {"error": str(exc)}
 
             if self._stop_event.is_set():
@@ -1148,7 +1146,7 @@ class MonitorTab(ctk.CTkFrame):
             return
 
         if "error" in data:
-            theme.set_text(self.warning_label, f" ⚠ Помилка збору даних монітора: {data['error']}")
+            theme.set_text(self.warning_label, t("monitor.error", error=data['error']))
             return
 
         self._last_data = data
@@ -1156,7 +1154,7 @@ class MonitorTab(ctk.CTkFrame):
             try:
                 listener(data)
             except Exception:
-                _logger.exception("Помилка слухача зрізів монітора")
+                _logger.exception("Monitor snapshot listener error")
         if not self._visible:
             # лише накопичуємо історію графіка — нічого не перемальовуємо
             gpu = data["gpu"]
@@ -1170,42 +1168,42 @@ class MonitorTab(ctk.CTkFrame):
         warnings = []
 
         freq = data["cpu_freq_ghz"]
-        freq_text = f"{freq:.2f} ГГц" if freq else "частота: н/д"
+        freq_text = t("units.ghz_2", freq=freq) if freq else t("monitor.freq_na")
         self.ring_cpu.set_value(data["cpu_percent"], freq_text)
 
         self.ring_ram.set_value(
-            data["ram_percent"], f"{data['ram_used_gb']:.1f} з {data['ram_total_gb']:.1f} ГБ",
+            data["ram_percent"], t("monitor.ram_used", used=data['ram_used_gb'], total=data['ram_total_gb']),
         )
 
         gpu = data["gpu"]
         cpu_temp = data["cpu_temp"]
 
         if gpu is None:
-            self.ring_gpu.set_unavailable("недоступно (GPU не знайдено)")
-            self.ring_vram.set_unavailable("недоступно")
-            self.tile_gpu_temp.set_value("н/д")
-            self.tile_gpu_temp.set_tooltip("Відеокарту не знайдено: немає ні лічильників Windows «GPU Engine», ні NVML/nvidia-smi.")
+            self.ring_gpu.set_unavailable(t("monitor.gpu_unavailable_none"))
+            self.ring_vram.set_unavailable(t("common.unavailable_lower"))
+            self.tile_gpu_temp.set_value(t("common.na"))
+            self.tile_gpu_temp.set_tooltip(t("monitor.gpu_not_found"))
         else:
             self.ring_gpu.set_value(gpu["load_percent"], gpu["name"])
             if gpu["mem_total_mb"]:
                 vram_percent = gpu["mem_used_mb"] / gpu["mem_total_mb"] * 100.0
                 self.ring_vram.set_value(
-                    vram_percent, f"{gpu['mem_used_mb'] / 1024:.1f} з {gpu['mem_total_mb'] / 1024:.1f} ГБ",
+                    vram_percent, t("monitor.ram_used", used=gpu['mem_used_mb'] / 1024, total=gpu['mem_total_mb'] / 1024),
                 )
             else:
-                self.ring_vram.set_unavailable("недоступно")
+                self.ring_vram.set_unavailable(t("common.unavailable_lower"))
             temp = gpu["temperature_c"]
             if temp is None:
-                self.tile_gpu_temp.set_value("н/д")
-                self.tile_gpu_temp.set_tooltip("Температура GPU доступна лише для відеокарт NVIDIA.")
+                self.tile_gpu_temp.set_value(t("common.na"))
+                self.tile_gpu_temp.set_tooltip(t("monitor.gpu_temp_nvidia_only"))
             else:
                 self.tile_gpu_temp.set_value(f"{temp:.0f}°C")
                 self.tile_gpu_temp.set_tooltip(None)
                 if temp > threshold:
-                    warnings.append(f"GPU перегрівається: {temp:.0f}°C (поріг {threshold}°C)")
+                    warnings.append(t("monitor.gpu_overheat", temp=temp, threshold=threshold))
 
         if cpu_temp is None:
-            self.tile_cpu_temp.set_value("Недоступно")
+            self.tile_cpu_temp.set_value(t("common.unavailable"))
             self.tile_cpu_temp.set_tooltip(_cpu_temp_hint(data.get("cpu_sensors")))
         else:
             self.tile_cpu_temp.set_value(
@@ -1213,10 +1211,10 @@ class MonitorTab(ctk.CTkFrame):
             )
             self.tile_cpu_temp.set_tooltip(_cpu_temp_details(data["cpu_sensors"]))
             if cpu_temp > threshold:
-                warnings.append(f"CPU перегрівається: {cpu_temp:.0f}°C (поріг {threshold}°C)")
+                warnings.append(t("monitor.cpu_overheat", temp=cpu_temp, threshold=threshold))
 
         self.tile_disk.set_value(
-            f"Чит. {_fmt_rate(data['disk_read_mb_s'])}\nЗап. {_fmt_rate(data['disk_write_mb_s'])}"
+            t("monitor.disk_rw", read=_fmt_rate(data['disk_read_mb_s']), write=_fmt_rate(data['disk_write_mb_s']))
         )
         self.tile_network.set_value(
             f"↓ {_fmt_rate(data['net_down_mb_s'])}\n↑ {_fmt_rate(data['net_up_mb_s'])}"
@@ -1243,20 +1241,20 @@ class MonitorTab(ctk.CTkFrame):
         if data["ram_percent"] > LOW_RAM_PERCENT or compression > LOW_RAM_COMPRESSION_MB:
             details = f"RAM {data['ram_percent']:.0f}%"
             if compression > LOW_RAM_COMPRESSION_MB:
-                details += f" · стиснуто {compression / 1024:.1f} ГБ"
-            action = None if self._game_mode_active() else ("Увімкнути Ігровий режим", self._enable_game_mode, "Ігровий режим")
-            self.status_robot.set_mood("worried", f"Бракує оперативної пам'яті\n{details}", action)
+                details += t("monitor.compressed", gb=compression / 1024)
+            action = None if self._game_mode_active() else (t("monitor.enable_game_mode"), self._enable_game_mode, t("tabs.game_mode"))
+            self.status_robot.set_mood("worried", t("monitor.low_ram", details=details), action)
             return
         if data["cpu_percent"] > 90:
-            self.status_robot.set_mood("worried", "CPU сильно завантажений")
+            self.status_robot.set_mood("worried", t("monitor.cpu_high"))
             return
 
         gpu = data["gpu"]
         elevated = data["ram_percent"] > 75 or data["cpu_percent"] > 75 or (gpu and gpu["load_percent"] > 85)
         if elevated:
-            self.status_robot.set_mood("neutral", "Є невелике навантаження, але все під контролем")
+            self.status_robot.set_mood("neutral", t("monitor.some_load"))
         else:
-            self.status_robot.set_mood("happy", "Все чудово, система в нормі")
+            self.status_robot.set_mood("happy", t("monitor.all_good"))
 
     def add_snapshot_listener(self, listener) -> None:
         """listener(data) — у потоці UI на кожен зріз (і коли вкладку не видно)."""
@@ -1292,21 +1290,20 @@ class MonitorTab(ctk.CTkFrame):
             members = [p for p in row["members"] if not is_protected(p["name"])]
             title = row["title"]
             question = (
-                f"Завершити «{title}» повністю — усі процеси програми ({len(members)})?\n\n"
-                "Незбережені дані в цій програмі буде втрачено."
+                t("monitor.kill_group", title=title, count=len(members))
             )
             anticheat = any(process_info.is_anticheat(p["name"]) for p in members)
         else:
             members = [row]
             title = row.get("title") if row["kind"] == "group" else row["name"]
-            question = f"Завершити процес «{title}» (PID {row['pid']})?"
+            question = t("monitor.kill_process", title=title, pid=row['pid'])
             anticheat = process_info.is_anticheat(row["name"])
         if not members:
             return
         if anticheat:
-            question += f"\n\n⚠ {process_info.ANTICHEAT_WARNING}"
+            question += f"\n\n⚠ {process_info.anticheat_warning()}"
         action = process_control.ask_user_action(
-            self, "Підтвердження", question, reason=f"Монітор → «Завершити» {title}"
+            self, t("common.confirmation"), question, reason=f'Monitor → "End task" {title}'
         )
         if action is None:
             return
@@ -1322,9 +1319,9 @@ class MonitorTab(ctk.CTkFrame):
     def _on_terminate_result(self, title, killed, errors):
         if not self.winfo_exists() or not errors:
             return
-        shown = "\n".join(errors[:6]) + (f"\n… і ще {len(errors) - 6}" if len(errors) > 6 else "")
+        shown = "\n".join(errors[:6]) + (t("game_mode.and_more", count=len(errors) - 6) if len(errors) > 6 else "")
         messagebox.showerror(
-            "Помилка",
-            f"Не вдалося завершити «{title}» повністю (завершено процесів: {killed}).\n\n{shown}",
+            t("common.error"),
+            t("monitor.kill_failed", title=title, killed=killed, shown=shown),
             parent=self,
         )

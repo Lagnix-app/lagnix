@@ -5,39 +5,41 @@
 «Збалансований» + свої. Програма в каталозі — це exe КОРЕНЯ групи процесів
 (як на «Моніторі»: Chrome з 40 процесів = одна програма).
 
-Тексти (назви рівнів, груп, попередження) зібрано тут, в одному місці: системи
-перекладів у проєкті поки немає, тож саме цей модуль і стане її основою.
+Тексти (назви рівнів, груп, попередження) — ключі перекладів (locales/*.json):
+таблиці підписів — TDict, тож LEVEL_LABELS[lv] щоразу дає текст поточною мовою;
+окремі константи (…_WARNING, …_NOTE, TEXT_…) — ключі для t().
 """
+
+from core.i18n import TDict
 
 SOFT, BALANCED, MAX = "soft", "balanced", "max"
 LEVELS = (SOFT, BALANCED, MAX)
 DEFAULT_LEVEL = BALANCED
 LEVEL_RANK = {SOFT: 1, BALANCED: 2, MAX: 3}
-LEVEL_LABELS = {SOFT: "М'який", BALANCED: "Збалансований", MAX: "Максимальний"}
-LEVEL_HINTS = {
-    SOFT: "Браузери, лаунчери не поточної гри, оновлювачі.",
-    BALANCED: "+ месенджери (крім Discord), хмари, музика й відео, офіс і редактори, "
-              "фонові служби Adobe/Office/лаунчерів, віджети, Copilot, Phone Link.",
-    MAX: "+ Discord, утиліти периферії та RGB, оверлеї (Game Bar, NVIDIA Overlay).",
-}
+LEVEL_LABELS = TDict({SOFT: "catalog.level.soft", BALANCED: "catalog.level.balanced", MAX: "catalog.level.max"})
+LEVEL_HINTS = TDict({
+    SOFT: "catalog.level_hint.soft",
+    BALANCED: "catalog.level_hint.balanced",
+    MAX: "catalog.level_hint.max",
+})
 
 # Групи для показу (порядок = порядок на екрані)
 G_BROWSERS, G_MESSENGERS, G_LAUNCHERS, G_CLOUD, G_PERIPHERALS, G_OTHER = (
     "browsers", "messengers", "launchers", "cloud", "peripherals", "other")
 GROUPS = (G_BROWSERS, G_MESSENGERS, G_LAUNCHERS, G_CLOUD, G_PERIPHERALS, G_OTHER)
-GROUP_LABELS = {
-    G_BROWSERS: "Браузери", G_MESSENGERS: "Месенджери", G_LAUNCHERS: "Лаунчери",
-    G_CLOUD: "Хмари", G_PERIPHERALS: "Периферія", G_OTHER: "Інше",
-}
+GROUP_LABELS = TDict({
+    G_BROWSERS: "catalog.group.browsers", G_MESSENGERS: "catalog.group.messengers", G_LAUNCHERS: "catalog.group.launchers",
+    G_CLOUD: "catalog.group.cloud", G_PERIPHERALS: "catalog.group.peripherals", G_OTHER: "catalog.group.other",
+})
 
 # Підписи категорій (підказка на чіпі)
-CATEGORY_LABELS = {
-    "browser": "Браузер", "launcher": "Лаунчер", "launcher_service": "Фонова служба лаунчера",
-    "updater": "Оновлювач", "messenger": "Месенджер / дзвінки", "cloud": "Хмарний клієнт",
-    "media": "Музика / відео", "office": "Офіс / редактор", "helper": "Допоміжний процес",
-    "windows": "Фонова програма Windows", "peripheral": "Утиліта периферії", "rgb": "Підсвітка RGB",
-    "overlay": "Оверлей", "user": "Додано вами", "profile": "Позначено вручну (профіль)",
-}
+CATEGORY_LABELS = TDict({
+    "browser": "catalog.category.browser", "launcher": "catalog.category.launcher", "launcher_service": "catalog.category.launcher_service",
+    "updater": "catalog.category.updater", "messenger": "catalog.category.messenger", "cloud": "catalog.category.cloud",
+    "media": "catalog.category.media", "office": "catalog.category.office", "helper": "catalog.category.helper",
+    "windows": "catalog.category.windows", "peripheral": "catalog.category.peripheral", "rgb": "catalog.category.rgb",
+    "overlay": "catalog.category.overlay", "user": "catalog.category.user", "profile": "catalog.category.profile",
+})
 CATEGORY_GROUP = {
     "browser": G_BROWSERS, "launcher": G_LAUNCHERS, "launcher_service": G_LAUNCHERS, "updater": G_OTHER,
     "messenger": G_MESSENGERS, "cloud": G_CLOUD, "media": G_OTHER, "office": G_OTHER, "helper": G_OTHER,
@@ -45,9 +47,9 @@ CATEGORY_GROUP = {
     "user": G_OTHER, "profile": G_OTHER,
 }
 
-PERIPHERAL_WARNING = "Підсвітка, макроси й профілі кнопок можуть перестати працювати до повторного запуску."
-OVERLAY_WARNING = "Оверлей зникне; якщо йде запис чи Instant Replay — він зупиниться."
-DOCUMENT_NOTE = "Лише м'яке закриття: якщо програма спитає «Зберегти?», вона залишиться відкритою."
+PERIPHERAL_WARNING = "catalog.warning.peripheral"
+OVERLAY_WARNING = "catalog.warning.overlay"
+DOCUMENT_NOTE = "catalog.note.document"
 
 # exe (нижній регістр) -> (категорія, мінімальний рівень, платформа лаунчера або None)
 _CATALOG: dict[str, tuple[str, str, str | None]] = {}
@@ -131,16 +133,16 @@ _add("overlay", MAX, (
 ))
 
 # Зрозумілі назви там, де опис exe порожній чи технічний
-NICE_TITLES = {
-    "widgets.exe": "Віджети Windows", "widgetservice.exe": "Віджети Windows (служба)",
+NICE_TITLES = TDict({
+    "widgets.exe": "catalog.title.widgets", "widgetservice.exe": "catalog.title.widgets_service",
     "copilot.exe": "Copilot", "microsoft.copilot.exe": "Copilot", "m365copilot.exe": "Microsoft 365 Copilot",
     "phoneexperiencehost.exe": "Phone Link", "yourphone.exe": "Phone Link",
-    "crossdeviceresume.exe": "Phone Link (продовження на ПК)", "cortana.exe": "Cortana",
+    "crossdeviceresume.exe": "catalog.title.phone_link_resume", "cortana.exe": "Cortana",
     "winstore.app.exe": "Microsoft Store", "officeclicktorun.exe": "Office Click-to-Run",
-    "gamebar.exe": "Xbox Game Bar", "gamebarftserver.exe": "Xbox Game Bar (служба)",
+    "gamebar.exe": "Xbox Game Bar", "gamebarftserver.exe": "catalog.title.game_bar_service",
     "lghub_updater.exe": "Logitech G HUB Updater", "lghub_agent.exe": "Logitech G HUB Agent",
     "nvidia overlay.exe": "NVIDIA Overlay", "nvidia share.exe": "NVIDIA Share",
-}
+}, passthrough=True)  # торгові назви — як є, ключі catalog.title.* — перекладаються
 
 # Оверлеї NVIDIA: якщо вони навантажують CPU — схоже, що йде запис/Instant Replay, не чіпаємо
 RECORDING_SENSITIVE = {"nvidia overlay.exe", "nvidia share.exe"}
@@ -171,8 +173,8 @@ DEFAULT_NEVER_CLOSE = (
     "voicemeeter", "nahimic", "rtkaud", "ravbg", "sonicstudio", "dolby", "equalizerapo", "eartrumpet",
 )
 
-TEXT_PLATFORM_PROTECTED = "потрібен для запущеної гри «{game}»"
-TEXT_RECORDING = "схоже, йде запис чи Instant Replay"
+TEXT_PLATFORM_PROTECTED = "catalog.platform_protected"
+TEXT_RECORDING = "catalog.recording"
 
 
 def entry(exe_name: str) -> tuple[str, str, str | None] | None:

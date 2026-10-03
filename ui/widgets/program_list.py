@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 from core.app_icons import IconLoader
 from core.cleanup import format_size
+from core.i18n import t
 from ui import bg, theme
 from ui.widgets import aa
 from ui.widgets.canvas_list import CanvasList, Slot, card_image, checkbox_image, pill_image
@@ -35,10 +36,10 @@ _ICON_X = 48
 _NAME_X = 94
 
 CATEGORIES = (
-    ("game", "Ігри", theme.ACCENT_BLUE),
-    ("app", "Програми", theme.ACCENT_GREEN),
-    ("system", "Системні", "#c77dff"),
-    ("other", "Інше", "#5b6680"),
+    ("game", "programs.cat.game", theme.ACCENT_BLUE),
+    ("app", "programs.cat.app", theme.ACCENT_GREEN),
+    ("system", "programs.cat.system", "#c77dff"),
+    ("other", "programs.cat.other", "#5b6680"),
 )
 CATEGORY_COLORS = {key: color for key, _label, color in CATEGORIES}
 STORE_COLORS = {"Steam": "#66c0f4", "Epic": "#dfe6f2", "Riot": theme.ERROR, "Rockstar": theme.WARNING}
@@ -48,43 +49,33 @@ _DELETE_HOVER = "#e04a68"
 _OPEN_HOVER = "#2d3953"
 
 # кнопки, що з'являються при наведенні: (ділянка, текст, ширина dp, правий край dp від краю картки)
-_BUTTONS = (("delete", "Видалити", 80, 14), ("open", "Відкрити папку", 112, 100))
+_BUTTONS = (("delete", "programs.btn.delete", 80, 14), ("open", "programs.btn.open", 112, 100))
 _BUTTON_H = 28
 
 
 # ---------------------------------------------------------------- форматування
-
-def plural(n: int, forms: tuple[str, str, str]) -> str:
-    """Українська множина: (1 програма, 2 програми, 5 програм)."""
-    n10, n100 = n % 10, n % 100
-    if n10 == 1 and n100 != 11:
-        return forms[0]
-    if 2 <= n10 <= 4 and not 12 <= n100 <= 14:
-        return forms[1]
-    return forms[2]
-
 
 def relative_date(d: date | None) -> str:
     if d is None:
         return "—"
     days = (date.today() - d).days
     if days <= 0:
-        return "сьогодні"
+        return t("date.today")
     if days == 1:
-        return "вчора"
+        return t("date.yesterday")
     if days < 30:
-        return f"{days} {plural(days, ('день', 'дні', 'днів'))} тому"
+        return t("date.days_ago", count=days)
     if days < 365:
         months = days // 30
-        return f"{months} {plural(months, ('місяць', 'місяці', 'місяців'))} тому"
+        return t("date.months_ago", count=months)
     years = days // 365
-    return f"{years} {plural(years, ('рік', 'роки', 'років'))} тому"
+    return t("date.years_ago", count=years)
 
 
 def size_text(program: dict) -> str:
     source = program.get("size_source")
     if source == "computing":
-        return "рахую…"
+        return t("programs.size_computing")
     if not program["size_bytes"]:
         return "—"
     text = format_size(program["size_bytes"])
@@ -93,8 +84,8 @@ def size_text(program: dict) -> str:
 
 # ------------------------------------------------------------------ плейсхолдер
 
-def _mix(fg: tuple, bg: tuple, t: float) -> tuple:
-    return tuple(round(bg[i] + (fg[i] - bg[i]) * t) for i in range(3))
+def _mix(fg: tuple, bg: tuple, tw: float) -> tuple:
+    return tuple(round(bg[i] + (fg[i] - bg[i]) * tw) for i in range(3))
 
 
 def _placeholder_image(name: str, size_px: int) -> Image.Image:
@@ -193,7 +184,7 @@ class VirtualList(CanvasList):
         for region, text, _w, _r in _BUTTONS:
             it[f"{region}_bg"] = c.create_image(0, 0, anchor="nw", tags=opt)
             it[f"{region}_text"] = c.create_text(
-                0, 0, anchor="center", text=text, font=self.font(11),
+                0, 0, anchor="center", text=t(text), font=self.font(11),
                 fill="#ffffff" if region == "delete" else theme.TEXT_MAIN, tags=opt,
             )
 
@@ -341,11 +332,11 @@ class VirtualList(CanvasList):
         slot = self._slots.get(index)
         if region == "name" and slot is not None and slot.data.get("name_truncated"):
             version = program.get("version")
-            return f"{program['name']}\nВерсія: {version}" if version else program["name"]
+            return t("programs.tooltip_version", name=program['name'], version=version) if version else program["name"]
         if region == "date":
             d = program.get("install_date")
             if d is not None:
-                return f"Встановлено: {d.strftime('%d.%m.%Y')}"
+                return t("programs.installed_on", date=d.strftime('%d.%m.%Y'))
         return None
 
     def on_scale_changed(self) -> None:

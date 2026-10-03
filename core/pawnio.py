@@ -16,6 +16,7 @@ import urllib.request
 import winreg
 
 from core.logging_setup import get_audit_logger, get_logger
+from core.i18n import t
 
 INSTALLER_URL = "https://github.com/namazso/PawnIO.Setup/releases/latest/download/PawnIO_setup.exe"
 _MAX_SIZE = 50 * 1024 * 1024
@@ -85,7 +86,7 @@ def _verify_signature(path: str) -> tuple[bool, str]:
         )
         data = json.loads(result.stdout.decode("utf-8", errors="replace").strip() or "{}")
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
-        return False, f"не вдалося перевірити підпис ({exc})"
+        return False, t("pawnio.err.verify", exc=exc)
     return data.get("status") == "Valid", data.get("signer") or ""
 
 
@@ -95,7 +96,7 @@ def download_and_verify(reason: str) -> str:
     folder = os.path.join(tempfile.gettempdir(), "PulseFPS")
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, "PawnIO_setup.exe")
-    audit.info("Завантаження інсталятора PawnIO з %s — причина: %s", INSTALLER_URL, reason)
+    audit.info("Downloading the PawnIO installer from %s — reason: %s", INSTALLER_URL, reason)
     request = urllib.request.Request(INSTALLER_URL, headers={"User-Agent": "PulseFPS"})
     try:
         with urllib.request.urlopen(request, timeout=60) as response, open(path, "wb") as out:
@@ -103,27 +104,27 @@ def download_and_verify(reason: str) -> str:
             while chunk := response.read(64 * 1024):
                 size += len(chunk)
                 if size > _MAX_SIZE:
-                    raise RuntimeError("файл завеликий — завантаження перервано")
+                    raise RuntimeError(t("pawnio.err.too_big"))
                 out.write(chunk)
     except OSError as exc:
-        raise RuntimeError(f"не вдалося завантажити інсталятор: {exc}") from exc
+        raise RuntimeError(t("pawnio.err.download", exc=exc)) from exc
 
     valid, signer = _verify_signature(path)
     if not valid:
-        _log.error("Інсталятор PawnIO не пройшов перевірку підпису: %s", signer)
+        _log.error("The PawnIO installer failed signature verification: %s", signer)
         try:
             os.remove(path)
         except OSError:
             pass
-        raise RuntimeError(f"підпис інсталятора недійсний ({signer or 'немає підпису'}) — не запускаю")
-    audit.info("Підпис інсталятора PawnIO дійсний: %s", signer)
+        raise RuntimeError(t("pawnio.err.bad_signature", signer=signer or t("pawnio.no_signature")))
+    audit.info("The PawnIO installer signature is valid: %s", signer)
     return path
 
 
 def run_installer(path: str, reason: str) -> int:
     """Запускає майстер встановлення (PulseFPS уже з правами адміністратора) і чекає завершення."""
-    get_audit_logger().info("Запуск майстра встановлення PawnIO (%s) — причина: %s", path, reason)
+    get_audit_logger().info("Running the PawnIO setup wizard (%s) — reason: %s", path, reason)
     code = subprocess.call([path])
-    get_audit_logger().info("Майстер PawnIO завершився з кодом %s; драйвер: %s", code,
-                            "встановлено" if status()["installed"] else "не встановлено")
+    get_audit_logger().info("The PawnIO wizard exited with code %s; driver: %s", code,
+                            "installed" if status()["installed"] else "not installed")
     return code

@@ -30,6 +30,7 @@ from ctypes import wintypes
 
 from core.logging_setup import get_logger
 from ui import theme
+from core.i18n import t
 
 _logger = get_logger(__name__)
 
@@ -68,17 +69,18 @@ _VK_CONTROL = 0x11
 _SM_XVIRTUALSCREEN, _SM_YVIRTUALSCREEN, _SM_CXVIRTUALSCREEN, _SM_CYVIRTUALSCREEN = 76, 77, 78, 79
 
 
-_font_cache: dict[int, tuple] = {}  # px -> (жирний для значень, звичайний для підписів)
+_font_cache: dict[tuple, tuple] = {}  # (шрифт мови, px) -> (жирний для значень, звичайний для підписів)
 
 
 def _fonts_for(widget, px: int) -> tuple:
     """Шрифти потрібного розміру: створюються один раз і ніколи не змінюються й не
     видаляються (див. примітку вгорі про іменовані шрифти)."""
-    fonts = _font_cache.get(px)
+    family = theme.font_family()
+    fonts = _font_cache.get((family, px))
     if fonts is None:
-        fonts = (tkfont.Font(root=widget, family="Segoe UI", size=-px, weight="bold"),
-                 tkfont.Font(root=widget, family="Segoe UI", size=-px))
-        _font_cache[px] = fonts
+        fonts = (tkfont.Font(root=widget, family=family, size=-px, weight="bold"),
+                 tkfont.Font(root=widget, family=family, size=-px))
+        _font_cache[(family, px)] = fonts
     return fonts
 
 
@@ -126,19 +128,19 @@ def rows_from_snapshot(data: dict | None, metrics: dict) -> list[tuple[str, str,
         if key == "cpu":
             value = data.get("cpu_percent")
             rows.append((label, f"{value:.0f}%", load_color(value)) if value is not None
-                        else (label, "н/д", theme.TEXT_DIM))
+                        else (label, t("common.na"), theme.TEXT_DIM))
         elif key == "ram":
             value = data.get("ram_percent")
             rows.append((label, f"{value:.0f}%", load_color(value)) if value is not None
-                        else (label, "н/д", theme.TEXT_DIM))
+                        else (label, t("common.na"), theme.TEXT_DIM))
         elif key == "gpu":
             value = gpu.get("load_percent") if gpu else None
             rows.append((label, f"{value:.0f}%", load_color(value)) if value is not None
-                        else (label, "н/д", theme.TEXT_DIM))
+                        else (label, t("common.na"), theme.TEXT_DIM))
         elif key == "gpu_temp":
             value = gpu.get("temperature_c") if gpu else None
             rows.append((label, f"{value:.0f}°", temp_color(value, threshold)) if value is not None
-                        else (label, "н/д", theme.TEXT_DIM))
+                        else (label, t("common.na"), theme.TEXT_DIM))
         elif key == "cpu_temp":
             value = data.get("cpu_temp")
             if value is not None:
@@ -200,6 +202,12 @@ class OverlayWindow(tk.Toplevel):
         if resized or old.get("corner") != config.get("corner") or old.get("position") != config.get("position"):
             self._place()
 
+    def refresh_language(self) -> None:
+        """Нова мова інтерфейсу: шрифт мови (CJK) і підписи на кшталт «н/д»."""
+        px = round(_SIZES.get(self._config.get("size"), _SIZES["small"]) * self._scale())
+        self._font, self._label_font = _fonts_for(self, px)
+        self._redraw(force=True)
+
     def set_opacity(self, value: float) -> None:
         """Лише прозорість цього Toplevel (ніколи не головного вікна)."""
         value = max(0.3, min(1.0, float(value)))
@@ -256,7 +264,7 @@ class OverlayWindow(tk.Toplevel):
         line = self._font.metrics("linespace")
         rows = self._rows or [("PulseFPS", "", theme.TEXT_DIM)]
         label_w = max(self._label_font.measure(r[0]) for r in rows)
-        value_w = max(self._font.measure(m) for m in ("100%", "100°", "н/д"))
+        value_w = max(self._font.measure(m) for m in ("100%", "100°", t("common.na")))
         width = pad * 2 + label_w + gap + value_w
         height = pad * 2 + line * len(rows)
         radius = round(8 * scale)

@@ -13,6 +13,7 @@ from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
 from ui.cleanup_app_cache import AppCacheSection
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
+from core.i18n import t
 
 RECOMMENDED_CATEGORIES = {
     cleanup_core.CAT_TEMP,
@@ -46,18 +47,18 @@ class CleanupItemRow(ctk.CTkFrame):
         self.checkbox.pack(anchor="w")
 
         self.status_label = ctk.CTkLabel(
-            text_frame, text="Сканування...", text_color="gray", font=ctk.CTkFont(size=11)
+            text_frame, text=t("cleanup.scanning"), text_color="gray", font=ctk.CTkFont(size=11)
         )
         self.status_label.pack(anchor="w", padx=(28, 0))
 
         if target.get("note"):
             ctk.CTkLabel(
-                text_frame, text=target["note"], text_color="#e0a52f", font=ctk.CTkFont(size=10),
+                text_frame, text=t(target["note"]), text_color="#e0a52f", font=ctk.CTkFont(size=10),
                 wraplength=320, justify="left",
             ).pack(anchor="w", padx=(28, 0))
 
         self.clean_one_button = ctk.CTkButton(
-            self, text="Очистити", width=88, height=26, font=ctk.CTkFont(size=11),
+            self, text=t("cleanup.clean"), width=88, height=26, font=ctk.CTkFont(size=11),
             state="disabled", command=lambda: self._on_clean_one(self),
         )
         self.clean_one_button.grid(row=0, column=1, padx=(8, 0), sticky="e")
@@ -74,18 +75,18 @@ class CleanupItemRow(ctk.CTkFrame):
         self._cleanable = cleanable
 
         if not result["exists"]:
-            text, color = "Не знайдено", "gray"
+            text, color = t("cleanup.not_found"), "gray"
         elif result["admin_blocked"]:
-            text, color = "Пропущено", "gray"
+            text, color = t("cleanup.skipped"), "gray"
         elif result["process_running"]:
-            text, color = "Програма запущена — закрийте й оновіть сканування", "#e0a52f"
+            text, color = t("cleanup.running_rescan"), "#e0a52f"
         elif result["access_denied"]:
-            text, color = "Пропущено — папку захищено системою", "gray"
+            text, color = t("cleanup.protected"), "gray"
         elif result["file_count"] == 0:
-            text, color = "Немає що очищати", "gray"
+            text, color = t("cleanup.nothing"), "gray"
         else:
             size_text = cleanup_core.format_size(result["size_bytes"])
-            text = f"{size_text} · {result['file_count']} об'єктів"
+            text = t("cleanup.size_items", size_text=size_text, count=result['file_count'])
             color = ("gray10", "gray90")
 
         self.status_label.configure(text=text, text_color=color)
@@ -109,16 +110,16 @@ class CleanupItemRow(ctk.CTkFrame):
 
     def set_busy(self) -> None:
         self.lock_controls()
-        self.status_label.configure(text="Очищення...", text_color="gray")
+        self.status_label.configure(text=t("cleanup.cleaning"), text_color="gray")
 
     def show_clean_result(self, result: dict) -> None:
         if result.get("skipped_reason"):
             self.status_label.configure(text=result["skipped_reason"], text_color="#e0a52f")
             return
         freed_text = cleanup_core.format_size(result["freed_bytes"])
-        text = f"Звільнено {freed_text}"
+        text = t("cleanup.freed", freed=freed_text)
         if result["skipped_count"]:
-            text += f" · пропущено {result['skipped_count']}"
+            text += t("cleanup.skipped_n", count=result['skipped_count'])
         self.status_label.configure(text=text, text_color="#2ee59d")
 
 
@@ -141,12 +142,12 @@ class CleanupTab(ctk.CTkFrame):
         self.scroll = ScrollFrame(self)
         self.scroll.grid(row=0, column=0, sticky="nsew")
 
-        ctk.CTkLabel(self.scroll, text="Очищення", font=ctk.CTkFont(size=22, weight="bold")).pack(
+        ctk.CTkLabel(self.scroll, text=t("tabs.cleanup"), font=ctk.CTkFont(size=22, weight="bold")).pack(
             padx=6, pady=(14, 4), anchor="w"
         )
         ctk.CTkLabel(
             self.scroll,
-            text="Позначте категорії для очищення. Зайняті файли й запущені програми пропускаються без помилок.",
+            text=t("cleanup.intro"),
             text_color="gray",
         ).pack(padx=6, pady=(0, 14), anchor="w")
 
@@ -174,12 +175,12 @@ class CleanupTab(ctk.CTkFrame):
         bar.pack(fill="x", padx=6, pady=(0, 10))
 
         self.select_recommended_button = ctk.CTkButton(
-            bar, text="Вибрати рекомендоване", width=200, command=self._select_recommended
+            bar, text=t("cleanup.select_recommended"), width=200, command=self._select_recommended
         )
         self.select_recommended_button.pack(side="left")
 
         self.select_none_button = ctk.CTkButton(
-            bar, text="Зняти все", width=110, fg_color="transparent", border_width=1,
+            bar, text=t("cleanup.unselect_all"), width=110, fg_color="transparent", border_width=1,
             command=self._select_none,
         )
         self.select_none_button.pack(side="left", padx=(8, 0))
@@ -218,7 +219,7 @@ class CleanupTab(ctk.CTkFrame):
         for category in order:
             if category == cleanup_core.CAT_APPS:
                 self.app_section = AppCacheSection(
-                    self.scroll, category, on_change=self._update_summary,
+                    self.scroll, cleanup_core.category_label(category), on_change=self._update_summary,
                     on_clean=self._clean_one_app, on_close_clean=self._close_and_clean_app,
                 )
                 self.app_section.pack(fill="x", padx=6, pady=6)
@@ -227,7 +228,7 @@ class CleanupTab(ctk.CTkFrame):
             frame = ctk.CTkFrame(self.scroll, corner_radius=10)
             frame.pack(fill="x", padx=6, pady=6)
 
-            ctk.CTkLabel(frame, text=category, font=ctk.CTkFont(size=14, weight="bold")).pack(
+            ctk.CTkLabel(frame, text=cleanup_core.category_label(category), font=ctk.CTkFont(size=14, weight="bold")).pack(
                 padx=14, pady=(10, 4), anchor="w"
             )
 
@@ -249,17 +250,17 @@ class CleanupTab(ctk.CTkFrame):
         bar.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 10))
 
         self.summary_label = ctk.CTkLabel(
-            bar, text="Можна звільнити: 0 Б", font=ctk.CTkFont(size=15, weight="bold")
+            bar, text=t("cleanup.can_free_zero"), font=ctk.CTkFont(size=15, weight="bold")
         )
         self.summary_label.pack(side="left", padx=14, pady=12)
 
         self.clean_button = ctk.CTkButton(
-            bar, text="Очистити вибране", width=160, state="disabled",
+            bar, text=t("cleanup.clean_selected"), width=160, state="disabled",
             fg_color="#a8283f", hover_color="#ff5c7a", command=self._clean_selected,
         )
         self.clean_button.pack(side="right", padx=14, pady=12)
 
-        self.rescan_button = ctk.CTkButton(bar, text="Оновити сканування", width=160, command=self._scan_all)
+        self.rescan_button = ctk.CTkButton(bar, text=t("cleanup.rescan"), width=160, command=self._scan_all)
         self.rescan_button.pack(side="right", padx=(0, 8), pady=12)
 
     def _update_summary(self):
@@ -268,7 +269,7 @@ class CleanupTab(ctk.CTkFrame):
         selected = [row for row in self.rows.values() if row.is_selected()]
         app_selected = self.app_section.selected_rows()
         total = sum(row.size_bytes() for row in selected) + self.app_section.selected_size()
-        self.summary_label.configure(text=f"Можна звільнити: {cleanup_core.format_size(total)}")
+        self.summary_label.configure(text=t("cleanup.can_free", total=cleanup_core.format_size(total)))
         if not self._cleaning_in_progress:
             self.clean_button.configure(state="normal" if selected or app_selected else "disabled")
 
@@ -286,7 +287,7 @@ class CleanupTab(ctk.CTkFrame):
         self._set_scan_controls(False)
         for key in keys:
             self.rows[key].lock_controls()
-            self.rows[key].status_label.configure(text="Сканування...", text_color="gray")
+            self.rows[key].status_label.configure(text=t("cleanup.scanning"), text_color="gray")
 
         def worker():
             def progress(key, result):
@@ -342,12 +343,12 @@ class CleanupTab(ctk.CTkFrame):
 
         total_size = sum(row.size_bytes() for row in selected_rows) + self.app_section.selected_size()
         count = len(selected_rows) + len(app_rows)
-        message = f"Очистити {count} пунктів ({cleanup_core.format_size(total_size)})?"
+        message = t("cleanup.confirm_many", count=count, size=cleanup_core.format_size(total_size))
         if any(row.target["key"] == "recycle_bin" for row in selected_rows):
-            message += "\n\nУвага: очищення кошика видаляє файли остаточно."
+            message += t("cleanup.recycle_warning")
 
-        action = process_control.ask_user_action(self, "Підтвердження", message,
-                                                 reason="Очищення → «Очистити вибране»")
+        action = process_control.ask_user_action(self, t("common.confirmation"), message,
+                                                 reason="Cleanup → \"Clean selected\"")
         if action is None:
             return
 
@@ -359,12 +360,12 @@ class CleanupTab(ctk.CTkFrame):
             return
 
         size_text = cleanup_core.format_size(row.size_bytes())
-        message = f"Очистити «{row.target['label']}» ({size_text})?"
+        message = t("cleanup.confirm_one", label=row.target['label'], size=size_text)
         if row.target["key"] == "recycle_bin":
-            message += "\n\nУвага: очищення кошика видаляє файли остаточно."
+            message += t("cleanup.recycle_warning")
 
         action = process_control.ask_user_action(
-            self, "Підтвердження", message, reason=f"Очищення → «Очистити» ({row.target['label']})")
+            self, t("common.confirmation"), message, reason=f"Cleanup → \"Clean\" ({row.target['label']})")
         if action is None:
             return
 
@@ -374,9 +375,9 @@ class CleanupTab(ctk.CTkFrame):
         if self._cleaning_in_progress or not row.is_cleanable():
             return
         group = row.group
-        message = f"Очистити кеш «{group['name']}» ({cleanup_core.format_size(group['size_bytes'])})?"
+        message = t("cleanup.confirm_app", name=group['name'], size=cleanup_core.format_size(group['size_bytes']))
         action = process_control.ask_user_action(
-            self, "Підтвердження", message, reason=f"Кеш програм → «Очистити» ({group['name']})")
+            self, t("common.confirmation"), message, reason=f"App cache → \"Clean\" ({group['name']})")
         if action is None:
             return
         self._start_clean([], [group["key"]], action)
@@ -386,14 +387,11 @@ class CleanupTab(ctk.CTkFrame):
             return
         group = row.group
         message = (
-            f"«{group['name']}» зараз запущена. Закрити її й очистити кеш "
-            f"({cleanup_core.format_size(group['size_bytes'])})?\n\n"
-            "Незбережені дані в цій програмі можуть бути втрачені. Після очищення "
-            "PulseFPS запропонує запустити її знову."
+            t("cleanup.confirm_close_app", name=group['name'], size=cleanup_core.format_size(group['size_bytes']))
         )
         action = process_control.ask_user_action(
-            self, "Закрити й очистити", message, icon="warning",
-            reason=f"Кеш програм → «Закрити й очистити» ({group['name']})")
+            self, t("cleanup.close_and_clean"), message, icon="warning",
+            reason=f"App cache → \"Close and clean\" ({group['name']})")
         if action is None:
             return
         self._start_clean([], [group["key"]], action, close_first=True)
@@ -422,8 +420,8 @@ class CleanupTab(ctk.CTkFrame):
         self._clean_app_keys = app_keys
 
         first = (keys or app_keys)[0]
-        verb = "Закриваю" if close_first else "Очищаю"
-        self._clean_dialog = CleanerBotDialog(self.winfo_toplevel(), title="Очищення")
+        verb = t("cleanup.closing") if close_first else t("cleanup.cleaning_word")
+        self._clean_dialog = CleanerBotDialog(self.winfo_toplevel(), title=t("tabs.cleanup"))
         self._clean_dialog.start(f"{verb}: {self._clean_key_labels[first]}…")
 
         def worker():
@@ -459,7 +457,7 @@ class CleanupTab(ctk.CTkFrame):
         if not self.winfo_exists() or self._clean_dialog is None:
             return
         label = self._clean_key_labels.get(key, key)
-        self._clean_dialog.set_status(f"Очищаю: {label}…")
+        self._clean_dialog.set_status(t("cleanup.cleaning_item", label=label))
 
     def _on_clean_progress(self, key, result):
         if not self.winfo_exists():
@@ -481,7 +479,7 @@ class CleanupTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         freed_text = cleanup_core.format_size(summary["freed_bytes"])
-        text = f"Готово! Звільнено {freed_text}, пропущено {summary['skipped_count']} файлів"
+        text = t("cleanup.done", freed=freed_text, skipped=summary['skipped_count'])
         dialog, self._clean_dialog = self._clean_dialog, None
         if dialog is not None:
             dialog.finish(text, success=True)
@@ -510,10 +508,10 @@ class CleanupTab(ctk.CTkFrame):
             return
         if dialog is not None and dialog.winfo_exists():
             dialog.destroy()  # інакше модальне вікно робота перехоплює фокус у messagebox
-        message = f"Кеш «{name}» очищено (звільнено {freed_text}).\n\nЗапустити {name} знову?"
-        if messagebox.askyesno("Запустити знову?", message, parent=self):
+        message = t("cleanup.relaunch_question", name=name, freed=freed_text)
+        if messagebox.askyesno(t("cleanup.relaunch_title"), message, parent=self):
             if not app_cache_core.relaunch(target):
-                messagebox.showwarning("Запуск", f"Не вдалося запустити {name}. Відкрийте програму вручну.",
+                messagebox.showwarning(t("cleanup.launch"), t("cleanup.launch_failed", name=name),
                                        parent=self)
 
     # ------------------------------------------------------- large files
@@ -525,10 +523,10 @@ class CleanupTab(ctk.CTkFrame):
         header = theme.plain_frame(section)
         header.pack(fill="x", padx=14, pady=(12, 4))
 
-        ctk.CTkLabel(header, text="Великі файли", font=ctk.CTkFont(size=16, weight="bold")).pack(side="left")
+        ctk.CTkLabel(header, text=t("cleanup.large_files"), font=ctk.CTkFont(size=16, weight="bold")).pack(side="left")
 
         self.large_files_scan_button = ctk.CTkButton(
-            header, text="Сканувати", width=120, command=self._scan_large_files
+            header, text=t("cleanup.scan"), width=120, command=self._scan_large_files
         )
         self.large_files_scan_button.pack(side="right")
 
@@ -536,8 +534,7 @@ class CleanupTab(ctk.CTkFrame):
         self.large_files_status = ctk.CTkLabel(
             section,
             text=(
-                f"Пошук файлів понад {min_size_text} у Downloads, Videos, Desktop, Documents. "
-                "Нічого не видаляється автоматично."
+                t("cleanup.large_files.hint", size=min_size_text)
             ),
             text_color="gray",
             wraplength=760,
@@ -560,7 +557,7 @@ class CleanupTab(ctk.CTkFrame):
         self._large_file_rows = []
 
         self.large_files_scan_button.configure(state="disabled")
-        self.large_files_status.configure(text="Сканування...", text_color="gray")
+        self.large_files_status.configure(text=t("cleanup.scanning"), text_color="gray")
 
         def on_found(entry):
             bg.ui_call(self, self._add_large_file_row, entry)
@@ -586,12 +583,12 @@ class CleanupTab(ctk.CTkFrame):
             row, text=cleanup_core.format_size(entry["size_bytes"]), text_color="gray", width=80, anchor="e"
         ).grid(row=0, column=1, sticky="e")
         ctk.CTkButton(
-            row, text="Відкрити папку", width=130,
+            row, text=t("cleanup.open_folder"), width=130,
             command=lambda p=entry["path"]: large_files_core.open_containing_folder(p),
         ).grid(row=0, column=2, padx=(8, 0))
 
         self._large_file_rows.append(row)
-        self.large_files_status.configure(text=f"Знайдено файлів: {len(self._large_file_rows)}...", text_color="gray")
+        self.large_files_status.configure(text=t("cleanup.large_found_progress", count=len(self._large_file_rows)), text_color="gray")
 
     def _on_large_files_done(self, results: list):
         if not self.winfo_exists():
@@ -601,14 +598,18 @@ class CleanupTab(ctk.CTkFrame):
         self.large_files_scan_button.configure(state="normal")
 
         if not results:
-            self.large_files_status.configure(text="Великих файлів не знайдено", text_color="gray")
+            self.large_files_status.configure(text=t("cleanup.large_none"), text_color="gray")
         else:
             total = sum(entry["size_bytes"] for entry in results)
             self.large_files_status.configure(
-                text=f"Знайдено файлів: {len(results)} · загалом {cleanup_core.format_size(total)}",
+                text=t("cleanup.large_found", count=len(results), total=cleanup_core.format_size(total)),
                 text_color=("gray10", "gray90"),
             )
 
     def _on_destroy(self, event):
         if event.widget is self:
             self._large_files_stop_event.set()
+
+    def is_busy(self) -> bool:
+        """Триває операція, яку не можна перервати перебудовою вкладки (зміна мови)."""
+        return bool(self._cleaning_in_progress)

@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 
 from core.app_data import load_data, update_data
+from core.i18n import t
 
 MAX_SESSIONS = 10
 MIN_DURATION_S = 30  # коротші «сесії» (гра впала на старті, хибне спрацювання) не зберігаємо
@@ -85,7 +86,7 @@ def format_duration(seconds: float) -> str:
     hours, rest = divmod(seconds, 3600)
     minutes, secs = divmod(rest, 60)
     if hours:
-        return f"{hours} год {minutes:02d} хв"
+        return t("duration.h_m", hours=hours, minutes=minutes)
     if minutes:
-        return f"{minutes} хв {secs:02d} с"
-    return f"{secs} с"
+        return t("duration.m_s", minutes=minutes, secs=secs)
+    return t("duration.s", secs=secs)

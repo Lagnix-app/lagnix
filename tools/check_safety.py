@@ -82,47 +82,46 @@ def main() -> int:
             for lineno, line in enumerate(source.splitlines(), 1):
                 code = line.split("#", 1)[0]
                 if KILL_RE.search(code):
-                    problems.append(f"{rel}:{lineno}: завершення процесу поза process_control: {line.strip()}")
+                    problems.append(f"{rel}:{lineno}: process termination outside process_control: {line.strip()}")
 
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
             name = _call_name(node)
             if name == "UserAction" and rel != PROCESS_CONTROL:
-                problems.append(f"{rel}:{node.lineno}: UserAction створюється поза process_control")
+                problems.append(f"{rel}:{node.lineno}: UserAction is created outside process_control")
             if name == "ask_user_action" and not rel.startswith("ui" + os.sep):
-                problems.append(f"{rel}:{node.lineno}: ask_user_action поза UI (не з натискання кнопки)")
+                problems.append(f"{rel}:{node.lineno}: ask_user_action outside the UI (not from a button press)")
             if name in DELETE_CALLS and not (name == "remove" and isinstance(node.func, ast.Attribute)
                                              and not (isinstance(node.func.value, ast.Name)
                                                       and node.func.value.id == "os")):
                 fn = _innermost_function(tree, node)
                 guarded, helpers = DELETE_ALLOWED.get(rel, (set(), set()))
                 if fn is None or fn.name not in guarded | helpers:
-                    where = fn.name if fn else "<модуль>"
-                    problems.append(f"{rel}:{node.lineno}: видалення ({name}) у недозволеній функції {where}")
+                    where = fn.name if fn else "<module>"
+                    problems.append(f"{rel}:{node.lineno}: deletion ({name}) in a disallowed function {where}")
 
         guarded, helpers = DELETE_ALLOWED.get(rel, (set(), set()))
         by_name = {fn.name: fn for fn in _functions(tree)}
         for fname in guarded:
             fn = by_name.get(fname)
             if fn is None:
-                problems.append(f"{rel}: немає функції {fname} зі списку захищених")
+                problems.append(f"{rel}: missing function {fname} from the protected list")
                 continue
             if not any(isinstance(n, ast.Call) and _call_name(n) == "require" for n in ast.walk(fn)):
-                problems.append(f"{rel}:{fn.lineno}: {fname} не викликає process_control.require()")
+                problems.append(f"{rel}:{fn.lineno}: {fname} does not call process_control.require()")
         for helper in helpers - OWN_TEMP_FILE_FUNCS:
             for fn in _functions(tree):
                 uses = any(isinstance(n, ast.Name) and n.id == helper for n in ast.walk(fn))
                 if uses and fn.name != helper and fn.name not in guarded:
-                    problems.append(f"{rel}:{fn.lineno}: помічник видалення {helper} викликається з "
-                                    f"незахищеної функції {fn.name}")
+                    problems.append(f"{rel}:{fn.lineno}: deletion helper {helper} is called from an unprotected function {fn.name}")
 
     if problems:
-        print("ПОРУШЕННЯ ПРАВИЛА БЕЗПЕКИ:")
+        print("SAFETY RULE VIOLATION:")
         for problem in problems:
             print("  " + problem)
         return 1
-    print("OK: завершення процесів лише в core/process_control.py, видалення — лише після підтвердження.")
+    print("OK: processes are terminated only in core/process_control.py, deletion — only after confirmation.")
     return 0
 
 

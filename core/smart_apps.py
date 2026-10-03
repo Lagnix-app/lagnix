@@ -28,6 +28,7 @@ from core import monitor as monitor_core
 from core import process_control, process_info
 from core.logging_setup import get_logger
 from core.system_processes import is_hidden, is_protected
+from core.i18n import t
 
 _logger = get_logger(__name__)
 _CURRENT_PID = os.getpid()
@@ -102,8 +103,8 @@ def _app_from_group(group: dict, members: list[dict], category: str, level: str 
         "count": len(members),
         "targets": [(m["pid"], m.get("create_time")) for m in members],
         "document": category in catalog.DOCUMENT_CATEGORIES,
-        "warning": (catalog.PERIPHERAL_WARNING if category in ("peripheral", "rgb")
-                    else catalog.OVERLAY_WARNING if category == "overlay" else None),
+        "warning": (t(catalog.PERIPHERAL_WARNING) if category in ("peripheral", "rgb")
+                    else t(catalog.OVERLAY_WARNING) if category == "overlay" else None),
     }
 
 
@@ -151,11 +152,11 @@ def plan_for_level(running: list[dict], level: str, choices: dict[str, bool], ne
         if never is not None:
             continue  # показується у блоці «Ніколи не закривати»
         if app["platform"] and app["platform"] in protected_platforms:
-            skipped.append((app["title"], catalog.TEXT_PLATFORM_PROTECTED.format(
-                game=protected_platforms[app["platform"]])))
+            skipped.append((app["title"], t(catalog.TEXT_PLATFORM_PROTECTED,
+                                            game=protected_platforms[app["platform"]])))
             continue
         if key in catalog.RECORDING_SENSITIVE and app["cpu_percent"] >= catalog.RECORDING_CPU_THRESHOLD:
-            skipped.append((app["title"], catalog.TEXT_RECORDING))
+            skipped.append((app["title"], t(catalog.TEXT_RECORDING)))
             continue
         in_level = app["level"] is not None and catalog.LEVEL_RANK[app["level"]] <= rank
         choice = choices.get(key)
@@ -190,7 +191,7 @@ def close_apps(apps: list[dict], action) -> tuple[list[dict], list[str]]:
     try:
         results = process_control.close_apps_gracefully(apps, action)
     except Exception as exc:
-        _logger.exception("Не вдалося закрити програми")
+        _logger.exception("Failed to close programs")
         return [], [str(exc)]
     closed, errors = [], []
     for app, result in zip(apps, results):
@@ -198,7 +199,7 @@ def close_apps(apps: list[dict], action) -> tuple[list[dict], list[str]]:
             closed.append({"title": app["title"], "name": app["name"], "exe_path": app.get("exe_path"),
                            "memory_mb": app["memory_mb"]})
         else:
-            errors.append(f"не вдалося закрити {app['title']}: {result['reason']}")
+            errors.append(t("smart.err.close", title=app['title'], reason=result['reason']))
     return closed, errors
 
 

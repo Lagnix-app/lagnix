@@ -92,7 +92,7 @@ def _query_raw():
         if status != 0:
             raise OSError(f"NtQuerySystemInformation: 0x{status:08X}")
         return _buffer
-    raise OSError("NtQuerySystemInformation: буфер замалий")
+    raise OSError("NtQuerySystemInformation: buffer too small")
 
 
 def sample(track_cpu: bool = True) -> list[dict]:

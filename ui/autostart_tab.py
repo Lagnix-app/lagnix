@@ -5,6 +5,7 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from core import autostart as autostart_core
+from core.i18n import t
 from ui import theme
 from ui.widgets.canvas_list import CanvasList, card_image, pill_image, switch_image
 
@@ -16,10 +17,10 @@ _SOURCE_ORDER = (
     autostart_core.SOURCE_STARTUP_COMMON,
 )
 
-_IMPACT_COLORS = {
-    "висока": "#e5484d",
-    "середня": "#e0a52f",
-    "низька": "#8a8a8a",
+_IMPACT_COLORS = {  # вплив (core/autostart.py: high / medium / low) -> колір; підпис — t("autostart.impact.<id>")
+    "high": "#e5484d",
+    "medium": "#e0a52f",
+    "low": "#8a8a8a",
 }
 
 _CARD_PAD = 10  # dp: внутрішній відступ картки зверху/знизу
@@ -89,7 +90,7 @@ class AutostartList(CanvasList):
         if entry["is_anticheat"]:
             y += self.px(2)
             lay["anticheat"] = y
-            y += self._text_height(autostart_core.ANTICHEAT_WARNING, small, text_w)
+            y += self._text_height(t(autostart_core.ANTICHEAT_WARNING), small, text_w)
         lay["card_h"] = max(y + self.px(_CARD_PAD), self.px(_CARD_PAD * 2 + _BTN_H + 12))
         self._layouts[key] = lay
         return lay
@@ -125,8 +126,8 @@ class AutostartList(CanvasList):
         it["publisher"] = c.create_text(0, 0, anchor="nw", fill=theme.TEXT_DIM, font=small, tags=opt)
         it["command"] = c.create_text(0, 0, anchor="nw", fill=theme.TEXT_DIM, font=small, tags=opt)
         it["anticheat"] = c.create_text(0, 0, anchor="nw", fill=theme.WARNING, font=small,
-                                        text=autostart_core.ANTICHEAT_WARNING, tags=opt)
-        for name, text in (("open", "Відкрити розташування"),):
+                                        text=t(autostart_core.ANTICHEAT_WARNING), tags=opt)
+        for name, text in (("open", t("autostart.open_location")),):
             it[f"{name}_bg"] = c.create_image(0, 0, anchor="nw", tags=opt)
             it[f"{name}_text"] = c.create_text(0, 0, anchor="center", text=text, font=small,
                                                fill=theme.TEXT_MAIN, tags=opt)
@@ -152,8 +153,8 @@ class AutostartList(CanvasList):
         text_w = self._text_w()
         title_y = lay["title"] + self.px(10)
 
-        impact = entry.get("impact", "низька")
-        extra = f"  ·  Вплив: {impact}" + ("  ·  системний" if entry["is_system"] else "")
+        impact = entry.get("impact", "low")
+        extra = t("autostart.impact", impact=t('autostart.impact.' + impact)) + (t("autostart.system_suffix") if entry["is_system"] else "")
         name_font = self.font(13, "bold")
         name = self.truncate(
             entry["display_name"], max(text_w - self.text_width(extra, self.font(11)), self.px(60)), name_font,
@@ -255,7 +256,7 @@ class AutostartTab(ctk.CTkFrame):
         header.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(header, text="Автозапуск", font=ctk.CTkFont(size=22, weight="bold")).grid(
+        ctk.CTkLabel(header, text=t("tabs.autostart"), font=ctk.CTkFont(size=22, weight="bold")).grid(
             row=0, column=0, sticky="w"
         )
 
@@ -264,12 +265,12 @@ class AutostartTab(ctk.CTkFrame):
 
         self.search_var = ctk.StringVar()
         self.search_entry = ctk.CTkEntry(
-            controls, placeholder_text="Пошук за назвою", width=220, textvariable=self.search_var,
+            controls, placeholder_text=t("autostart.search"), width=220, textvariable=self.search_var,
         )
         self.search_entry.pack(side="left", padx=(0, 10))
         self.search_var.trace_add("write", lambda *_a: self._render())
 
-        ctk.CTkButton(controls, text="Оновити", width=100, command=self._load).pack(side="left")
+        ctk.CTkButton(controls, text=t("common.refresh"), width=100, command=self._load).pack(side="left")
 
         self.status_label = ctk.CTkLabel(header, text="", text_color="gray")
         self.status_label.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
@@ -295,9 +296,9 @@ class AutostartTab(ctk.CTkFrame):
 
     def _render(self):
         if not self.all_entries:
-            self.list.set_empty_text("Не знайдено жодної програми автозапуску.")
+            self.list.set_empty_text(t("autostart.none"))
             self.list.set_rows([])
-            self.status_label.configure(text="Знайдено записів: 0")
+            self.status_label.configure(text=t("autostart.found_zero"))
             return
 
         entries = self._filtered()
@@ -310,17 +311,17 @@ class AutostartTab(ctk.CTkFrame):
             if source_entries:
                 rows.append(("header", source))
                 rows.extend(("entry", entry) for entry in source_entries)
-        self.list.set_empty_text("Нічого не знайдено за пошуком.")
+        self.list.set_empty_text(t("autostart.nothing_found"))
         self.list.set_rows(rows)
         self._update_status(len(entries))
 
     def _update_status(self, found: int | None = None) -> None:
         enabled_count = sum(1 for e in self.all_entries if e["enabled"])
-        status = f"Увімкнено {enabled_count} з {len(self.all_entries)}"
+        status = t("autostart.enabled_of", enabled=enabled_count, count=len(self.all_entries))
         if self._query():
             if found is None:
                 found = len(self._filtered())
-            status += f"  ·  Знайдено за пошуком: {found}"
+            status += t("autostart.found_search", found=found)
         self.status_label.configure(text=status)
 
     # --------------------------------------------------------------- toggle
@@ -339,21 +340,20 @@ class AutostartTab(ctk.CTkFrame):
             entry["enabled"] = want_enabled
             self._update_status()
         else:
-            messagebox.showerror("Помилка", error or "Не вдалося змінити стан автозапуску", parent=self)
+            messagebox.showerror(t("common.error"), error or t("autostart.err.toggle"), parent=self)
 
     def _confirm_disable(self, entry: dict) -> bool:
         name = entry["display_name"]
         if entry["is_anticheat"]:
             return messagebox.askyesno(
-                "Підтвердження",
-                f"«{name}» пов'язаний з античитом.\n{autostart_core.ANTICHEAT_WARNING}\n\nВимкнути автозапуск?",
+                t("common.confirmation"),
+                t("autostart.confirm_anticheat", name=name, warning=t(autostart_core.ANTICHEAT_WARNING)),
                 parent=self,
             )
         if entry["is_system"]:
             return messagebox.askyesno(
-                "Підтвердження",
-                f"«{name}» — системний запис Windows. Вимикати його зазвичай не потрібно.\n\n"
-                "Вимкнути автозапуск?",
+                t("common.confirmation"),
+                t("autostart.confirm_system", name=name),
                 parent=self,
             )
         return True
@@ -363,4 +363,4 @@ class AutostartTab(ctk.CTkFrame):
     def _on_open_location(self, entry: dict):
         success, error = autostart_core.open_location(entry)
         if not success:
-            messagebox.showerror("Помилка", error or "Не вдалося відкрити розташування файлу", parent=self)
+            messagebox.showerror(t("common.error"), error or t("autostart.err.open_location"), parent=self)

@@ -148,7 +148,7 @@ class _BinVdf:
             key = self._key()
             if kind == 0x00:
                 if depth > 32:
-                    raise ValueError("appinfo: надто глибока вкладеність")
+                    raise ValueError("appinfo: nesting too deep")
                 result[key] = self.read_map(depth + 1)
             elif kind == 0x01:
                 result[key] = self._cstr()
@@ -161,7 +161,7 @@ class _BinVdf:
                     self.pos += 2
                 self.pos += 2
             else:
-                raise ValueError(f"appinfo: невідомий тип {kind:#x}")
+                raise ValueError(f"appinfo: unknown type {kind:#x}")
 
 
 def _steam_app_types(steam_path: str, appids: set[int]) -> dict[int, str]:
@@ -198,7 +198,7 @@ def _steam_app_types(steam_path: str, appids: set[int]) -> dict[int, str]:
                         pass
                 pos = body + size
     except (OSError, ValueError, struct.error):
-        _logger.warning("Не вдалося прочитати типи програм Steam (%s)", path, exc_info=True)
+        _logger.warning("Failed to read Steam app types (%s)", path, exc_info=True)
     return types
 
 
@@ -384,6 +384,6 @@ def scan_games() -> list[dict]:
         try:
             games.extend(scanner())
         except Exception:
-            _logger.exception("Помилка пошуку ігор (%s)", scanner.__name__)
+            _logger.exception("Game search error (%s)", scanner.__name__)
     unique = {g["key"]: g for g in games}
     return sorted(unique.values(), key=lambda g: g["name"].lower())

@@ -17,12 +17,13 @@ import subprocess
 import psutil
 
 from core.logging_setup import get_logger
+from core.i18n import t
 
 _logger = get_logger(__name__)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 ULTRA_NAME = "PulseFPS Ultra"
-ULTRA_DESCRIPTION = "Максимальна продуктивність від PulseFPS: без паркування ядер і енергозбереження."
+ULTRA_DESCRIPTION = "power_plan.ultra_desc"
 ULTIMATE_SOURCE_GUID = "e9a42b02-d5df-448d-aa00-03f14749eb61"
 HIGH_PERFORMANCE_GUID = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
 BALANCED_GUID = "381b4222-f694-41f0-9685-ff5bb260df2e"
@@ -36,15 +37,15 @@ _SUB_PCIE = "501a4d13-42af-4429-9fd1-a8218c268e20"
 _SUB_DISK = "0012ee47-9041-4b5d-9b77-535fba8b1442"
 _SUB_SLEEP = "238c9fa8-0aad-41ed-83f4-97be242c8f20"
 ULTRA_SETTINGS = (
-    (_SUB_PROCESSOR, "893dee8e-2bef-41e0-89c6-b55d0929964c", 100, "мін. стан процесора"),
-    (_SUB_PROCESSOR, "bc5038f7-23e0-4960-96da-33abaf5935ec", 100, "макс. стан процесора"),
-    (_SUB_PROCESSOR, "0cc5b647-c1df-4637-891a-dec35c318583", 100, "паркування ядер вимкнено"),
-    (_SUB_PROCESSOR, "be337238-0d82-4146-a960-4f3749d470c7", 2, "агресивне підвищення продуктивності"),
+    (_SUB_PROCESSOR, "893dee8e-2bef-41e0-89c6-b55d0929964c", 100, "min processor state"),
+    (_SUB_PROCESSOR, "bc5038f7-23e0-4960-96da-33abaf5935ec", 100, "max processor state"),
+    (_SUB_PROCESSOR, "0cc5b647-c1df-4637-891a-dec35c318583", 100, "core parking disabled"),
+    (_SUB_PROCESSOR, "be337238-0d82-4146-a960-4f3749d470c7", 2, "aggressive performance boost"),
     (_SUB_USB, "48e6b7a6-50f5-4782-a5d4-53bb8f07e226", 0, "USB selective suspend"),
     (_SUB_PCIE, "ee12f906-d277-404b-b6da-e5fa1a576df5", 0, "PCIe Link State Power Management"),
-    (_SUB_DISK, "6738e2c4-e8a5-4a42-b16a-e040e769756e", 0, "вимкнення диска"),
-    (_SUB_SLEEP, "29f6c1db-86da-48c5-9fdb-f2b67b1f44da", 0, "сон"),
-    (_SUB_SLEEP, "9d7815a6-7ee4-497e-8888-515a05f02364", 0, "гібернація"),
+    (_SUB_DISK, "6738e2c4-e8a5-4a42-b16a-e040e769756e", 0, "turn off hard disk"),
+    (_SUB_SLEEP, "29f6c1db-86da-48c5-9fdb-f2b67b1f44da", 0, "sleep"),
+    (_SUB_SLEEP, "9d7815a6-7ee4-497e-8888-515a05f02364", 0, "hibernate"),
 )
 
 
@@ -98,7 +99,7 @@ def _apply_ultra_settings(guid: str) -> list[str]:
         ok, out = _powercfg("/setacvalueindex", guid, subgroup, setting, str(value))
         if not ok:
             failed.append(label)
-            _logger.warning("PulseFPS Ultra: не вдалося виставити «%s»: %s", label, out.strip())
+            _logger.warning("PulseFPS Ultra: failed to set \"%s\": %s", label, out.strip())
     return failed
 
 
@@ -120,12 +121,12 @@ def ensure_ultra(saved_guid: str | None) -> tuple[str | None, str]:
         if guid:
             break
     if not guid:
-        return None, "Не вдалося створити план живлення (немає прав або схеми недоступні)."
+        return None, t("power_plan.err.create")
 
-    _powercfg("/changename", guid, ULTRA_NAME, ULTRA_DESCRIPTION)
+    _powercfg("/changename", guid, ULTRA_NAME, t(ULTRA_DESCRIPTION))
     failed = _apply_ultra_settings(guid)
     if failed:
-        _logger.info("PulseFPS Ultra створено; не підтримуються: %s", ", ".join(failed))
+        _logger.info("PulseFPS Ultra created; not supported: %s", ", ".join(failed))
     return guid, ""
 
 

@@ -30,14 +30,19 @@ from ui.widgets import robot as robot_view
 from ui.app_shell import HOTKEY_LABELS
 from ui.overlay import METRICS as OVERLAY_METRICS
 from ui.widgets.canvas_list import Tooltip
+from ui.widgets.language_picker import LanguagePicker
+from core import i18n
+from core.i18n import TDict, t
 
-_UPDATE_INTERVAL_LABELS = {0.5: "0.5 с", 1.0: "1 с", 2.0: "2 с"}
-_STARTUP_TAB_LABELS = {"last": "Остання відкрита", "monitor": "Монітор"}
-_CLOSE_ACTION_LABELS = {"tray": "Згортати в трей", "exit": "Закривати програму"}
-_LANGUAGES = {"uk": "Українська"}
-_OVERLAY_SIZE_LABELS = {"small": "Малий", "medium": "Середній"}
-_OVERLAY_CORNER_LABELS = {"top_left": "Лівий верхній кут", "top_right": "Правий верхній кут",
-                          "bottom_left": "Лівий нижній кут", "bottom_right": "Правий нижній кут"}
+# значення -> підпис поточною мовою (TDict: ключі перекладів, текст — при кожному зверненні)
+_UPDATE_INTERVAL_LABELS = TDict({0.5: "settings.interval.0_5", 1.0: "settings.interval.1", 2.0: "settings.interval.2"})
+_STARTUP_TAB_LABELS = TDict({"last": "settings.startup_tab.last", "monitor": "tabs.monitor"})
+_CLOSE_ACTION_LABELS = TDict({"tray": "settings.close.tray", "exit": "settings.close.exit"})
+_OVERLAY_SIZE_LABELS = TDict({"small": "settings.overlay.size.small", "medium": "settings.overlay.size.medium"})
+_OVERLAY_CORNER_LABELS = TDict({
+    "top_left": "settings.overlay.corner.top_left", "top_right": "settings.overlay.corner.top_right",
+    "bottom_left": "settings.overlay.corner.bottom_left", "bottom_right": "settings.overlay.corner.bottom_right",
+})
 _VK_ESCAPE = 0x1B
 _OPACITY_PREVIEW_MS = 100  # -alpha оверлею під час руху повзунка — не частіше
 
@@ -53,7 +58,7 @@ class SettingsTab(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(self, text="Налаштування", font=theme.font_title()).grid(
+        ctk.CTkLabel(self, text=t("tabs.settings"), font=theme.font_title()).grid(
             row=0, column=0, padx=theme.PAD_L, pady=(theme.PAD_L, theme.PAD_M), sticky="w"
         )
 
@@ -66,6 +71,7 @@ class SettingsTab(ctk.CTkFrame):
         self._layout_job = None
         self._visible = False
         self._pawnio_task = None
+        self._pawnio_installing = False
         self._opacity_job = None
         self._opacity_pending: float | None = None
         self._opacity_applied_at = 0.0
@@ -161,7 +167,11 @@ class SettingsTab(ctk.CTkFrame):
         row = theme.plain_frame(card)
         row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
         ctk.CTkLabel(row, text=label_text, font=theme.font_body()).pack(anchor="w")
-        width = min(400, max(300, _SEGMENT_WIDTH_PER_ITEM * len(value_to_label)))
+        font = ctk.CTkFont(family=theme.font_family(), size=13)
+        need = max(font.measure(label) for label in value_to_label.values()) + 28
+        count = len(value_to_label)
+        width = min(max(400, _SEGMENT_WIDTH_PER_ITEM * count),
+                    max(300, _SEGMENT_WIDTH_PER_ITEM * count, need * count))
         seg = ctk.CTkSegmentedButton(
             row, values=list(value_to_label.values()), width=width, dynamic_resizing=False,
             command=lambda label: on_select(label_to_value[label]),
@@ -201,24 +211,24 @@ class SettingsTab(ctk.CTkFrame):
     # ------------------------------------------------------------ загальні
 
     def _build_general_card(self) -> None:
-        card = self._card("Загальні")
+        card = self._card(t("settings.general"))
         settings = load_settings()
 
         self._launch_var = self._switch(
-            card, "Запускати разом з Windows", launch_on_windows.is_enabled(), self._on_toggle_launch_with_windows,
-            "Стартує мінімізованою в трей разом із входом у Windows.",
+            card, t("settings.launch_with_windows"), launch_on_windows.is_enabled(), self._on_toggle_launch_with_windows,
+            t("settings.launch_with_windows.hint"),
         )
 
         close_labels = dict(_CLOSE_ACTION_LABELS)
         if not tray_core.is_available():
             close_labels.pop("tray", None)
-        self._choice_row(card, "При закритті вікна", close_labels,
+        self._choice_row(card, t("settings.on_close"), close_labels,
                          settings.get("close_action", "exit"), self._on_close_action_change)
         if not tray_core.is_available():
-            self._hint(card, "Трей недоступний у цьому оточенні (немає pystray) — програма завжди закривається.",
+            self._hint(card, t("settings.tray_unavailable"),
                        theme.WARNING).pack(padx=theme.PAD_M, pady=(0, 12), anchor="w")
 
-        self._choice_row(card, "Вкладка при запуску", _STARTUP_TAB_LABELS,
+        self._choice_row(card, t("settings.startup_tab"), _STARTUP_TAB_LABELS,
                          settings.get("startup_tab_mode", "last"), self._on_startup_tab_change)
 
     def _on_toggle_launch_with_windows(self) -> None:
@@ -226,7 +236,7 @@ class SettingsTab(ctk.CTkFrame):
         success, error = launch_on_windows.set_enabled(enabled)
         if not success:
             self._launch_var.set(not enabled)
-            messagebox.showerror("Помилка", f"Не вдалося змінити автозапуск: {error}", parent=self)
+            messagebox.showerror(t("common.error"), t("settings.err.launch", error=error), parent=self)
             return
         sounds.play_click()
 
@@ -241,37 +251,36 @@ class SettingsTab(ctk.CTkFrame):
     # ------------------------------------------------------------- монітор
 
     def _build_monitor_card(self) -> None:
-        card = self._card("Монітор")
+        card = self._card(t("tabs.monitor"))
         settings = load_settings()
 
-        self._choice_row(card, "Інтервал оновлення", _UPDATE_INTERVAL_LABELS,
+        self._choice_row(card, t("settings.update_interval"), _UPDATE_INTERVAL_LABELS,
                          settings.get("monitor_update_interval_s", 1.0), self._on_interval_change)
 
         threshold = settings.get("temp_threshold_c", 85)
         self._threshold_slider, self._threshold_value_label = self._slider_row(
-            card, "Поріг попередження про температуру CPU/GPU", 60, 100, 40, threshold,
+            card, t("settings.temp_threshold"), 60, 100, 40, threshold,
             f"{round(threshold)}°C", self._on_threshold_change,
         )
 
         self._sensors_var = self._switch(
-            card, "Розширені датчики (температура CPU)", settings.get("advanced_sensors_enabled", True),
+            card, t("settings.advanced_sensors"), settings.get("advanced_sensors_enabled", True),
             self._on_toggle_sensors,
-            "Потрібні для показу температури процесора. Якщо вимкнути — драйвер датчиків не завантажується.",
+            t("settings.advanced_sensors.hint"),
         )
 
         driver = ctk.CTkFrame(card, fg_color=theme.BG_PANEL_LIGHT, corner_radius=10)
         driver.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
         top = theme.plain_frame(driver)
         top.pack(fill="x", padx=12, pady=(10, 4))
-        ctk.CTkLabel(top, text="Драйвер датчиків PawnIO", font=theme.font_body()).pack(side="left")
-        self._pawnio_status = ctk.CTkLabel(top, text="перевіряю…", font=theme.font_body(),
+        ctk.CTkLabel(top, text=t("settings.pawnio.title"), font=theme.font_body()).pack(side="left")
+        self._pawnio_status = ctk.CTkLabel(top, text=t("settings.pawnio.checking"), font=theme.font_body(),
                                            text_color=theme.TEXT_DIM)
         self._pawnio_status.pack(side="right")
         self._pawnio_hint = self._hint(
-            driver, "Без нього температура CPU показується як «Недоступно». Офіційний підписаний драйвер "
-                    "(pawnio.eu), встановлюється лише за вашою згодою.")
+            driver, t("settings.pawnio.hint"))
         self._pawnio_hint.pack(fill="x", padx=12, pady=(0, 8))
-        self._pawnio_button = ctk.CTkButton(driver, text="Встановити драйвер датчиків", height=30,
+        self._pawnio_button = ctk.CTkButton(driver, text=t("settings.pawnio.install"), height=30,
                                             corner_radius=8, width=10, command=self._on_install_pawnio)
         self._refresh_pawnio_status()
 
@@ -280,7 +289,7 @@ class SettingsTab(ctk.CTkFrame):
             return
         if self._pawnio_task is not None and not self._pawnio_task.finished:
             return
-        self._pawnio_task = bg.run_task(self, "Налаштування: статус PawnIO", pawnio.status,
+        self._pawnio_task = bg.run_task(self, "Settings: PawnIO status", pawnio.status,
                                         self._apply_pawnio_status, lambda _e: self._apply_pawnio_status(None),
                                         timeout=20)
 
@@ -288,45 +297,44 @@ class SettingsTab(ctk.CTkFrame):
         if not self._pawnio_status.winfo_exists():
             return
         if status is None:
-            self._pawnio_status.configure(text="не вдалося перевірити", text_color=theme.WARNING)
+            self._pawnio_status.configure(text=t("settings.pawnio.check_failed"), text_color=theme.WARNING)
             return
         if status["installed"]:
-            self._pawnio_status.configure(text="● Встановлено", text_color=theme.ACCENT_GREEN)
+            self._pawnio_status.configure(text=t("settings.pawnio.installed"), text_color=theme.ACCENT_GREEN)
             self._pawnio_button.pack_forget()
         else:
-            self._pawnio_status.configure(text="● Не встановлено", text_color=theme.WARNING)
+            self._pawnio_status.configure(text=t("settings.pawnio.not_installed"), text_color=theme.WARNING)
             if not self._pawnio_button.winfo_manager():
                 self._pawnio_button.pack(anchor="w", padx=12, pady=(0, 12))
 
     def _on_install_pawnio(self) -> None:
         if not confirm_dialog.ask(
-            self, "Встановити драйвер датчиків?",
-            "PulseFPS завантажить офіційний інсталятор PawnIO (github.com/namazso/PawnIO.Setup — посилання з "
-            "pawnio.eu), перевірить його цифровий підпис і відкриє майстер встановлення. У майстрі оберіть "
-            "звичайну (підписану) редакцію.\n\nДрайвер працює на рівні ядра Windows; видалити його можна "
-            "через «Установлені програми».",
-            "Завантажити й встановити",
+            self, t("settings.pawnio.confirm.title"),
+            t("settings.pawnio.confirm.text"),
+            t("settings.pawnio.confirm.ok"),
         ):
             return
-        reason = "Налаштування → «Встановити драйвер датчиків»"
-        self._pawnio_button.configure(state="disabled", text="Завантажую й перевіряю підпис…")
-        bg.run_task(self, "Налаштування: встановлення PawnIO",
+        reason = "Settings → \"Install sensor driver\""
+        self._pawnio_installing = True
+        self._pawnio_button.configure(state="disabled", text=t("settings.pawnio.downloading"))
+        bg.run_task(self, "Settings: PawnIO installation",
                     lambda: pawnio.run_installer(pawnio.download_and_verify(reason), reason),
                     self._on_pawnio_installed, self._on_pawnio_failed, timeout=30 * 60)
 
     def _on_pawnio_installed(self, _code) -> None:
-        self._pawnio_button.configure(state="normal", text="Встановити драйвер датчиків")
+        self._pawnio_installing = False
+        self._pawnio_button.configure(state="normal", text=t("settings.pawnio.install"))
         status = pawnio.status()
         self._apply_pawnio_status(status)
         if status["installed"] and load_settings().get("advanced_sensors_enabled", True):
             # перезапуск датчиків, щоб LibreHardwareMonitor підхопив драйвер
             threading.Thread(target=lambda: (sensors.stop(), sensors.start()), daemon=True).start()
-            messagebox.showinfo("Драйвер датчиків", "PawnIO встановлено — температура CPU з'явиться "
-                                                   "на «Моніторі» за кілька секунд.", parent=self)
+            messagebox.showinfo(t("settings.pawnio.driver"), t("settings.pawnio.done"), parent=self)
 
     def _on_pawnio_failed(self, exc) -> None:
-        self._pawnio_button.configure(state="normal", text="Встановити драйвер датчиків")
-        messagebox.showerror("Драйвер датчиків", f"Не вдалося встановити PawnIO: {bg.error_text(exc)}",
+        self._pawnio_installing = False
+        self._pawnio_button.configure(state="normal", text=t("settings.pawnio.install"))
+        messagebox.showerror(t("settings.pawnio.driver"), t("settings.pawnio.failed", exc=bg.error_text(exc)),
                              parent=self)
 
     def _on_interval_change(self, value: float) -> None:
@@ -347,17 +355,17 @@ class SettingsTab(ctk.CTkFrame):
     # --------------------------------------------------------------- звуки
 
     def _build_sound_card(self) -> None:
-        card = self._card("Звуки", "Тихі звукові підказки при наведенні, кліку, успіху й помилках.")
-        self._sound_var = self._switch(card, "Звуки увімкнені", sounds.is_enabled(), self._on_toggle_sounds)
+        card = self._card(t("settings.sounds"), t("settings.sounds.hint"))
+        self._sound_var = self._switch(card, t("settings.sounds.enabled"), sounds.is_enabled(), self._on_toggle_sounds)
         self._volume_slider, self._volume_value_label = self._slider_row(
-            card, "Загальна гучність", 0, 1, 20, sounds.get_volume(), "", self._on_volume_change,
+            card, t("settings.sounds.volume"), 0, 1, 20, sounds.get_volume(), "", self._on_volume_change,
             self._on_volume_release,
         )
         self._hover_slider, self._hover_value_label = self._slider_row(
-            card, "Звук наведення (частка від загальної)", 0, 1, 20, sounds.get_hover_ratio(), "",
+            card, t("settings.sounds.hover"), 0, 1, 20, sounds.get_hover_ratio(), "",
             self._on_hover_change, self._on_hover_release,
         )
-        self._test_button = self._secondary_button(card, "Тест звуку", self._on_test_sound)
+        self._test_button = self._secondary_button(card, t("settings.sounds.test"), self._on_test_sound)
         self._test_button.pack(padx=theme.PAD_M, pady=(0, theme.PAD_M), anchor="w")
         self._update_volume_labels()
         self._update_volume_state()
@@ -365,12 +373,12 @@ class SettingsTab(ctk.CTkFrame):
     def _update_volume_labels(self) -> None:
         volume, ratio = sounds.get_volume(), sounds.get_hover_ratio()
         muted = volume <= 0
-        self._volume_value_label.configure(text="Звук вимкнено" if muted else f"{round(volume * 100)}%",
+        self._volume_value_label.configure(text=t("settings.sounds.off") if muted else f"{round(volume * 100)}%",
                                            text_color=theme.WARNING if muted else theme.TEXT_DIM)
         if muted or ratio <= 0:
-            hover_text = "Звук вимкнено"
+            hover_text = t("settings.sounds.off")
         else:
-            hover_text = f"{round(ratio * 100)}% від загальної"
+            hover_text = t("settings.sounds.ratio", percent=round(ratio * 100))
         self._hover_value_label.configure(text=hover_text)
 
     def _on_toggle_sounds(self) -> None:
@@ -408,7 +416,7 @@ class SettingsTab(ctk.CTkFrame):
     def _on_test_sound(self) -> None:
         """Програє всі звуки по черзі (з паузами, щоб було чутно кожен окремо) —
         незалежно від перемикача, щоб звуки можна було прослухати перед увімкненням."""
-        self._test_button.configure(state="disabled", text="Відтворення...")
+        self._test_button.configure(state="disabled", text=t("settings.sounds.playing"))
         sequence = (sounds.play_hover, sounds.play_hover, sounds.play_click, sounds.play_success, sounds.play_error)
         delay = 0
         for play_fn in sequence:
@@ -418,23 +426,22 @@ class SettingsTab(ctk.CTkFrame):
 
     def _on_test_sound_done(self) -> None:
         if self._test_button.winfo_exists():
-            self._test_button.configure(state="normal", text="Тест звуку")
+            self._test_button.configure(state="normal", text=t("settings.sounds.test"))
 
     # -------------------------------------------------------- ігровий режим
 
     def _build_game_mode_card(self) -> None:
-        card = self._card("Ігровий режим")
+        card = self._card(t("tabs.game_mode"))
         settings = load_settings()
         self._choice_row(
-            card, "Рівень за замовчуванням", app_catalog.LEVEL_LABELS,
+            card, t("settings.game_mode.default_level"), app_catalog.LEVEL_LABELS,
             settings.get("game_mode_default_level", app_catalog.DEFAULT_LEVEL), self._on_default_level,
         )
-        self._hint(card, "Для профілів, у яких рівень ще не обирали на вкладці «Ігровий режим».").pack(
+        self._hint(card, t("settings.game_mode.default_level.hint")).pack(
             padx=theme.PAD_M, pady=(0, 12), anchor="w")
         self._toast_var = self._switch(
-            card, "Сповіщення при автоувімкненні", settings.get("game_mode_auto_toast", True), self._on_toggle_toast,
-            "«Ігровий режим увімкнено для <гра>» з кнопкою «Скасувати» (5 с). Якщо вимкнути — режим "
-            "вмикається одразу; програми автоматично однаково не закриваються.",
+            card, t("settings.game_mode.toast"), settings.get("game_mode_auto_toast", True), self._on_toggle_toast,
+            t("settings.game_mode.toast.hint"),
         )
 
     def _on_default_level(self, level: str) -> None:
@@ -454,39 +461,38 @@ class SettingsTab(ctk.CTkFrame):
         return getattr(self.winfo_toplevel(), "shell", None)
 
     def _build_overlay_card(self) -> None:
-        card = self._card("Оверлей", "Маленьке напівпрозоре вікно поверх ігор: навантаження CPU, GPU, RAM і "
-                                     "температури. Кольори змінюються при високому навантаженні й нагріві.")
+        card = self._card(t("tray.overlay"), t("settings.overlay.hint"))
         settings = load_settings()
-        self._overlay_var = self._switch(card, "Показувати оверлей", settings.get("overlay_enabled", False),
+        self._overlay_var = self._switch(card, t("settings.overlay.show"), settings.get("overlay_enabled", False),
                                          self._on_toggle_overlay)
-        self._choice_row(card, "Розмір", _OVERLAY_SIZE_LABELS, settings.get("overlay_size", "small"),
+        self._choice_row(card, t("settings.overlay.size"), _OVERLAY_SIZE_LABELS, settings.get("overlay_size", "small"),
                          self._on_overlay_size)
         opacity = float(settings.get("overlay_opacity", 0.85))
         self._opacity_slider, self._opacity_label = self._slider_row(
-            card, "Непрозорість", 0.3, 1.0, 14, opacity, f"{round(opacity * 100)}%",
+            card, t("settings.overlay.opacity"), 0.3, 1.0, 14, opacity, f"{round(opacity * 100)}%",
             self._on_overlay_opacity, self._on_overlay_opacity_release,
         )
 
         metrics_row = theme.plain_frame(card)
         metrics_row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
-        ctk.CTkLabel(metrics_row, text="Що показувати", font=theme.font_body()).grid(
+        ctk.CTkLabel(metrics_row, text=t("settings.overlay.metrics"), font=theme.font_body()).grid(
             row=0, column=0, columnspan=3, sticky="w")
         saved = settings.get("overlay_metrics") or {}
         self._metric_boxes = {}
         for index, (key, label) in enumerate(OVERLAY_METRICS):
-            box = ctk.CTkCheckBox(metrics_row, text=label.replace(" °C", " — темп."), width=10,
+            box = ctk.CTkCheckBox(metrics_row, text=label.replace(" °C", t("settings.overlay.temp_suffix")), width=10,
                                   checkbox_width=18, checkbox_height=18, font=theme.font_body(),
                                   command=self._on_overlay_metrics)
             if saved.get(key, True):
                 box.select()
             box.grid(row=1 + index // 3, column=index % 3, padx=(0, 18), pady=(6, 0), sticky="w")
             self._metric_boxes[key] = box
-        self._hint(metrics_row, "Температура CPU показується, лише якщо датчик доступний (див. «Монітор»).").grid(
+        self._hint(metrics_row, t("settings.overlay.cpu_temp_hint")).grid(
             row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         row = theme.plain_frame(card)
         row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
-        ctk.CTkLabel(row, text="Кут екрана за замовчуванням", font=theme.font_body()).pack(anchor="w")
+        ctk.CTkLabel(row, text=t("settings.overlay.corner"), font=theme.font_body()).pack(anchor="w")
         corner_menu = ctk.CTkOptionMenu(
             row, values=list(_OVERLAY_CORNER_LABELS.values()), width=220, height=30, corner_radius=8,
             fg_color=theme.BG_PANEL_LIGHT, button_color=theme.BG_PANEL_LIGHT, button_hover_color=theme.BORDER,
@@ -496,11 +502,9 @@ class SettingsTab(ctk.CTkFrame):
         corner_menu.set(_OVERLAY_CORNER_LABELS.get(settings.get("overlay_corner", "top_left"),
                                                    _OVERLAY_CORNER_LABELS["top_left"]))
         corner_menu.pack(anchor="w", pady=(6, 0))
-        self._hint(row, "Щоб перетягнути оверлей, затисніть Ctrl і тягніть його мишею — позиція запам'ятається. "
-                        "Вибір кута скидає збережену позицію. Без Ctrl оверлей пропускає кліки в гру.").pack(
+        self._hint(row, t("settings.overlay.drag_hint")).pack(
             anchor="w", pady=(4, 0))
-        self._hint(card, "У повноекранних іграх (exclusive fullscreen) оверлей може не показуватись — "
-                         "використовуйте безрамковий режим.", theme.WARNING).pack(
+        self._hint(card, t("settings.overlay.fullscreen_hint"), theme.WARNING).pack(
             padx=theme.PAD_M, pady=(0, theme.PAD_M), anchor="w")
 
     def sync_overlay_enabled(self, enabled: bool) -> None:
@@ -572,8 +576,7 @@ class SettingsTab(ctk.CTkFrame):
     # ------------------------------------------------------ гарячі клавіші
 
     def _build_hotkeys_card(self) -> None:
-        card = self._card("Гарячі клавіші", "Працюють усюди, зокрема в грі. Натисніть поле, а потім нову "
-                                            "комбінацію (Esc — скасувати).")
+        card = self._card(t("settings.hotkeys"), t("settings.hotkeys.hint"))
         self._hotkey_rows: dict[str, dict] = {}
         self._recording: str | None = None
         saved = load_settings().get("hotkeys") or {}
@@ -587,7 +590,7 @@ class SettingsTab(ctk.CTkFrame):
                                   border_color=theme.BORDER, text_color=theme.TEXT_MAIN,
                                   command=lambda a=action: self._start_recording(a))
             field.grid(row=0, column=1, padx=(8, 8))
-            self._secondary_button(row, "Скинути", lambda a=action: self._reset_hotkey(a)).grid(row=0, column=2)
+            self._secondary_button(row, t("common.reset"), lambda a=action: self._reset_hotkey(a)).grid(row=0, column=2)
             status = self._hint(row, "")
             # клавіші ловить сама рамка кнопки-поля (під час запису фокус на ній);
             # CTkButton.bind вішає обробники на внутрішні canvas/label, тож — tkinter напряму
@@ -609,7 +612,7 @@ class SettingsTab(ctk.CTkFrame):
                 continue
             row["combo"] = bindings.get(action, row["combo"])
             if self._recording != action:
-                row["field"].configure(text=row["combo"] or "не задано", border_color=theme.BORDER)
+                row["field"].configure(text=row["combo"] or t("settings.hotkeys.not_set"), border_color=theme.BORDER)
             self._set_hotkey_status(action, errors.get(action))
 
     def _set_hotkey_status(self, action: str, error: str | None) -> None:
@@ -632,7 +635,7 @@ class SettingsTab(ctk.CTkFrame):
         shell.suspend_hotkeys()  # інакше Windows «з'їсть» комбінації, які вже зайняв PulseFPS
         self._recording = action
         field = self._hotkey_rows[action]["field"]
-        field.configure(text="Натисніть комбінацію…", border_color=theme.ACCENT_GREEN)
+        field.configure(text=t("settings.hotkeys.press"), border_color=theme.ACCENT_GREEN)
         field.focus_set()
 
     def _stop_recording(self, action: str, apply: bool) -> None:
@@ -659,7 +662,7 @@ class SettingsTab(ctk.CTkFrame):
             return "break"
         key = hotkeys_core.key_name(vk)
         if key is None:
-            self._set_hotkey_status(action, "цю клавішу не можна використати — оберіть літеру, цифру чи F1–F24")
+            self._set_hotkey_status(action, t("settings.hotkeys.bad_key"))
             return "break"
         combo = hotkeys_core.format_combo(modifiers, key)
         error = hotkeys_core.validate(combo)
@@ -692,20 +695,20 @@ class SettingsTab(ctk.CTkFrame):
     # ----------------------------------------------------------- сповіщення
 
     def _build_notifications_card(self) -> None:
-        card = self._card("Сповіщення Windows")
+        card = self._card(t("settings.notifications"))
         settings = load_settings()
         self._notify_game_var = self._switch(
-            card, "Автоувімкнення Ігрового режиму", settings.get("notify_game_mode", True),
+            card, t("settings.notifications.game_mode"), settings.get("notify_game_mode", True),
             lambda: self._on_toggle_notify("notify_game_mode", self._notify_game_var),
-            "«Ігровий режим увімкнено: <гра>» — коли режим увімкнувся сам після запуску гри.",
+            t("settings.notifications.game_mode.hint"),
         )
         self._notify_heat_var = self._switch(
-            card, "Перегрів CPU/GPU", settings.get("notify_overheat", True),
+            card, t("settings.notifications.overheat"), settings.get("notify_overheat", True),
             lambda: self._on_toggle_notify("notify_overheat", self._notify_heat_var),
-            "Коли температура перевищує поріг із картки «Монітор» — не частіше ніж раз на 5 хв.",
+            t("settings.notifications.overheat.hint"),
         )
         if not tray_core.is_available():
-            self._hint(card, "Сповіщення показуються через іконку в треї — потрібен pystray.",
+            self._hint(card, t("settings.notifications.need_tray"),
                        theme.WARNING).pack(padx=theme.PAD_M, pady=(0, 12), anchor="w")
 
     def _on_toggle_notify(self, key: str, var) -> None:
@@ -715,29 +718,28 @@ class SettingsTab(ctk.CTkFrame):
     # ---------------------------------------------------------- інтерфейс
 
     def _build_interface_card(self) -> None:
-        card = self._card("Інтерфейс", "Вимкніть анімації, якщо інтерфейс гальмує на слабкому ПК.")
+        card = self._card(t("settings.interface"), t("settings.interface.hint"))
         settings = load_settings()
-        self._anim_var = self._switch(card, "Анімації інтерфейсу", settings.get("animations_enabled", True),
+
+        # мова — першою: її шукають і ті, хто поточної мови не розуміє (звідси «… / Language»)
+        row = theme.plain_frame(card)
+        row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
+        label = t("settings.language")
+        ctk.CTkLabel(row, text=label if label == "Language" else f"{label} / Language",
+                     font=theme.font_body()).pack(anchor="w")
+        self._language_picker = LanguagePicker(row, i18n.get_language(), self._on_language)
+        self._language_picker.pack(anchor="w", pady=(6, 0))
+
+        self._anim_var = self._switch(card, t("settings.interface.animations"), settings.get("animations_enabled", True),
                                       self._on_toggle_animations)
-        self._robot_anim_var = self._switch(card, "Анімація робота", settings.get("robot_animation_enabled", True),
+        self._robot_anim_var = self._switch(card, t("settings.interface.robot_animation"), settings.get("robot_animation_enabled", True),
                                             self._on_toggle_robot_animation)
 
-        row = theme.plain_frame(card)
-        row.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
-        ctk.CTkLabel(row, text="Мова", font=theme.font_body()).pack(anchor="w")
-        self._language_menu = ctk.CTkOptionMenu(
-            row, values=list(_LANGUAGES.values()), width=220, height=30, corner_radius=8,
-            fg_color=theme.BG_PANEL_LIGHT, button_color=theme.BG_PANEL_LIGHT, button_hover_color=theme.BORDER,
-            dropdown_fg_color=theme.BG_PANEL, dropdown_hover_color=theme.BORDER, text_color=theme.TEXT_MAIN,
-            command=self._on_language,
-        )
-        self._language_menu.set(_LANGUAGES.get(settings.get("language", "uk"), "Українська"))
-        self._language_menu.pack(anchor="w", pady=(6, 0))
-        self._hint(row, "Інші мови з'являться згодом.").pack(anchor="w", pady=(2, 0))
-
-    def _on_language(self, label: str) -> None:
-        code = next((c for c, name in _LANGUAGES.items() if name == label), "uk")
+    def _on_language(self, code: str) -> None:
+        """Мова змінюється одразу: MainWindow перебудовує інтерфейс (core/i18n.on_change)."""
         update_setting("language", code)
+        sounds.play_click()
+        i18n.set_language(code)
 
     def _on_toggle_animations(self) -> None:
         enabled = self._anim_var.get()
@@ -752,18 +754,18 @@ class SettingsTab(ctk.CTkFrame):
     # --------------------------------------------------------------- дані
 
     def _build_data_card(self) -> None:
-        card = self._card("Дані")
+        card = self._card(t("settings.data"))
         buttons = theme.plain_frame(card)
         buttons.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
-        self._secondary_button(buttons, "Резервні копії твіків", self._open_backups_folder).pack(
+        self._secondary_button(buttons, t("settings.data.backups"), self._open_backups_folder).pack(
             side="left", padx=(0, 8))
-        self._secondary_button(buttons, "Журнал (logs.txt)", self._open_logs_file).pack(side="left")
+        self._secondary_button(buttons, t("settings.data.log"), self._open_logs_file).pack(side="left")
 
         danger = theme.plain_frame(card)
         danger.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
-        self._secondary_button(danger, "Очистити історію", self._confirm_clear_history).pack(
+        self._secondary_button(danger, t("settings.data.clear_history"), self._confirm_clear_history).pack(
             side="left", padx=(0, 8))
-        self._secondary_button(danger, "Скинути налаштування", self._confirm_reset_settings).pack(side="left")
+        self._secondary_button(danger, t("settings.data.reset"), self._confirm_reset_settings).pack(side="left")
 
     def _open_backups_folder(self) -> None:
         os.makedirs(BACKUPS_DIR, exist_ok=True)
@@ -778,17 +780,15 @@ class SettingsTab(ctk.CTkFrame):
         tests = len(network_core.load_test_history())
         sessions = len(game_sessions.load_sessions())
         if not confirm_dialog.ask(
-            self, "Очистити історію?",
-            f"Буде видалено історію тестів мережі ({tests}) і підсумки ігрових сесій ({sessions}).\n\n"
-            "Налаштування, резервні копії твіків і список ігор не зміняться.",
-            "Очистити", danger=True,
+            self, t("settings.data.clear_history.title"),
+            t("settings.data.clear_history.text", tests=tests, sessions=sessions),
+            t("settings.data.clear"), danger=True,
         ):
             return
         network_core.clear_test_history()
         game_sessions.clear_sessions()
         from core.logging_setup import get_audit_logger
-        get_audit_logger().info("Очищено історію: тести мережі (%d), ігрові сесії (%d) — причина: "
-                                "Налаштування → «Очистити історію»", tests, sessions)
+        get_audit_logger().info("Cleared history: network tests (%d), game sessions (%d) — reason: Settings → \"Clear history\"", tests, sessions)
         frames = getattr(self.winfo_toplevel(), "tab_frames", {})
         for key, method in (("game_mode", "_render_sessions"), ("network", "reload_history")):
             hook = getattr(frames.get(key), method, None)
@@ -798,11 +798,9 @@ class SettingsTab(ctk.CTkFrame):
 
     def _confirm_reset_settings(self) -> None:
         if not confirm_dialog.ask(
-            self, "Скинути налаштування?",
-            "Загальні налаштування (звук, інтерфейс, поріг температури, Ігровий режим тощо) повернуться до "
-            "типових значень.\n\nЗбережені початкові значення твіків реєстру, історія та вимкнені записи "
-            "автозапуску НЕ зміняться.",
-            "Скинути", danger=True,
+            self, t("settings.data.reset.title"),
+            t("settings.data.reset.text"),
+            t("common.reset"), danger=True,
         ):
             return
         reset_to_defaults()
@@ -827,7 +825,7 @@ class SettingsTab(ctk.CTkFrame):
     # --------------------------------------------------------- про програму
 
     def _build_about_card(self) -> None:
-        card = self._card("Про програму")
+        card = self._card(t("settings.about"))
         row = theme.plain_frame(card)
         row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
 
@@ -837,16 +835,19 @@ class SettingsTab(ctk.CTkFrame):
 
         text_col = theme.plain_frame(row)
         text_col.pack(side="left", fill="both", expand=True)
-        ctk.CTkLabel(text_col, text=f"PulseFPS  ·  версія {APP_VERSION}", font=theme.font_header()).pack(anchor="w")
-        self._hint(text_col, APP_DESCRIPTION).pack(anchor="w", pady=(4, 0))
-        self._hint(text_col, "Датчики температури: LibreHardwareMonitor (MPL-2.0) — github.com/LibreHardwareMonitor. "
-                             "Повний перелік ліцензій — файл THIRD_PARTY_LICENSES.").pack(anchor="w", pady=(6, 0))
+        ctk.CTkLabel(text_col, text=t("settings.about.version", version=APP_VERSION), font=theme.font_header()).pack(anchor="w")
+        self._hint(text_col, t(APP_DESCRIPTION)).pack(anchor="w", pady=(4, 0))
+        self._hint(text_col, t("settings.about.licenses")).pack(anchor="w", pady=(6, 0))
 
         links = theme.plain_frame(card)
         links.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
-        for text in ("GitHub", "Повідомити про помилку", "Підтримати"):
+        for text in ("GitHub", t("settings.about.report_bug"), t("settings.about.support")):
             button = self._secondary_button(links, text, None, state="disabled", text_color_disabled=theme.TEXT_DIM)
             button.pack(side="left", padx=(0, 8))
             tooltip = Tooltip(button)
-            button.bind("<Enter>", lambda _e, t=tooltip: t.schedule("Скоро"), add="+")
-            button.bind("<Leave>", lambda _e, t=tooltip: t.hide(), add="+")
+            button.bind("<Enter>", lambda _e, tw=tooltip: tw.schedule(t("settings.about.soon")), add="+")
+            button.bind("<Leave>", lambda _e, tw=tooltip: tw.hide(), add="+")
+
+    def is_busy(self) -> bool:
+        """Триває операція, яку не можна перервати перебудовою вкладки (зміна мови)."""
+        return bool(self._pawnio_installing)

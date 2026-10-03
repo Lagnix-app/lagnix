@@ -12,13 +12,16 @@ import threading
 import time
 
 from core.hotkeys import DEFAULT_HOTKEYS
+from core.i18n import LANGUAGE_CODES, detect_system_language
 from core.migrate import migrate_if_needed
 
 SETTINGS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "settings.json")
 
 DEFAULT_SETTINGS = {
     "theme": "dark",
-    "language": "uk",
+    # Мова інтерфейсу (core/i18n.py). None — ще не обрана: при першому запуску
+    # береться мова Windows (якщо її немає в списку — англійська).
+    "language": None,
     "window": {
         "width": 1100,
         "height": 700
@@ -90,8 +93,10 @@ def load_settings() -> dict:
         try:
             key = _stat_key()
         except OSError:
-            save_settings(DEFAULT_SETTINGS)
-            return copy.deepcopy(DEFAULT_SETTINGS)
+            first = copy.deepcopy(DEFAULT_SETTINGS)
+            first["language"] = detect_system_language()  # перший запуск — мова Windows
+            save_settings(first)
+            return copy.deepcopy(first)
 
         if key != _cache_key or _cache_data is None:
             try:
@@ -101,6 +106,8 @@ def load_settings() -> dict:
                 return copy.deepcopy(_cache_data if _cache_data is not None else DEFAULT_SETTINGS)
             merged = dict(DEFAULT_SETTINGS)
             merged.update(data)
+            if merged.get("language") not in LANGUAGE_CODES:
+                merged["language"] = detect_system_language()
             _cache_key, _cache_data = key, merged
         return copy.deepcopy(_cache_data)  # копія: виклики можуть змінювати словник
 
@@ -139,6 +146,9 @@ def update_setting(key: str, value) -> dict:
 def reset_to_defaults() -> dict:
     """Скидає лише settings.json (загальні налаштування) — не чіпає
     data.json (історія тестів, збережені початкові значення твіків,
-    вимкнені записи автозапуску тощо)."""
-    save_settings(DEFAULT_SETTINGS)
-    return dict(DEFAULT_SETTINGS)
+    вимкнені записи автозапуску тощо). Мова інтерфейсу лишається тією, що є:
+    скидання не має раптом перемикати мову, якою користувач читає програму."""
+    defaults = copy.deepcopy(DEFAULT_SETTINGS)
+    defaults["language"] = load_settings().get("language")
+    save_settings(defaults)
+    return copy.deepcopy(defaults)

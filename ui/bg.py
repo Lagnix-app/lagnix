@@ -23,6 +23,7 @@ import traceback
 
 from core.logging_setup import get_logger
 from ui import theme
+from core.i18n import t
 
 DEFAULT_TIMEOUT_S = 60.0
 _PUMP_INTERVAL_MS = 25
@@ -48,7 +49,7 @@ def _install_exception_hooks(root) -> None:
 
         def thread_hook(args):
             if args.exc_type is not SystemExit:
-                _log.error("Непійманий виняток у потоці %s:\n%s", getattr(args.thread, "name", "?"),
+                _log.error("Uncaught exception in thread %s:\n%s", getattr(args.thread, "name", "?"),
                            "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)))
             previous(args)
 
@@ -56,7 +57,7 @@ def _install_exception_hooks(root) -> None:
         threading.excepthook = thread_hook
 
     def callback_hook(exc, value, tb):
-        _log.error("Непійманий виняток в обробнику інтерфейсу:\n%s", "".join(traceback.format_exception(exc, value, tb)))
+        _log.error("Uncaught exception in an interface handler:\n%s", "".join(traceback.format_exception(exc, value, tb)))
         traceback.print_exception(exc, value, tb)
 
     root.report_callback_exception = callback_hook
@@ -93,7 +94,7 @@ def ensure_pump(widget) -> None:
             try:
                 fn(*args)
             except Exception:
-                _log.exception("Помилка в обробнику результату фонового завдання (%s)",
+                _log.exception("Error in a background task result handler (%s)",
                                getattr(fn, "__qualname__", fn))
         if _alive(root):
             root.after(_PUMP_INTERVAL_MS, pump)
@@ -143,7 +144,7 @@ class Task:
 
 def error_text(exc: BaseException) -> str:
     if isinstance(exc, TimeoutError):
-        return str(exc) or "перевищено час очікування"
+        return str(exc) or t("bg.timeout")
     text = str(exc).strip()
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 
@@ -167,11 +168,11 @@ def run_task(owner, name: str, fn, on_done, on_error, timeout: float = DEFAULT_T
         try:
             result = fn()
         except BaseException as exc:  # noqa: BLE001 — будь-що має дійти до інтерфейсу
-            _log.error("Фонове завдання «%s» завершилось помилкою:\n%s", name, traceback.format_exc())
+            _log.error("Background task \"%s\" failed:\n%s", name, traceback.format_exc())
             ui_call(owner, finish, on_error, exc)
             return
         if task.timed_out:
-            _log.error("Фонове завдання «%s» завершилось через %.1f с — уже після тайм-ауту, результат відкинуто",
+            _log.error("Background task \"%s\" finished after %.1f s — already past the timeout, result discarded",
                        name, time.perf_counter() - started)
             return
         ui_call(owner, finish, on_done, result)
@@ -180,8 +181,8 @@ def run_task(owner, name: str, fn, on_done, on_error, timeout: float = DEFAULT_T
         if task.finished or not _alive(owner):
             return
         task.timed_out = True
-        _log.error("Фонове завдання «%s» не завершилось за %.0f с (тайм-аут)", name, timeout)
-        finish(on_error, TimeoutError(f"не завершилось за {timeout:.0f} с"))
+        _log.error("Background task \"%s\" did not finish within %.0f s (timeout)", name, timeout)
+        finish(on_error, TimeoutError(t("bg.timeout_after", timeout=timeout)))
 
     threading.Thread(target=worker, daemon=True, name=f"bg:{name}").start()
     owner.after(int(timeout * 1000), on_timeout)
@@ -197,7 +198,7 @@ def start_thread(owner, name: str, target, *args) -> threading.Thread:
         try:
             target(*args)
         except BaseException:  # noqa: BLE001
-            _log.error("Фоновий потік «%s» аварійно завершився:\n%s", name, traceback.format_exc())
+            _log.error("Background thread \"%s\" crashed:\n%s", name, traceback.format_exc())
 
     thread = threading.Thread(target=run, daemon=True, name=f"bg:{name}")
     thread.start()

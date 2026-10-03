@@ -10,8 +10,8 @@ KNOWN_PROCESSES: назва exe (у нижньому регістрі) -> поя
 Для невідомих процесів підказка показує шлях до exe й видавця з
 метаданих файлу (VERSIONINFO), тож користувач може сам зрозуміти, що це.
 
-Системи перекладів у проєкті поки немає — тексти українською тут, в одному
-місці, щоб їх легко було винести в переклади, коли вона з'явиться.
+Тексти — ключі перекладів (locales/*.json, core/i18n.py): info_for() і
+tooltip_text() повертають їх поточною мовою інтерфейсу.
 """
 
 from __future__ import annotations
@@ -23,21 +23,28 @@ from ctypes import wintypes
 import psutil
 
 from core.system_processes import is_protected
+from core.i18n import TDict, t
 
 SYSTEM, ANTICHEAT, SAFE = "system", "anticheat", "safe"
 
-BADGES = {
-    SYSTEM: "системний",
-    ANTICHEAT: "античит",
-    SAFE: "можна закрити",
-}
+BADGES = TDict({
+    SYSTEM: "proc.badge.system",
+    ANTICHEAT: "proc.badge.anticheat",
+    SAFE: "proc.badge.safe",
+})
 
-ANTICHEAT_WARNING = (
-    "Це античит. Не закривай його перед грою чи під час гри — інакше гра "
-    "не запуститься або тебе викине з матчу."
-)
+ANTICHEAT_WARNING = "proc.anticheat_warning"  # ключ перекладу; текст — anticheat_warning()
 
 
+def anticheat_warning() -> str:
+    return t(ANTICHEAT_WARNING)
+
+
+def badge_text(kind: str) -> str:
+    return BADGES[kind]
+
+
+# desc/tip — ключі перекладів; info_for() повертає вже перекладений текст
 def _p(kind, desc: str, tip: str) -> dict:
     return {"kind": kind, "desc": desc, "tip": tip}
 
@@ -46,316 +53,320 @@ KNOWN_PROCESSES: dict[str, dict] = {
     # ------------------------------------------------------------ Windows
     "memory compression": _p(
         SYSTEM,
-        "Стиснута пам'ять Windows: сюди система «упаковує» дані, які не влазять в оперативну пам'ять.",
-        "Якщо тут багато (понад 1 ГБ) — бракує RAM: закрий браузер або увімкни Ігровий режим.",
+        "proc.memory_compression.desc",
+        "proc.memory_compression.tip",
     ),
     "system": _p(
         SYSTEM,
-        "Ядро Windows: драйвери й робота з пристроями.",
-        "Високе навантаження зазвичай означає проблемний драйвер — онови драйвери відеокарти й чипсета.",
+        "proc.system.desc",
+        "proc.system.tip",
     ),
     "registry": _p(
         SYSTEM,
-        "Реєстр Windows у пам'яті — база налаштувань системи й програм.",
-        "Нічого робити не треба, це нормальний процес.",
+        "proc.registry.desc",
+        "proc.registry.tip",
     ),
     "svchost.exe": _p(
         SYSTEM,
-        "Контейнер для служб Windows (оновлення, мережа, звук тощо). Таких процесів завжди багато.",
-        "Не закривай. Якщо один із них довго вантажить CPU — часто це Windows Update, зачекай.",
+        "proc.svchost.desc",
+        "proc.svchost.tip",
     ),
     "dwm.exe": _p(
         SYSTEM,
-        "Диспетчер вікон: малює все, що ти бачиш на екрані, разом з анімаціями й прозорістю.",
-        "Не закривай — зникне зображення. Навантаження росте з кількістю моніторів і частотою оновлення.",
+        "proc.dwm.desc",
+        "proc.dwm.tip",
     ),
     "explorer.exe": _p(
         SYSTEM,
-        "Провідник Windows: панель задач, меню «Пуск», робочий стіл і вікна папок.",
-        "Якщо панель задач зависла — його можна перезапустити, але не просто закривати.",
+        "proc.explorer.desc",
+        "proc.explorer.tip",
     ),
     "csrss.exe": _p(
         SYSTEM,
-        "Критична служба Windows, що керує консольними вікнами й завершенням роботи.",
-        "Закриття миттєво призведе до «синього екрана».",
+        "proc.csrss.desc",
+        "proc.csrss.tip",
     ),
     "lsass.exe": _p(
         SYSTEM,
-        "Відповідає за вхід у систему, паролі та безпеку.",
-        "Закриття перезавантажить комп'ютер.",
+        "proc.lsass.desc",
+        "proc.lsass.tip",
     ),
     "services.exe": _p(
         SYSTEM,
-        "Запускає й зупиняє всі служби Windows.",
-        "Не чіпай — без нього система не працюватиме.",
+        "proc.services.desc",
+        "proc.services.tip",
     ),
     "wininit.exe": _p(
         SYSTEM,
-        "Запускає основні процеси Windows під час старту системи.",
-        "Не чіпай — закриття призведе до збою системи.",
+        "proc.wininit.desc",
+        "proc.wininit.tip",
     ),
     "winlogon.exe": _p(
         SYSTEM,
-        "Екран входу, блокування (Win+L) і вихід із системи.",
-        "Не чіпай — це частина входу в Windows.",
+        "proc.winlogon.desc",
+        "proc.winlogon.tip",
     ),
     "smss.exe": _p(
         SYSTEM,
-        "Менеджер сеансів — одним із перших стартує під час завантаження Windows.",
-        "Нормальний системний процес, нічого робити не треба.",
+        "proc.smss.desc",
+        "proc.smss.tip",
     ),
     "msmpeng.exe": _p(
         SYSTEM,
-        "Антивірус Windows Defender: перевіряє файли, які відкриваються й завантажуються.",
-        "Якщо гальмує в іграх — додай папку з іграми у винятки Defender, але не вимикай захист.",
+        "proc.msmpeng.desc",
+        "proc.msmpeng.tip",
     ),
     "nissrv.exe": _p(
         SYSTEM,
-        "Мережевий захист Windows Defender — перевіряє мережевий трафік на атаки.",
-        "Частина антивіруса, залиш як є.",
+        "proc.nissrv.desc",
+        "proc.nissrv.tip",
     ),
     "securityhealthservice.exe": _p(
         SYSTEM,
-        "Служба «Безпека Windows», що стежить за станом захисту.",
-        "Нормальний процес, ресурсів майже не бере.",
+        "proc.securityhealthservice.desc",
+        "proc.securityhealthservice.tip",
     ),
     "audiodg.exe": _p(
         SYSTEM,
-        "Обробка звуку Windows: ефекти, еквалайзер, змішування звуку програм.",
-        "Якщо вантажить CPU — вимкни зайві звукові ефекти в налаштуваннях звуку.",
+        "proc.audiodg.desc",
+        "proc.audiodg.tip",
     ),
     "searchindexer.exe": _p(
         SYSTEM,
-        "Індексація файлів для швидкого пошуку в Windows.",
-        "Може навантажувати диск після встановлення програм — це мине само.",
+        "proc.searchindexer.desc",
+        "proc.searchindexer.tip",
     ),
     "searchhost.exe": _p(
         SYSTEM,
-        "Вікно пошуку Windows у панелі задач.",
-        "Нормальний процес, заважати не має.",
+        "proc.searchhost.desc",
+        "proc.searchhost.tip",
     ),
     "runtimebroker.exe": _p(
         SYSTEM,
-        "Перевіряє дозволи програм із Microsoft Store (камера, мікрофон, геолокація).",
-        "Кілька копій — нормально. Високе навантаження дає якась Store-програма.",
+        "proc.runtimebroker.desc",
+        "proc.runtimebroker.tip",
     ),
     "wmiprvse.exe": _p(
         SYSTEM,
-        "Відповідає програмам на запити про систему (датчики, обладнання, стан).",
-        "Навантаження значить, що якась програма часто опитує систему (монітори, RGB-софт).",
+        "proc.wmiprvse.desc",
+        "proc.wmiprvse.tip",
     ),
     "ctfmon.exe": _p(
         SYSTEM,
-        "Мовна панель і введення тексту: розкладки клавіатури, рукописне введення.",
-        "Не закривай — може перестати працювати перемикання мов.",
+        "proc.ctfmon.desc",
+        "proc.ctfmon.tip",
     ),
     "fontdrvhost.exe": _p(
         SYSTEM,
-        "Відображення шрифтів у Windows.",
-        "Нормальний процес, ресурсів майже не бере.",
+        "proc.fontdrvhost.desc",
+        "proc.securityhealthservice.tip",
     ),
     "sihost.exe": _p(
         SYSTEM,
-        "Оболонка Windows: сповіщення, центр дій, частина робочого столу.",
-        "Не закривай — зникнуть сповіщення й частина інтерфейсу.",
+        "proc.sihost.desc",
+        "proc.sihost.tip",
     ),
     "spoolsv.exe": _p(
         SYSTEM,
-        "Служба друку (черга принтера).",
-        "Якщо принтера немає — службу можна вимкнути в «Службах», але закривати процес не треба.",
+        "proc.spoolsv.desc",
+        "proc.spoolsv.tip",
     ),
     "taskhostw.exe": _p(
         SYSTEM,
-        "Виконує фонові завдання Windows за розкладом.",
-        "Нормальний процес.",
+        "proc.taskhostw.desc",
+        "proc.taskhostw.tip",
     ),
     "conhost.exe": _p(
         SYSTEM,
-        "Вікно консолі для командних програм. Запускається разом із ними.",
-        "Закриється само разом зі своєю програмою.",
+        "proc.conhost.desc",
+        "proc.conhost.tip",
     ),
     "dllhost.exe": _p(
         SYSTEM,
-        "Допоміжний процес Windows, напр. для мініатюр фото й відео у Провіднику.",
-        "Нормальний процес.",
+        "proc.dllhost.desc",
+        "proc.taskhostw.tip",
     ),
     "startmenuexperiencehost.exe": _p(
         SYSTEM,
-        "Меню «Пуск».",
-        "Не закривай — меню «Пуск» перестане відкриватися до перезапуску.",
+        "proc.startmenuexperiencehost.desc",
+        "proc.startmenuexperiencehost.tip",
     ),
     "shellexperiencehost.exe": _p(
         SYSTEM,
-        "Частини інтерфейсу Windows: годинник, календар, центр сповіщень.",
-        "Нормальний процес.",
+        "proc.shellexperiencehost.desc",
+        "proc.taskhostw.tip",
     ),
     "textinputhost.exe": _p(
         SYSTEM,
-        "Сенсорна клавіатура, емодзі-панель (Win+.) і підказки введення.",
-        "Нормальний процес.",
+        "proc.textinputhost.desc",
+        "proc.taskhostw.tip",
     ),
     "applicationframehost.exe": _p(
         SYSTEM,
-        "Рамки вікон програм із Microsoft Store (Налаштування, Калькулятор тощо).",
-        "Нормальний процес.",
+        "proc.applicationframehost.desc",
+        "proc.taskhostw.tip",
     ),
     "smartscreen.exe": _p(
         SYSTEM,
-        "Фільтр SmartScreen: попереджає про підозрілі файли й сайти.",
-        "Частина захисту Windows, залиш як є.",
+        "proc.smartscreen.desc",
+        "proc.smartscreen.tip",
     ),
     "lsaiso.exe": _p(
         SYSTEM,
-        "Захищене сховище паролів (Credential Guard).",
-        "Нормальний системний процес.",
+        "proc.lsaiso.desc",
+        "proc.lsaiso.tip",
     ),
     # ---------------------------------------------------------- античити
     "vgc.exe": _p(
         ANTICHEAT,
-        "Riot Vanguard — античит Valorant і League of Legends.",
-        ANTICHEAT_WARNING + " Після закриття Vanguard знадобиться перезавантаження ПК.",
+        "proc.vgc.desc",
+        "proc.vgc.tip",
     ),
     "vgtray.exe": _p(
         ANTICHEAT,
-        "Значок Riot Vanguard у треї.",
+        "proc.vgtray.desc",
         ANTICHEAT_WARNING,
     ),
     "easyanticheat.exe": _p(
         ANTICHEAT,
-        "Easy Anti-Cheat — античит багатьох ігор (Fortnite, Apex Legends тощо).",
+        "proc.easyanticheat.desc",
         ANTICHEAT_WARNING,
     ),
     "easyanticheat_eos.exe": _p(
         ANTICHEAT,
-        "Easy Anti-Cheat від Epic Online Services.",
+        "proc.easyanticheat_eos.desc",
         ANTICHEAT_WARNING,
     ),
     "beservice.exe": _p(
         ANTICHEAT,
-        "BattlEye — античит (PUBG, Rainbow Six Siege, DayZ тощо).",
+        "proc.beservice.desc",
         ANTICHEAT_WARNING,
     ),
     "faceit.exe": _p(
         ANTICHEAT,
-        "Клієнт і античит FACEIT для Counter-Strike.",
+        "proc.faceit.desc",
         ANTICHEAT_WARNING,
     ),
     # --------------------------------------------------------- програми
     "chrome.exe": _p(
         SAFE,
-        "Google Chrome. Кожна вкладка й розширення — окремий процес, тому їх багато.",
-        "Браузер часто з'їдає найбільше RAM — закрий його перед грою.",
+        "proc.chrome.desc",
+        "proc.chrome.tip",
     ),
     "msedge.exe": _p(
         SAFE,
-        "Microsoft Edge. Може працювати у фоні, навіть коли вікно закрите.",
-        "Закрий перед грою; фонову роботу вимкни в налаштуваннях Edge («Система»).",
+        "proc.msedge.desc",
+        "proc.msedge.tip",
     ),
     "msedgewebview2.exe": _p(
         None,
-        "Вбудований Edge, через який інші програми показують свій інтерфейс (Teams, віджети тощо).",
-        "Закриється разом із програмою, що його використовує.",
+        "proc.msedgewebview2.desc",
+        "proc.msedgewebview2.tip",
     ),
     "firefox.exe": _p(
         SAFE,
-        "Браузер Mozilla Firefox.",
-        "Закрий перед грою, щоб звільнити оперативну пам'ять.",
+        "proc.firefox.desc",
+        "proc.firefox.tip",
     ),
     "discord.exe": _p(
         SAFE,
-        "Discord — голосовий чат і месенджер.",
-        "Можна закрити, якщо не спілкуєшся. Вимкни апаратне прискорення в налаштуваннях, якщо гальмує гра.",
+        "proc.discord.desc",
+        "proc.discord.tip",
     ),
     "steam.exe": _p(
         SAFE,
-        "Клієнт Steam.",
-        "Не закривай, поки граєш у гру зі Steam — гра може закритися. Без гри — можна.",
+        "proc.steam.desc",
+        "proc.steam.tip",
     ),
     "steamwebhelper.exe": _p(
         None,
-        "Вбудований браузер Steam: магазин, бібліотека, оверлей. Процесів кілька — це нормально.",
-        "Закриється разом зі Steam. Менше RAM займе, якщо ввімкнути «малий режим» Steam.",
+        "proc.steamwebhelper.desc",
+        "proc.steamwebhelper.tip",
     ),
     "epicgameslauncher.exe": _p(
         SAFE,
-        "Лаунчер Epic Games Store.",
-        "Після запуску гри його зазвичай можна закрити.",
+        "proc.epicgameslauncher.desc",
+        "proc.epicgameslauncher.tip",
     ),
     "riotclientservices.exe": _p(
         SAFE,
-        "Клієнт Riot Games (лаунчер Valorant і League of Legends).",
-        "Можна закрити, коли не граєш. Античит Vanguard (vgc.exe) — окремо, його не чіпай.",
+        "proc.riotclientservices.desc",
+        "proc.riotclientservices.tip",
     ),
     "telegram.exe": _p(
         SAFE,
-        "Месенджер Telegram.",
-        "Закрити безпечно — повідомлення прийдуть на телефон.",
+        "proc.telegram.desc",
+        "proc.telegram.tip",
     ),
     "onedrive.exe": _p(
         SAFE,
-        "OneDrive — синхронізація файлів із хмарою Microsoft.",
-        "Можна закрити на час гри: синхронізація продовжиться після запуску.",
+        "proc.onedrive.desc",
+        "proc.onedrive.tip",
     ),
     "teams.exe": _p(
         SAFE,
-        "Microsoft Teams — робочі чати й дзвінки.",
-        "Закрий, якщо не на роботі — займає багато RAM.",
+        "proc.teams.desc",
+        "proc.teams.tip",
     ),
     "ms-teams.exe": _p(
         SAFE,
-        "Microsoft Teams (нова версія) — робочі чати й дзвінки.",
-        "Закрий, якщо не на роботі — займає багато RAM.",
+        "proc.ms-teams.desc",
+        "proc.teams.tip",
     ),
     "spotify.exe": _p(
         SAFE,
-        "Музичний сервіс Spotify.",
-        "Закрити безпечно. Якщо слухаєш під час гри — ресурсів він бере небагато.",
+        "proc.spotify.desc",
+        "proc.spotify.tip",
     ),
     "nvcontainer.exe": _p(
         None,
-        "Служби драйвера NVIDIA (панель керування, оновлення, GeForce Experience / NVIDIA App).",
-        "Закривати не рекомендується — може зламатися оверлей і налаштування відеокарти.",
+        "proc.nvcontainer.desc",
+        "proc.nvcontainer.tip",
     ),
     "nvidia overlay.exe": _p(
         SAFE,
-        "Оверлей NVIDIA (Alt+Z): запис відео, скріншоти, лічильник FPS.",
-        "Якщо не записуєш відео — можна закрити або вимкнути оверлей у NVIDIA App.",
+        "proc.nvidia_overlay.desc",
+        "proc.nvidia_overlay.tip",
     ),
     "nvdisplay.container.exe": _p(
         None,
-        "Служба драйвера дисплея NVIDIA.",
-        "Не закривай — потрібна для роботи панелі керування NVIDIA.",
+        "proc.nvdisplay_container.desc",
+        "proc.nvdisplay_container.tip",
     ),
     "lghub.exe": _p(
         SAFE,
-        "Logitech G HUB — налаштування мишки, клавіатури й навушників Logitech.",
-        "Закрити безпечно, але перестануть працювати макроси й профілі підсвітки.",
+        "proc.lghub.desc",
+        "proc.lghub.tip",
     ),
     "lghub_agent.exe": _p(
         None,
-        "Фонова служба Logitech G HUB — застосовує профілі пристроїв.",
-        "Без неї профілі Logitech не працюватимуть.",
+        "proc.lghub_agent.desc",
+        "proc.lghub_agent.tip",
     ),
     "claude.exe": _p(
         SAFE,
-        "Claude — застосунок-асистент від Anthropic.",
-        "Можна закрити, якщо зараз не користуєшся.",
+        "proc.claude.desc",
+        "proc.claude.tip",
     ),
     "python.exe": _p(
         None,
-        "Python. Серед інших — на ньому працює й сам PulseFPS (його в списку не показано).",
-        "Якщо не знаєш, що це за скрипт, — подивись шлях до файлу перед закриттям.",
+        "proc.python.desc",
+        "proc.python.tip",
     ),
     "pythonw.exe": _p(
         None,
-        "Python без вікна консолі — так часто запускається й PulseFPS.",
-        "Якщо не знаєш, що це за скрипт, — подивись шлях до файлу перед закриттям.",
+        "proc.pythonw.desc",
+        "proc.python.tip",
     ),
 }
 
 
 def info_for(name: str) -> dict | None:
-    return KNOWN_PROCESSES.get((name or "").strip().lower())
+    """{"kind", "desc", "tip"} — пояснення поточною мовою (None — процес невідомий)."""
+    info = KNOWN_PROCESSES.get((name or "").strip().lower())
+    if info is None:
+        return None
+    return {"kind": info["kind"], "desc": t(info["desc"]), "tip": t(info["tip"])}
 
 
 def kind_for(name: str) -> str | None:
@@ -417,23 +428,23 @@ def _publisher(path: str) -> str | None:
 def unknown_details(pid: int | None, name: str) -> str:
     """«Шлях: …\\nВидавець: …» для процесу без пояснення (кешується за pid+назвою)."""
     key = (pid, name)
-    text = _details_cache.get(key)
-    if text is None:
+    found = _details_cache.get(key)
+    if found is None:
         path = exe_path(pid) if pid else None
-        publisher = _publisher(path) if path else None
-        text = f"Шлях: {path or 'недоступний (немає прав)'}\nВидавець: {publisher or 'невідомий'}"
+        found = (path, _publisher(path) if path else None)
         if len(_details_cache) > 500:
             _details_cache.clear()
-        _details_cache[key] = text
-    return text
+        _details_cache[key] = found
+    path, publisher = found
+    return t("proc.details", path=path or t("proc.path_unavailable"), publisher=publisher or t("proc.publisher_unknown"))
 
 
 def tooltip_text(name: str, pid: int | None = None) -> str:
     """Текст підказки: пояснення + порада, або шлях і видавець для невідомих."""
     info = info_for(name)
     if info is not None:
-        return f"{name}\n{info['desc']}\n\nПорада: {info['tip']}"
+        return t("proc.tooltip_known", name=name, desc=info['desc'], tip=info['tip'])
     details = unknown_details(pid, name)
     if is_protected(name):
-        return f"{name}\nСистемний процес Windows.\n\n{details}"
-    return f"{name}\nНевідомий процес — пояснення немає.\n\n{details}"
+        return t("proc.tooltip_system", name=name, details=details)
+    return t("proc.tooltip_unknown", name=name, details=details)

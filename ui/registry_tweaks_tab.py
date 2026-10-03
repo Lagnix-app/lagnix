@@ -17,12 +17,13 @@ from core import tweaks as tweaks_core
 from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
 from ui.widgets import confirm_dialog
+from core.i18n import TDict, t
 
-_RISK_LABELS = {
-    tweaks_core.RISK_SAFE: "безпечно",
-    tweaks_core.RISK_CAUTION: "на свій розсуд",
-    tweaks_core.RISK_DANGER: "ризиковано",
-}
+_RISK_LABELS = TDict({
+    tweaks_core.RISK_SAFE: "tweaks.risk.safe",
+    tweaks_core.RISK_CAUTION: "tweaks.risk.caution",
+    tweaks_core.RISK_DANGER: "tweaks.risk.danger",
+})
 _RISK_COLORS = {
     tweaks_core.RISK_SAFE: theme.ACCENT_GREEN,
     tweaks_core.RISK_CAUTION: theme.WARNING,
@@ -39,26 +40,21 @@ _APPLY_TIMEOUT_S = 240
 
 _PRESETS = (
     (
-        tweaks_core.PRESET_SAFE, "Безпечний",
-        "Лише зелені твіки — без побічних ефектів.", theme.ACCENT_GREEN,
+        tweaks_core.PRESET_SAFE, "tweaks.preset.safe",
+        "tweaks.preset.safe.hint", theme.ACCENT_GREEN,
     ),
     (
-        tweaks_core.PRESET_BALANCED, "Збалансований",
-        "Зелені + жовті з невеликим, передбачуваним ефектом.", theme.ACCENT_BLUE,
+        tweaks_core.PRESET_BALANCED, "tweaks.preset.balanced",
+        "tweaks.preset.balanced.hint", theme.ACCENT_BLUE,
     ),
     (
-        tweaks_core.PRESET_MAX, "Максимальний",
-        "Усі зелені й жовті. Частина жовтих діє лише на деяких ПК і має побічні ефекти.",
+        tweaks_core.PRESET_MAX, "tweaks.preset.max",
+        "tweaks.preset.max.hint",
         theme.WARNING,
     ),
 )
 
-_MAX_WARNING = (
-    "Максимальний пресет вмикає всі жовті твіки, зокрема ті, що допомагають лише на "
-    "деяких ПК (MPO, алгоритм Нейгла, апаратне планування GPU, Power Throttling). "
-    "Вони можуть нічого не дати або мати побічні ефекти — перегляньте список і "
-    "зніміть галочки з того, що вам не потрібно. Червоні твіки сюди не входять."
-)
+_MAX_WARNING = "tweaks.preset.max.warning"
 
 
 def _chip(master, text: str, color: str) -> ctk.CTkLabel:
@@ -71,12 +67,12 @@ def _chip(master, text: str, color: str) -> ctk.CTkLabel:
 def _tweak_chips(master, tweak: tweaks_core.Tweak) -> list[ctk.CTkLabel]:
     chips = [
         _chip(master, f" ● {_RISK_LABELS[tweak.risk]} ", _RISK_COLORS[tweak.risk]),
-        _chip(master, f" ефект: {tweaks_core.EFFECT_LABELS[tweak.effect]} ", _EFFECT_COLORS[tweak.effect]),
+        _chip(master, t("tweaks.chip.effect", effect=tweaks_core.EFFECT_LABELS[tweak.effect]), _EFFECT_COLORS[tweak.effect]),
     ]
     if tweak.requires_reboot:
-        chips.append(_chip(master, " потребує перезавантаження ", theme.TEXT_DIM))
+        chips.append(_chip(master, t("tweaks.chip.reboot"), theme.TEXT_DIM))
     elif tweak.requires_logoff:
-        chips.append(_chip(master, " потребує виходу з системи ", theme.TEXT_DIM))
+        chips.append(_chip(master, t("tweaks.chip.logoff"), theme.TEXT_DIM))
     return chips
 
 
@@ -162,7 +158,7 @@ class SettingsLinkRow(ctk.CTkFrame):
         self.grid_columnconfigure(1, weight=1)
 
         ctk.CTkButton(
-            self, text="Відкрити", width=80, height=26, fg_color="transparent", border_width=1,
+            self, text=t("tweaks.open"), width=80, height=26, fg_color="transparent", border_width=1,
             border_color=theme.BORDER, text_color=theme.TEXT_MAIN, hover_color=theme.BG_PANEL_LIGHT,
             command=lambda: self._open(link.uri),
         ).grid(row=0, column=0, padx=(0, 10), pady=8, sticky="n")
@@ -174,7 +170,7 @@ class SettingsLinkRow(ctk.CTkFrame):
         ).pack(anchor="w")
         chips_row = theme.plain_frame(text_frame)
         chips_row.pack(anchor="w", pady=(3, 0))
-        _chip(chips_row, " вручну в «Параметрах» ", theme.TEXT_DIM).pack(side="left")
+        _chip(chips_row, t("tweaks.chip.manual"), theme.TEXT_DIM).pack(side="left")
         ctk.CTkLabel(
             text_frame, text=link.description, text_color="gray", font=ctk.CTkFont(size=11),
             wraplength=620, justify="left",
@@ -184,7 +180,7 @@ class SettingsLinkRow(ctk.CTkFrame):
         try:
             os.startfile(uri)
         except OSError as exc:
-            messagebox.showerror("Помилка", f"Не вдалося відкрити «Параметри»: {exc}", parent=self)
+            messagebox.showerror(t("common.error"), t("tweaks.err.open_settings", exc=exc), parent=self)
 
 
 class ChecklistDialog(ctk.CTkToplevel):
@@ -232,7 +228,7 @@ class ChecklistDialog(ctk.CTkToplevel):
             meta = theme.plain_frame(row)
             meta.pack(anchor="w", padx=(28, 0), pady=(2, 0))
             _chip(meta, f" ● {_RISK_LABELS[risk]} ", _RISK_COLORS[risk]).pack(side="left", padx=(0, 6))
-            _chip(meta, f" ефект: {tweaks_core.EFFECT_LABELS[effect]} ", _EFFECT_COLORS[effect]).pack(
+            _chip(meta, t("tweaks.chip.effect", effect=tweaks_core.EFFECT_LABELS[effect]), _EFFECT_COLORS[effect]).pack(
                 side="left", padx=(0, 6))
             if note:
                 ctk.CTkLabel(row, text=note, font=theme.font_small(),
@@ -246,7 +242,7 @@ class ChecklistDialog(ctk.CTkToplevel):
         self.confirm_button = ctk.CTkButton(buttons, text=confirm_text, width=10, height=32, corner_radius=8,
                                             command=self._confirm, **style)
         self.confirm_button.pack(side="right")
-        ctk.CTkButton(buttons, text="Скасувати", width=100, height=32, corner_radius=8, fg_color="transparent",
+        ctk.CTkButton(buttons, text=t("common.cancel"), width=100, height=32, corner_radius=8, fg_color="transparent",
                       border_width=1, border_color=theme.BORDER, hover_color=theme.BG_PANEL_LIGHT,
                       text_color=theme.TEXT_MAIN, command=self._cancel).pack(side="right", padx=(0, 8))
         self.bind("<Escape>", lambda _e: self._cancel())
@@ -315,7 +311,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
         self._refresh_presets()
 
         # Тип системного диска (для SysMain) — PowerShell, ~1 с: у фоні.
-        bg.run_task(self, "Твіки: тип системного диска", tweaks_core.detect_system_disk,
+        bg.run_task(self, "Tweaks: system disk type", tweaks_core.detect_system_disk,
                     on_done=lambda _kind: self._refresh_row("sysmain_off"),
                     on_error=lambda _exc: self._refresh_row("sysmain_off"))
 
@@ -326,15 +322,13 @@ class RegistryTweaksTab(ctk.CTkFrame):
         header.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(header, text="Твіки реєстру", font=ctk.CTkFont(size=22, weight="bold")).grid(
+        ctk.CTkLabel(header, text=t("tabs.registry_tweaks"), font=ctk.CTkFont(size=22, weight="bold")).grid(
             row=0, column=0, sticky="w"
         )
         ctk.CTkLabel(
             header,
             text=(
-                "Кожна зміна — з бекапом .reg і можливістю повернути як було. "
-                "Ефект оцінено чесно: більшість твіків не додає FPS, а прибирає фонові "
-                "заважки й затримки."
+                t("tweaks.intro")
             ),
             text_color=theme.TEXT_DIM, font=theme.font_small(), wraplength=760, justify="left", anchor="w",
         ).grid(row=1, column=0, sticky="ew", pady=(2, 0))
@@ -347,7 +341,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
     def _build_presets(self):
         ctk.CTkLabel(
-            self.scroll, text="Пресети", font=ctk.CTkFont(size=14, weight="bold"), anchor="w",
+            self.scroll, text=t("tweaks.presets"), font=ctk.CTkFont(size=14, weight="bold"), anchor="w",
         ).pack(fill="x", padx=10, pady=(4, 2))
 
         grid = theme.plain_frame(self.scroll)
@@ -355,10 +349,10 @@ class RegistryTweaksTab(ctk.CTkFrame):
         for column in range(4):
             grid.grid_columnconfigure(column, weight=1, uniform="preset")
 
-        cards = [(key, title, text, color, self._make_preset_handler(key)) for key, title, text, color in _PRESETS]
+        cards = [(key, t(title), t(text), color, self._make_preset_handler(key)) for key, title, text, color in _PRESETS]
         cards.append((
-            "restore", "Повернути все як було",
-            "Відкотити всі твіки, змінені PulseFPS, до стану перед першою зміною.",
+            "restore", t("tweaks.restore_all"),
+            t("tweaks.restore_all.hint"),
             theme.ERROR, self._on_restore_clicked,
         ))
         for column, (key, title, text, color, handler) in enumerate(cards):
@@ -375,7 +369,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
             self._preset_counts[key] = count
             is_restore = key == "restore"
             button = ctk.CTkButton(
-                card, text="Повернути…" if is_restore else "Переглянути…", height=30, corner_radius=8,
+                card, text=t("tweaks.restore_btn") if is_restore else t("tweaks.review_btn"), height=30, corner_radius=8,
                 command=handler,
                 **({"fg_color": "transparent", "border_width": 1, "border_color": "#a8283f",
                     "hover_color": theme.BG_PANEL_LIGHT, "text_color": theme.TEXT_MAIN}
@@ -388,7 +382,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self.scroll,
-            text="Червоні твіки («ризиковано») ніколи не входять у пресети — лише вручну, з окремим підтвердженням.",
+            text=t("tweaks.red_never_in_presets"),
             text_color=theme.TEXT_DIM, font=theme.font_small(), anchor="w", justify="left", wraplength=760,
         ).pack(fill="x", padx=10, pady=(6, 10))
 
@@ -399,14 +393,13 @@ class RegistryTweaksTab(ctk.CTkFrame):
         block.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
-            block, text="Режим Windows", font=ctk.CTkFont(size=15, weight="bold"),
+            block, text=t("tweaks.windows_mode"), font=ctk.CTkFont(size=15, weight="bold"),
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
 
         ctk.CTkLabel(
             block,
             text=(
-                "Швидко перемикає вигляд Windows між «як завжди» і «максимальна "
-                "швидкодія» (твіки розділу «Вигляд» нижче)."
+                t("tweaks.windows_mode.hint")
             ),
             text_color="gray", font=ctk.CTkFont(size=11), wraplength=700, justify="left",
         ).grid(row=1, column=0, sticky="w", padx=16, pady=(0, 10))
@@ -415,12 +408,12 @@ class RegistryTweaksTab(ctk.CTkFrame):
         btn_row.grid(row=2, column=0, sticky="w", padx=16, pady=(0, 14))
 
         self.max_perf_button = ctk.CTkButton(
-            btn_row, text="Максимальна швидкодія", command=self._on_max_performance_clicked,
+            btn_row, text=t("tweaks.max_performance"), command=self._on_max_performance_clicked,
         )
         self.max_perf_button.pack(side="left", padx=(0, 10))
 
         self.restore_appearance_button = ctk.CTkButton(
-            btn_row, text="Повернути гарну Windows", fg_color="transparent", border_width=1,
+            btn_row, text=t("tweaks.restore_pretty"), fg_color="transparent", border_width=1,
             command=self._on_restore_appearance_clicked,
         )
         self.restore_appearance_button.pack(side="left")
@@ -428,7 +421,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
     def _build_rows(self):
         first = True
         for group in tweaks_core.GROUP_ORDER:
-            tweaks = [t for t in tweaks_core.TWEAKS if t.group == group]
+            tweaks = [tw for tw in tweaks_core.TWEAKS if tw.group == group]
             links = [link for link in tweaks_core.SETTINGS_LINKS if link.group == group]
             if not tweaks and not links:
                 continue
@@ -453,13 +446,13 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
     def _refresh_presets(self) -> None:
         for key, _title, _text, _color in _PRESETS:
-            pending = [t for t, reason in tweaks_core.preset_pending(key) if not reason]
+            pending = [tw for tw, reason in tweaks_core.preset_pending(key) if not reason]
             self._preset_counts[key].configure(
-                text=f"Буде змінено: {len(pending)}" if pending else "Усе вже застосовано ✓"
+                text=t("tweaks.will_change", count=len(pending)) if pending else t("tweaks.all_applied")
             )
         changed = len(tweaks_core.restore_pending())
         self._preset_counts["restore"].configure(
-            text=f"Змінено PulseFPS: {changed}" if changed else "Нічого повертати"
+            text=t("tweaks.changed_by", changed=changed) if changed else t("tweaks.nothing_to_restore")
         )
         self.restore_button.configure(state="normal" if tweaks_core.has_initial_state() else "disabled")
 
@@ -473,7 +466,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
             reason = tweaks_core.blocked_reason(tweak)
             if reason:
                 row.refresh()
-                messagebox.showinfo("Недоступно", reason, parent=self)
+                messagebox.showinfo(t("common.unavailable"), reason, parent=self)
                 return
             if not self._confirm_enable(tweak):
                 row.refresh()
@@ -481,7 +474,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
         row.set_busy(True)
         bg.run_task(
-            self, f"Твік «{tweak.title}»", lambda: tweaks_core.set_tweak(tweak, want_enabled),
+            self, t("tweaks.tweak_title", title=tweak.title), lambda: tweaks_core.set_tweak(tweak, want_enabled),
             on_done=lambda result: self._on_toggle_done(row, tweak, *result),
             on_error=lambda exc: self._on_toggle_done(row, tweak, False, bg.error_text(exc)),
             timeout=_APPLY_TIMEOUT_S,
@@ -490,18 +483,16 @@ class RegistryTweaksTab(ctk.CTkFrame):
     def _confirm_enable(self, tweak: tweaks_core.Tweak) -> bool:
         if tweak.risk == tweaks_core.RISK_DANGER:
             return confirm_dialog.ask(
-                self, f"Ризиковано: {tweak.title}",
-                f"{tweak.description}\n\nЧим ви ризикуєте:\n{tweak.risk_note}\n\n"
-                "PulseFPS збереже бекап .reg, і цю зміну можна буде повернути перемикачем "
-                "або кнопкою «Повернути все як було».",
-                "Я розумію ризик — увімкнути", danger=True,
+                self, t("tweaks.risky_title", title=tweak.title),
+                t("tweaks.risky_text", description=tweak.description, risk_note=tweak.risk_note),
+                t("tweaks.risky_ok"), danger=True,
             )
         if tweak.risk == tweaks_core.RISK_CAUTION:
-            note = f"\n\nПобічний ефект: {tweak.risk_note}" if tweak.risk_note else ""
+            note = t("tweaks.side_effect", risk_note=tweak.risk_note) if tweak.risk_note else ""
             return confirm_dialog.ask(
-                self, "Твік «на свій розсуд»",
-                f"«{tweak.title}»\n\n{tweak.description}{note}\n\nУвімкнути?",
-                "Увімкнути",
+                self, t("tweaks.caution_title"),
+                t("tweaks.caution_text", title=tweak.title, description=tweak.description, note=note),
+                t("common.turn_on"),
             )
         return True
 
@@ -514,7 +505,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
             if tweak.needs_explorer:
                 self._offer_explorer_restart()
         else:
-            messagebox.showerror("Помилка", error or "Не вдалося змінити твік", parent=self)
+            messagebox.showerror(t("common.error"), error or t("tweaks.err.change"), parent=self)
 
     # ---------------------------------------------------------------- пресети
 
@@ -522,84 +513,80 @@ class RegistryTweaksTab(ctk.CTkFrame):
         return lambda: self._on_preset_clicked(preset)
 
     def _on_preset_clicked(self, preset: str):
-        title = next(title for key, title, _t, _c in _PRESETS if key == preset)
+        title = t(next(title for key, title, _t, _c in _PRESETS if key == preset))
         pending = tweaks_core.preset_pending(preset)
         if not any(not reason for _t, reason in pending):
-            messagebox.showinfo(title, "Усі твіки цього пресета вже застосовано.", parent=self)
+            messagebox.showinfo(title, t("tweaks.preset.all_applied"), parent=self)
             return
 
         items = []
         for tweak, reason in pending:
             note = reason or tweak.risk_note
             if not reason and tweak.requires_reboot:
-                note = (note + " " if note else "") + "Потрібне перезавантаження."
+                note = (note + " " if note else "") + t("tweaks.needs_reboot")
             items.append((tweak.id, tweak.title, tweak.risk, tweak.effect, note, not reason))
 
         chosen = ask_checklist(
-            self, f"Пресет «{title}»",
-            "Буде увімкнено позначені твіки. Зніміть галочки з того, що не потрібно. "
-            "Перед зміною PulseFPS збереже бекап .reg.",
-            items, "Застосувати",
-            warning=_MAX_WARNING if preset == tweaks_core.PRESET_MAX else "",
+            self, t("tweaks.preset.title", title=title),
+            t("tweaks.preset.text"),
+            items, t("common.apply"),
+            warning=t(_MAX_WARNING) if preset == tweaks_core.PRESET_MAX else "",
         )
         if not chosen:
             return
-        self._run_batch(f"Пресет «{title}»", lambda: tweaks_core.apply_preset(preset, chosen))
+        self._run_batch(t("tweaks.preset.title", title=title), lambda: tweaks_core.apply_preset(preset, chosen))
 
     # ------------------------------------------------------------------ відкат
 
     def _on_restore_clicked(self):
         pending = tweaks_core.restore_pending()
         if not pending:
-            messagebox.showinfo("Повернути все як було", "Усі твіки вже в початковому стані.", parent=self)
+            messagebox.showinfo(t("tweaks.restore_all"), t("tweaks.all_initial"), parent=self)
             return
 
         items = [
             (tweak.id, tweak.title, tweak.risk, tweak.effect,
-             "повернеться: " + ("увімкнено" if target else "вимкнено"), True)
+             t("tweaks.will_return") + (t("tweaks.state_on") if target else t("tweaks.state_off")), True)
             for tweak, target in pending
         ]
         chosen = ask_checklist(
-            self, "Повернути все як було",
-            "Позначені твіки повернуться до стану, який був перед їх першою зміною в PulseFPS.",
-            items, "Повернути", danger=True,
+            self, t("tweaks.restore_all"),
+            t("tweaks.restore_all.text"),
+            items, t("common.restore"), danger=True,
         )
         if not chosen:
             return
-        self._run_batch("Повернути все як було", lambda: tweaks_core.restore_tweaks(chosen))
+        self._run_batch(t("tweaks.restore_all"), lambda: tweaks_core.restore_tweaks(chosen))
 
     # -------------------------------------------------------- режим Windows
 
     def _on_max_performance_clicked(self):
-        names = "\n".join(f"• {t.title}" for t in tweaks_core.get_appearance_tweaks())
+        names = "\n".join(f"• {tw.title}" for tw in tweaks_core.get_appearance_tweaks())
         confirmed = confirm_dialog.ask(
-            self, "Максимальна швидкодія",
-            "Windows виглядатиме простіше: без прозорості, анімацій і тіней.\n\n"
-            f"Буде увімкнено:\n{names}",
-            "Увімкнути",
+            self, t("tweaks.max_performance"),
+            t("tweaks.max_performance.text", names=names),
+            t("common.turn_on"),
         )
         if confirmed:
-            self._run_batch("Максимальна швидкодія", tweaks_core.apply_max_performance)
+            self._run_batch(t("tweaks.max_performance"), tweaks_core.apply_max_performance)
 
     def _on_restore_appearance_clicked(self):
         confirmed = confirm_dialog.ask(
-            self, "Повернути гарну Windows",
-            "Повернути вигляд Windows (прозорість, анімації, тіні) до стану, який був до перших змін?",
-            "Повернути",
+            self, t("tweaks.restore_pretty"),
+            t("tweaks.restore_pretty.text"),
+            t("common.restore"),
         )
         if confirmed:
-            self._run_batch("Повернути гарну Windows", tweaks_core.restore_appearance_defaults)
+            self._run_batch(t("tweaks.restore_pretty"), tweaks_core.restore_appearance_defaults)
 
     def _offer_explorer_restart(self):
         action = process_control.ask_user_action(
-            self, "Застосувати зараз",
-            "Щоб зміни вигляду й панелі завдань набули чинності одразу, можна перезапустити "
-            "Провідник (закриються відкриті вікна папок). Зробити це зараз?\n\n"
-            "Якщо відмовитесь — зміни застосуються після виходу з системи.",
-            reason="Твіки → «Застосувати зараз» (перезапуск Провідника)",
+            self, t("tweaks.apply_now"),
+            t("tweaks.apply_now.text"),
+            reason="Tweaks → \"Apply now\" (Explorer restart)",
         )
         if action is not None:
-            bg.start_thread(self, "Перезапуск Провідника", process_control.restart_explorer, action)
+            bg.start_thread(self, t("tweaks.restart_explorer"), process_control.restart_explorer, action)
 
     # --------------------------------------------------------------- спільне
 
@@ -632,7 +619,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
             failed.append(error)
         if failed:
             messagebox.showerror(
-                "Помилка", "Не вдалося застосувати деякі твіки:\n" + "\n".join(failed), parent=self
+                t("common.error"), t("tweaks.err.some_failed") + "\n".join(failed), parent=self
             )
         if any(tweak.needs_explorer for tweak in succeeded):
             self._offer_explorer_restart()
@@ -647,7 +634,11 @@ class RegistryTweaksTab(ctk.CTkFrame):
     def _update_banner(self):
         parts = []
         if self._reboot_titles:
-            parts.append("Потрібне перезавантаження: " + ", ".join(sorted(self._reboot_titles)))
+            parts.append(t("tweaks.reboot_needed") + ", ".join(sorted(self._reboot_titles)))
         if self._logoff_titles:
-            parts.append("Потрібен вихід із системи: " + ", ".join(sorted(self._logoff_titles)))
+            parts.append(t("tweaks.logoff_needed") + ", ".join(sorted(self._logoff_titles)))
         self.banner_label.configure(text="  ·  ".join(parts))
+
+    def is_busy(self) -> bool:
+        """Триває операція, яку не можна перервати перебудовою вкладки (зміна мови)."""
+        return any(row._busy for row in self.rows.values())

@@ -20,6 +20,7 @@ import threading
 from ctypes import wintypes
 
 from core.logging_setup import get_logger
+from core.i18n import t
 
 _logger = get_logger(__name__)
 
@@ -100,18 +101,18 @@ def parse(combo: str) -> tuple[int, int]:
     """«Ctrl+Shift+G» -> (модифікатори MOD_*, VK). HotkeyError — якщо рядок некоректний."""
     parts = [p.strip() for p in (combo or "").split("+") if p.strip()]
     if not parts:
-        raise HotkeyError("порожня комбінація")
+        raise HotkeyError(t("hotkeys.err.empty"))
     mods = 0
     for part in parts[:-1]:
         flag = _MOD_BY_NAME.get(part.lower())
         if flag is None:
-            raise HotkeyError(f"невідомий модифікатор «{part}»")
+            raise HotkeyError(t("hotkeys.err.modifier", part=part))
         mods |= flag
     key = _KEY_BY_LOWER.get(parts[-1].lower())
     if key is None:
-        raise HotkeyError(f"клавішу «{parts[-1]}» не можна використати")
+        raise HotkeyError(t("hotkeys.err.key", key=parts[-1]))
     if not mods & (_MOD_CONTROL | _MOD_ALT | _MOD_WIN):
-        raise HotkeyError("потрібен Ctrl, Alt або Win — інакше клавіша заважатиме друкувати")
+        raise HotkeyError(t("hotkeys.err.need_modifier"))
     return mods, _KEYS[key]
 
 
@@ -142,23 +143,23 @@ class HotkeyManager:
     def start(self) -> None:
         if not self.available or self._thread is not None:
             return
-        self._thread = threading.Thread(target=self._run, daemon=True, name="PulseFPS: гарячі клавіші")
+        self._thread = threading.Thread(target=self._run, daemon=True, name="PulseFPS: hotkeys")
         self._thread.start()
         if not self._ready.wait(2.0):
-            _logger.error("Потік гарячих клавіш не стартував за 2 с")
+            _logger.error("Hotkey thread did not start within 2 s")
 
     def apply(self, bindings: dict[str, str], timeout: float = 2.0) -> dict[str, str]:
         if not self.available:
-            return {action: "гарячі клавіші доступні лише у Windows" for action in bindings}
+            return {action: t("hotkeys.err.windows_only") for action in bindings}
         if not self._thread_id:
-            return {action: "потік гарячих клавіш не запущено" for action in bindings}
+            return {action: t("hotkeys.err.not_running") for action in bindings}
         done = threading.Event()
         result: dict[str, str] = {}
         self._requests.put((dict(bindings), result, done))
         _user32.PostThreadMessageW(self._thread_id, _WM_APP_APPLY, 0, 0)
         if not done.wait(timeout):
-            _logger.error("Гарячі клавіші: реєстрація не завершилась за %.0f с", timeout)
-            return {action: "не вдалося зареєструвати (тайм-аут)" for action in bindings}
+            _logger.error("Hotkeys: registration did not finish within %.0f s", timeout)
+            return {action: t("hotkeys.err.timeout") for action in bindings}
         return result
 
     def stop(self) -> None:
@@ -169,7 +170,7 @@ class HotkeyManager:
             _user32.PostThreadMessageW(self._thread_id, _WM_QUIT, 0, 0)
         thread.join(timeout=2.0)
         if thread.is_alive():
-            _logger.error("Потік гарячих клавіш не завершився за 2 с")
+            _logger.error("Hotkey thread did not stop within 2 s")
 
     # ------------------------------------------------------------- потік
 
@@ -187,7 +188,7 @@ class HotkeyManager:
                         try:
                             self._on_hotkey(action)
                         except Exception:
-                            _logger.exception("Помилка обробника гарячої клавіші «%s»", action)
+                            _logger.exception("Hotkey handler error \"%s\"", action)
                 elif msg.message == _WM_APP_APPLY:
                     self._drain_requests()
         finally:
@@ -203,7 +204,7 @@ class HotkeyManager:
             try:
                 result.update(self._register(bindings))
             except Exception as exc:
-                _logger.exception("Гарячі клавіші: помилка реєстрації")
+                _logger.exception("Hotkeys: registration error")
                 result.update({action: str(exc) for action in bindings})
             done.set()
 
@@ -229,8 +230,8 @@ class HotkeyManager:
                 continue
             code = ctypes.get_last_error()
             if code == _ERROR_HOTKEY_ALREADY_REGISTERED:
-                errors[action] = f"комбінація {combo} уже зайнята іншою програмою або Windows"
+                errors[action] = t("hotkeys.err.taken", combo=combo)
             else:
-                errors[action] = f"не вдалося зареєструвати {combo} (код {code})"
-            _logger.error("Гаряча клавіша «%s» (%s): %s", action, combo, errors[action])
+                errors[action] = t("hotkeys.err.register", combo=combo, code=code)
+            _logger.error("Hotkey \"%s\" (%s): %s", action, combo, errors[action])
         return errors

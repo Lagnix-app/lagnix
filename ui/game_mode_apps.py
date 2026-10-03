@@ -14,6 +14,7 @@ from core import app_catalog as catalog
 from core import monitor as monitor_core
 from core import smart_apps
 from ui.widgets.scroll import ScrollFrame
+from core.i18n import t
 from ui import bg, theme
 from ui.widgets.game_widgets import ChipBoard, fmt_mem
 
@@ -59,7 +60,7 @@ class _IconStore:
                 if image is not None:
                     bg.ui_call(self._owner, self._store, path, image)
 
-        bg.start_thread(self._owner, "Ігровий режим: іконки програм", worker)
+        bg.start_thread(self._owner, "Game Mode: program icons", worker)
 
     def _store(self, path, pil_image) -> None:
         self._images[path] = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=(_ICON, _ICON))
@@ -100,7 +101,7 @@ class AppChip(ctk.CTkFrame):
         self.exe_path = app.get("exe_path")
         self.title.configure(text=_short(app["title"]), text_color=theme.TEXT_MAIN if closing else theme.TEXT_DIM)
         if not app.get("running", True):
-            self.stats.configure(text="не запущено")
+            self.stats.configure(text=t("game_mode_apps.not_running"))
         else:
             self.stats.configure(text=_stats(app.get("memory_mb", 0), app.get("cpu_percent", 0)))
         self.set_icon(icon)
@@ -108,7 +109,7 @@ class AppChip(ctk.CTkFrame):
         if app.get("warning"):
             note, color = "⚠ " + app["warning"], theme.WARNING
         elif app.get("document"):
-            note = catalog.DOCUMENT_NOTE
+            note = t(catalog.DOCUMENT_NOTE)
         elif app.get("category") in ("user", "profile"):
             note = catalog.CATEGORY_LABELS[app["category"]]
         if note:
@@ -174,14 +175,13 @@ class AppsPanel(ctk.CTkFrame):
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.grid(row=6, column=0, pady=(10, 0), sticky="w")
-        self._button(actions, "+ Додати програму", lambda: self._open_picker("add")).pack(side="left")
+        self._button(actions, t("game_mode_apps.add_program"), lambda: self._open_picker("add")).pack(side="left")
         self.never_button = self._button(actions, "", self._toggle_never, fg_color="transparent",
                                          hover_color=theme.BG_PANEL_LIGHT, text_color=theme.ACCENT_BLUE)
         self.never_button.pack(side="left", padx=(8, 0))
 
         self.never_frame = ctk.CTkFrame(self, fg_color=theme.BG_PANEL_LIGHT, corner_radius=10)
-        ctk.CTkLabel(self.never_frame, text="Ці програми Ігровий режим не закриває ніколи (збіг за частиною назви "
-                     "exe). Системні процеси й античити захищені завжди.", font=theme.font_small(),
+        ctk.CTkLabel(self.never_frame, text=t("game_mode_apps.never_hint"), font=theme.font_small(),
                      text_color=theme.TEXT_DIM, anchor="w", justify="left", wraplength=740).pack(
             fill="x", padx=12, pady=(10, 6))
         self.never_chips = ChipBoard(self.never_frame, on_remove=lambda key: self._cb["never_remove"](key),
@@ -189,8 +189,8 @@ class AppsPanel(ctk.CTkFrame):
         self.never_chips.pack(fill="x", padx=12)
         never_actions = ctk.CTkFrame(self.never_frame, fg_color="transparent")
         never_actions.pack(fill="x", padx=12, pady=(6, 10))
-        self._button(never_actions, "+ Додати", lambda: self._open_picker("never")).pack(side="left")
-        self._button(never_actions, "Відновити типові", lambda: self._cb["never_reset"](),
+        self._button(never_actions, t("game_mode_apps.add"), lambda: self._open_picker("never")).pack(side="left")
+        self._button(never_actions, t("game_mode_apps.restore_defaults"), lambda: self._cb["never_reset"](),
                      fg_color="transparent", hover_color=theme.BORDER,
                      text_color=theme.ACCENT_BLUE).pack(side="left", padx=(8, 0))
 
@@ -213,20 +213,21 @@ class AppsPanel(ctk.CTkFrame):
             plan = plans[lv]
             text = f"{catalog.LEVEL_LABELS[lv]}: {_stats(plan['memory_mb'], plan['cpu_percent'])}"
             parts.append(f"▸ {text}" if lv == level else text)
-        self.level_stats.configure(text="Звільниться   " + "    ".join(parts))
+        self.level_stats.configure(text=t("game_mode_apps.will_free") + "    ".join(parts))
         self.level_hint.configure(text=catalog.LEVEL_HINTS[level])
 
         self._render_groups(apps, set(collapsed), set(user_keys))
 
         skipped = plans[level]["skipped"]
-        self.skipped_label.configure(text="Не закриваю: " + "; ".join(f"{t} — {r}" for t, r in skipped)
+        self.skipped_label.configure(text=t("game_mode_apps.not_closing") + "; ".join(f"{tw} — {r}" for tw, r in skipped)
                                      if skipped else "")
         (self.skipped_label.grid if skipped else self.skipped_label.grid_remove)()
 
-        self.never_button.configure(text=f"{'▾' if self._never_open else '▸'} Ніколи не закривати "
-                                         f"({len(never_patterns)}{'' if never_is_default else ', змінено'})")
+        self.never_button.configure(text=t("game_mode_apps.never_button", arrow="▾" if self._never_open else "▸",
+                                           count=len(never_patterns),
+                                           changed="" if never_is_default else t("game_mode_apps.changed_suffix")))
         self.never_chips.set_chips([{"key": p, "title": p, "memory_mb": 0, "icon": False} for p in never_patterns],
-                                   True, "Список порожній — захищені лише системні процеси й античити.")
+                                   True, t("game_mode_apps.never_empty"))
 
     def _render_groups(self, apps: list[dict], collapsed: set, user_keys: set) -> None:
         by_group: dict[str, list[dict]] = {g: [] for g in catalog.GROUPS}
@@ -280,7 +281,7 @@ class AppsPanel(ctk.CTkFrame):
         for box in self._groups.values():
             box.order = [k for k in box.order if k in alive]
         if row == 0:
-            self.empty_label.configure(text="Фонових програм для закриття не знайдено — усе вже чисто.")
+            self.empty_label.configure(text=t("game_mode_apps.nothing_to_close"))
             self.empty_label.grid(row=4, column=0, sticky="w")
         else:
             self.empty_label.grid_remove()
@@ -322,29 +323,29 @@ class AddAppDialog(ctk.CTkToplevel):
         super().__init__(master)
         self._on_choose = on_choose
         self._rows: list[tuple[ctk.CTkButton, str, str | None]] = []
-        self.title("Додати програму" if mode == "add" else "Ніколи не закривати — додати")
+        self.title(t("game_mode_apps.add_title") if mode == "add" else t("game_mode_apps.never_add_title"))
         self.geometry("480x540")
         self.configure(fg_color=theme.BG_PANEL)
         self.transient(master)
-        ctk.CTkLabel(self, text=("Оберіть запущену програму, яку закривати в Ігровому режимі"
-                                 if mode == "add" else "Оберіть програму, яку ніколи не закривати"),
+        ctk.CTkLabel(self, text=(t("game_mode_apps.pick_running")
+                                 if mode == "add" else t("game_mode_apps.pick_never")),
                      font=theme.font_body(), wraplength=440, justify="left").pack(padx=16, pady=(14, 6), anchor="w")
-        self.search = ctk.CTkEntry(self, placeholder_text="Пошук за назвою або exe")
+        self.search = ctk.CTkEntry(self, placeholder_text=t("game_mode_apps.search"))
         self.search.pack(fill="x", padx=16)
         self.search.bind("<KeyRelease>", lambda _e: self._filter())
         self.list = ScrollFrame(self, bg=theme.BG_MAIN)
         self.list.pack(fill="both", expand=True, padx=16, pady=8)
-        self.status = ctk.CTkLabel(self.list, text="Завантаження списку процесів…", text_color=theme.TEXT_DIM)
+        self.status = ctk.CTkLabel(self.list, text=t("game_mode_apps.loading"), text_color=theme.TEXT_DIM)
         self.status.pack(pady=20)
         bottom = ctk.CTkFrame(self, fg_color="transparent")
         bottom.pack(fill="x", padx=16, pady=(0, 14))
-        ctk.CTkButton(bottom, text="Вказати exe вручну…", width=10, fg_color=theme.BG_PANEL_LIGHT,
+        ctk.CTkButton(bottom, text=t("game_mode_apps.manual_exe"), width=10, fg_color=theme.BG_PANEL_LIGHT,
                       hover_color=theme.BORDER, command=self._browse).pack(side="left")
-        ctk.CTkButton(bottom, text="Закрити", width=90, fg_color="transparent", border_width=1,
+        ctk.CTkButton(bottom, text=t("common.close"), width=90, fg_color="transparent", border_width=1,
                       command=self.destroy).pack(side="right")
         self._icons = _IconStore(self, self._icon_ready)
         self.after(50, self._grab)
-        bg.run_task(self, "Ігровий режим: список запущених програм", monitor_core.get_process_groups,
+        bg.run_task(self, "Game Mode: running program list", monitor_core.get_process_groups,
                     self._fill, self._failed, timeout=30)
 
     def _grab(self) -> None:
@@ -355,7 +356,7 @@ class AddAppDialog(ctk.CTkToplevel):
             pass
 
     def _failed(self, exc) -> None:
-        self.status.configure(text=f"Не вдалося отримати список процесів ({bg.error_text(exc)})")
+        self.status.configure(text=t("game_mode_apps.load_failed", exc=bg.error_text(exc)))
 
     def _fill(self, groups: list[dict]) -> None:
         if not self.winfo_exists():
@@ -375,12 +376,12 @@ class AddAppDialog(ctk.CTkToplevel):
             button = ctk.CTkButton(
                 self.list, text=text, anchor="w", height=30, fg_color="transparent", hover_color=theme.BG_PANEL_LIGHT,
                 text_color=theme.TEXT_MAIN, image=None, compound="left",
-                command=lambda g=group, t=title: self._choose(g["name"], t, g.get("exe_path")),
+                command=lambda g=group, tw=title: self._choose(g["name"], tw, g.get("exe_path")),
             )
             button.pack(fill="x")
             self._rows.append((button, f"{title} {group['name']}".lower(), group.get("exe_path")))
         if not items:
-            self.status.configure(text="Немає запущених програм")
+            self.status.configure(text=t("game_mode_apps.none_running"))
             self.status.pack(pady=20)
         self._icons.request(path for _b, _t, path in self._rows)
 
@@ -398,8 +399,8 @@ class AddAppDialog(ctk.CTkToplevel):
                 button.pack(fill="x")
 
     def _browse(self) -> None:
-        path = filedialog.askopenfilename(parent=self, title="Оберіть exe програми",
-                                          filetypes=[("Програми", "*.exe"), ("Усі файли", "*.*")])
+        path = filedialog.askopenfilename(parent=self, title=t("game_mode_apps.pick_exe"),
+                                          filetypes=[(t("tabs.programs"), "*.exe"), (t("common.all_files"), "*.*")])
         if path:
             name = os.path.basename(path)
             self._choose(name, os.path.splitext(name)[0], os.path.normpath(path))

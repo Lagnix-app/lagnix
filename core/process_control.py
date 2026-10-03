@@ -18,6 +18,7 @@ import psutil
 
 from core.logging_setup import get_audit_logger
 from core.system_processes import is_protected
+from core.i18n import t
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -30,7 +31,7 @@ class UserAction:
 
     def __init__(self, reason: str):
         if not UserAction._issuing:
-            raise PermissionError("UserAction створюється лише через ask_user_action()")
+            raise PermissionError("UserAction can only be created via ask_user_action()")
         self.reason = reason
 
     def __repr__(self) -> str:
@@ -41,26 +42,26 @@ def ask_user_action(parent, title: str, message: str, reason: str, icon: str = "
     """Показує підтвердження; «Так» -> UserAction, інакше None.
     Викликати тільки з обробника натискання кнопки (головний потік Tk)."""
     if threading.current_thread() is not threading.main_thread():
-        get_audit_logger().error("Відмовлено: запит підтвердження з фонового потоку (%s)", reason)
+        get_audit_logger().error("Denied: confirmation requested from a background thread (%s)", reason)
         return None
     from tkinter import messagebox
     if not messagebox.askyesno(title, message, icon=icon, parent=parent):
-        get_audit_logger().info("Скасовано користувачем: %s", reason)
+        get_audit_logger().info("Cancelled by the user: %s", reason)
         return None
     UserAction._issuing = True
     try:
         action = UserAction(reason)
     finally:
         UserAction._issuing = False
-    get_audit_logger().info("Підтверджено користувачем: %s", reason)
+    get_audit_logger().info("Confirmed by the user: %s", reason)
     return action
 
 
 def require(action, what: str) -> None:
     """Кидає PermissionError (і пише в журнал), якщо дію не підтвердив користувач."""
     if not isinstance(action, UserAction):
-        get_audit_logger().error("ЗАБЛОКОВАНО без підтвердження користувача: %s", what)
-        raise PermissionError(f"{what}: потрібне підтвердження користувача")
+        get_audit_logger().error("BLOCKED without user confirmation: %s", what)
+        raise PermissionError(f"{what}: user confirmation is required")
 
 
 def _describe(proc: psutil.Process) -> str:
@@ -77,7 +78,7 @@ def terminate_processes(targets, action: UserAction, graceful_command: list[str]
     (is_protected) не завершуються ніколи. graceful_command — штатна команда
     виходу (напр. steam.exe -shutdown), яку спершу даємо виконати.
     -> (завершено, помилки)."""
-    require(action, f"завершення процесів {[pid for pid, _ in targets]}")
+    require(action, f"terminating processes {[pid for pid, _ in targets]}")
     audit = get_audit_logger()
 
     procs, errors = [], []
@@ -89,7 +90,7 @@ def terminate_processes(targets, action: UserAction, graceful_command: list[str]
             if create_time and abs(proc.create_time() - create_time) > 1.0:
                 continue
             if is_protected(proc.name()):
-                audit.error("Пропущено системний процес %s — причина: %s", _describe(proc), action.reason)
+                audit.error("Skipped system process %s — reason: %s", _describe(proc), action.reason)
                 continue
             procs.append(proc)
         except psutil.NoSuchProcess:
@@ -98,12 +99,12 @@ def terminate_processes(targets, action: UserAction, graceful_command: list[str]
             errors.append(f"PID {pid}: {exc}")
 
     if graceful_command and procs:
-        audit.info("Штатний вихід: %s — причина: %s", " ".join(graceful_command), action.reason)
+        audit.info("Graceful exit: %s — reason: %s", " ".join(graceful_command), action.reason)
         try:
             subprocess.Popen(graceful_command, creationflags=_NO_WINDOW)
             _gone, procs = psutil.wait_procs(procs, timeout=10)
         except (OSError, psutil.Error) as exc:
-            audit.error("Штатний вихід не вдався: %s", exc)
+            audit.error("Graceful exit failed: %s", exc)
 
     names = {proc.pid: _describe(proc) for proc in procs}
     for proc in procs:
@@ -112,7 +113,7 @@ def terminate_processes(targets, action: UserAction, graceful_command: list[str]
         except psutil.NoSuchProcess:
             pass
         except psutil.AccessDenied:
-            errors.append(f"{names[proc.pid]}: немає прав для завершення")
+            errors.append(t("proc_control.err.no_rights", name=names[proc.pid]))
         except psutil.Error as exc:
             errors.append(f"{names[proc.pid]}: {exc}")
     _gone, alive = psutil.wait_procs(procs, timeout=timeout)
@@ -127,10 +128,10 @@ def terminate_processes(targets, action: UserAction, graceful_command: list[str]
     killed = 0
     for proc in procs:
         if proc.pid in alive_pids:
-            audit.error("НЕ завершено %s — причина: %s", names[proc.pid], action.reason)
+            audit.error("NOT terminated %s — reason: %s", names[proc.pid], action.reason)
         else:
             killed += 1
-            audit.info("Завершено процес %s — причина: %s", names[proc.pid], action.reason)
+            audit.info("Terminated process %s — reason: %s", names[proc.pid], action.reason)
     return killed, errors
 
 
@@ -193,7 +194,7 @@ def close_apps_gracefully(apps: list[dict], action: UserAction, grace_s: float =
         terminate_processes.
     apps: [{"title", "targets": [(pid, create_time)], "document": bool}].
     -> [{"title", "status": "closed"|"forced"|"kept"|"failed", "reason"}]."""
-    require(action, f"закриття програм {[a.get('title') for a in apps]}")
+    require(action, f"closing programs {[a.get('title') for a in apps]}")
     import ctypes
 
     audit = get_audit_logger()
@@ -205,7 +206,7 @@ def close_apps_gracefully(apps: list[dict], action: UserAction, grace_s: float =
         had_windows = bool(_main_windows(windows))
         for window in windows:
             user32.PostMessageW(window["hwnd"], _WM_CLOSE, 0, 0)
-        audit.info("М'яке закриття (WM_CLOSE, вікон: %d) «%s» — причина: %s",
+        audit.info("Soft close (WM_CLOSE, windows: %d) \"%s\" — reason: %s",
                    len(windows), app.get("title"), action.reason)
         pending.append({"app": app, "pids": pids, "had_windows": had_windows})
 
@@ -220,14 +221,14 @@ def close_apps_gracefully(apps: list[dict], action: UserAction, grace_s: float =
         app, title = item["app"], item["app"].get("title")
         alive = _alive_pids(item["pids"])
         if not alive:
-            audit.info("Закрито штатно «%s» — причина: %s", title, action.reason)
+            audit.info("Closed gracefully \"%s\" — reason: %s", title, action.reason)
             results.append({"title": title, "status": "closed", "reason": ""})
             continue
         visible = _main_windows(_windows_of(alive))
         if visible:
             asks_to_save = any(w["cls"] == _DIALOG_CLASS for w in visible) or app.get("document")
-            reason = "відкрито документ" if asks_to_save else "програма не закрилась (вікно лишилось відкритим)"
-            audit.info("НЕ закрито «%s»: %s — примусово не завершую, бо в програми є вікно", title, reason)
+            reason = t("proc_control.kept.document") if asks_to_save else t("proc_control.kept.window")
+            audit.info("NOT closed \"%s\": %s — not forcing termination because the program has a window", title, reason)
             results.append({"title": title, "status": "kept", "reason": reason})
             continue
         targets = [(pid, ct) for pid, ct in app["targets"] if pid in alive]
@@ -235,7 +236,7 @@ def close_apps_gracefully(apps: list[dict], action: UserAction, grace_s: float =
         if errors and not killed:
             results.append({"title": title, "status": "failed", "reason": "; ".join(errors[:2])})
         else:
-            audit.info("Примусово завершено «%s» (без вікон, не закрилась за %.0f с)", title, grace_s)
+            audit.info("Force-terminated \"%s\" (no windows, did not close within %.0f s)", title, grace_s)
             results.append({"title": title, "status": "forced", "reason": ""})
     return results
 
@@ -255,14 +256,14 @@ def find_by_names(names) -> list[tuple[int, float]]:
 
 def restart_explorer(action: UserAction) -> bool:
     """Перезапускає Провідник (після зміни твіків вигляду)."""
-    require(action, "перезапуск Провідника")
+    require(action, "restarting Explorer")
     audit = get_audit_logger()
     try:
         subprocess.run(["taskkill", "/f", "/im", "explorer.exe"], stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE, timeout=10, creationflags=_NO_WINDOW)
-        audit.info("Завершено процес explorer.exe (перезапуск) — причина: %s", action.reason)
+        audit.info("Terminated explorer.exe (restart) — reason: %s", action.reason)
         subprocess.Popen(["explorer.exe"])
         return True
     except (subprocess.SubprocessError, OSError) as exc:
-        audit.error("Не вдалося перезапустити Провідник: %s", exc)
+        audit.error("Failed to restart Explorer: %s", exc)
         return False

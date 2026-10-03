@@ -50,7 +50,7 @@ def _load():
         return True
     except Exception:
         _failed = True
-        _log.exception("Не вдалося завантажити LibreHardwareMonitorLib")
+        _log.exception("Failed to load LibreHardwareMonitorLib")
         return False
 
 
@@ -144,11 +144,11 @@ def _worker():
             if d["available"]:
                 d["fans"] = _fans()
             elif not logged:
-                _log.error("Датчик температури CPU не знайдено (драйвер PawnIO не встановлено або CPU не підтримується)")
+                _log.error("CPU temperature sensor not found (PawnIO driver is not installed or the CPU is not supported)")
                 logged = True
             _data = d
         except Exception:
-            _log.exception("Помилка читання датчиків")
+            _log.exception("Sensor read error")
             _data = {"available": False, "reason": "read_failed"}
             time.sleep(2)
     try:

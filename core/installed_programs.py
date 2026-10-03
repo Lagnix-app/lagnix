@@ -16,6 +16,7 @@ import subprocess
 import time
 import winreg
 from datetime import datetime
+from core.i18n import t
 
 _UNINSTALL_ROOTS = (
     (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "HKLM"),
@@ -410,7 +411,7 @@ def uninstall_program(uninstall_string: str) -> tuple[subprocess.Popen | None, s
     деінсталятора (process.poll()), або None з описом помилки.
     """
     if not uninstall_string:
-        return None, "Немає команди видалення"
+        return None, t("programs.err.no_uninstall")
 
     try:
         process = subprocess.Popen(uninstall_string, shell=True, creationflags=_NO_WINDOW)

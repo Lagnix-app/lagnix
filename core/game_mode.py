@@ -22,34 +22,43 @@ import psutil
 
 from core import app_catalog, power_plans, process_control, process_snapshot, smart_apps
 from core.app_data import load_data, update_data
+from core.i18n import has_key, t
 from core.logging_setup import get_logger
 from core.system_processes import is_hidden, is_protected
 
 _logger = get_logger(__name__)
 _CURRENT_PID = os.getpid()
 
+# id плану -> GUID; назва для показу — power_plan_name() (переклад "power_plan.<id>")
 POWER_PLANS = {
-    "Збалансований": power_plans.BALANCED_GUID,
-    "Висока продуктивність": power_plans.HIGH_PERFORMANCE_GUID,
-    "Економія енергії": "a1841308-3541-4fab-bc81-f71556f20b4a",
+    "balanced": power_plans.BALANCED_GUID,
+    "high_performance": power_plans.HIGH_PERFORMANCE_GUID,
+    "power_saver": "a1841308-3541-4fab-bc81-f71556f20b4a",
 }
 HIGH_PERFORMANCE_GUID = power_plans.HIGH_PERFORMANCE_GUID
+POWER_SAVER_GUID = POWER_PLANS["power_saver"]
 
 # У профілі план живлення — GUID, порожній рядок ("Без змін") або цей маркер:
 # «PulseFPS Ultra», який створюється при першому вмиканні.
 ULTRA = "ultra"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
+# id профілю -> типові значення; назва для показу — profile_name() (переклад "game_mode.profile.<id>")
 DEFAULT_PROFILES = {
-    "Гра": {"processes": [], "power_plan": ULTRA},
-    "Стрім": {"processes": [], "power_plan": ULTRA},
-    "Робота": {"processes": [], "power_plan": POWER_PLANS["Збалансований"]},
+    "game": {"processes": [], "power_plan": ULTRA},
+    "stream": {"processes": [], "power_plan": ULTRA},
+    "work": {"processes": [], "power_plan": POWER_PLANS["balanced"]},
 }
+PROFILE_IDS = tuple(DEFAULT_PROFILES)
+
+# Схема < 4 зберігала профілі в data.json під українськими назвами — це не
+# текст інтерфейсу, а старі ключі даних, потрібні лише для міграції.
+_LEGACY_PROFILE_IDS = {"Гра": "game", "Стрім": "stream", "Робота": "work"}
 
 DEFAULT_GAME_MODE = {
     "schema": SCHEMA_VERSION,
     "profiles": DEFAULT_PROFILES,
-    "active_profile": "Гра",
+    "active_profile": "game",
     "games": [],            # вручну додані exe (автоперемикання, як раніше)
     "auto_games": [],       # ключі знайдених ігор із увімкненим автоперемиканням
     "excluded_apps": [],    # застаріле (схема < 3): переноситься в app_choices
@@ -60,7 +69,8 @@ DEFAULT_GAME_MODE = {
     "collapsed_groups": [], # згорнуті групи в блоці «Фонові програми»
     "closed_apps": [],      # [{title, name, exe_path, memory_mb}] — закриті під час режиму
     "freed_mb": 0,
-    "plan_name": None,      # який план увімкнено режимом (для показу)
+    "plan_name": None,      # який план увімкнено режимом (назва на момент увімкнення; застаріле)
+    "plan_value": None,     # той самий план: маркер Ultra / GUID — назва поточною мовою через power_plan_name()
     "ultra_guid": None,
     "previous_power_plan": None,
     "is_active": False,
@@ -69,7 +79,7 @@ DEFAULT_GAME_MODE = {
 
 def load_game_mode() -> dict:
     """Стан із data.json, доповнений типовими значеннями (і мігрований зі старої схеми)."""
-    saved = load_data().get("game_mode", {})
+    saved = _migrate_profile_ids(load_data().get("game_mode", {}))
 
     profiles = {name: dict(defaults) for name, defaults in DEFAULT_PROFILES.items()}
     for name, profile in saved.get("profiles", {}).items():
@@ -80,7 +90,7 @@ def load_game_mode() -> dict:
 
     if saved.get("schema", 1) < SCHEMA_VERSION:
         # раніше типовим планом «Гри» й «Стріму» була «Висока продуктивність»
-        for name in ("Гра", "Стрім"):
+        for name in ("game", "stream"):
             if profiles[name].get("power_plan") == HIGH_PERFORMANCE_GUID:
                 profiles[name]["power_plan"] = ULTRA
 
@@ -99,6 +109,31 @@ def load_game_mode() -> dict:
         state["excluded_apps"] = []
     state["schema"] = SCHEMA_VERSION
     return state
+
+
+def _migrate_profile_ids(saved: dict) -> dict:
+    """Схема < 4: українські назви профілів як ключі -> id (game / stream / work)."""
+    if saved.get("schema", 1) >= 4:
+        return saved
+    saved = copy.deepcopy(saved)
+
+    def rename(mapping):
+        if not isinstance(mapping, dict):
+            return mapping
+        return {_LEGACY_PROFILE_IDS.get(k, k): v for k, v in mapping.items()}
+
+    for key in ("profiles", "levels", "app_choices"):
+        if key in saved:
+            saved[key] = rename(saved[key])
+    if saved.get("active_profile") in _LEGACY_PROFILE_IDS:
+        saved["active_profile"] = _LEGACY_PROFILE_IDS[saved["active_profile"]]
+    return saved
+
+
+def profile_name(profile_id: str) -> str:
+    """Назва профілю поточною мовою (невідомий id — як є)."""
+    key = f"game_mode.profile.{profile_id}"
+    return t(key) if has_key(key) else profile_id
 
 
 def default_level() -> str:
@@ -213,17 +248,18 @@ def power_plan_name(guid: str | None) -> str:
     """Назва плану для показу: Ultra, стандартні, «Без змін» або «Інший план»."""
     if guid == ULTRA:
         return power_plans.ULTRA_NAME
-    for name, plan_guid in POWER_PLANS.items():
+    for plan_id, plan_guid in POWER_PLANS.items():
         if guid and plan_guid.lower() == guid.lower():
-            return name
-    return "Без змін" if not guid else "Інший план"
+            return t(f"power_plan.{plan_id}")
+    return t("power_plan.unchanged") if not guid else t("power_plan.other")
 
 
 def plan_choices() -> dict[str, str]:
-    """Назва -> значення профілю (маркер Ultra / GUID / "" для «Без змін»)."""
+    """Назва (поточною мовою) -> значення профілю (маркер Ultra / GUID / "" для «Без змін»)."""
     choices = {power_plans.ULTRA_NAME: ULTRA}
-    choices.update(POWER_PLANS)
-    choices["Без змін"] = ""
+    for plan_id, plan_guid in POWER_PLANS.items():
+        choices[t(f"power_plan.{plan_id}")] = plan_guid
+    choices[t("power_plan.unchanged")] = ""
     return choices
 
 
@@ -235,7 +271,7 @@ def _resolve_plan(state: dict, plan: str, auto: bool) -> tuple[str | None, str |
     if plan != ULTRA:
         return plan, power_plan_name(plan), ""
     if auto and power_plans.on_battery():
-        return None, None, "Ноутбук працює від батареї — «PulseFPS Ultra» автоматично не вмикається."
+        return None, None, t("game_mode.on_battery_no_ultra")
     guid, error = power_plans.ensure_ultra(state.get("ultra_guid"))
     if guid:
         state["ultra_guid"] = guid
@@ -279,13 +315,14 @@ def activate(state: dict, profile_name: str, auto: bool = False, plan_override: 
     if guid:
         ok, message = power_plans.set_active_scheme(guid)
         if not ok:
-            plan_name, plan_error = None, message or "Не вдалося переключити план живлення."
+            plan_name, plan_error = None, message or t("game_mode.err.switch_plan")
 
     state["is_active"] = True
     state["active_profile"] = profile_name
     state["closed_apps"] = [c for c in closed if c.get("exe_path")]
     state["freed_mb"] = sum(c.get("memory_mb", 0) for c in closed)
     state["plan_name"] = plan_name
+    state["plan_value"] = (ULTRA if plan == ULTRA else guid) if plan_name else None
     return {"closed": closed, "freed_mb": state["freed_mb"], "errors": errors,
             "plan_name": plan_name, "plan_error": plan_error}
 
@@ -303,6 +340,7 @@ def deactivate(state: dict) -> list[dict]:
     state["closed_apps"] = []
     state["freed_mb"] = 0
     state["plan_name"] = None
+    state["plan_value"] = None
     return closed
 
 

@@ -26,6 +26,7 @@ import bisect
 import time
 import tkinter as tk
 import tkinter.font as tkfont
+from collections.abc import Mapping
 
 from PIL import Image, ImageDraw, ImageTk
 
@@ -33,7 +34,6 @@ from core import process_info
 from ui import theme
 from ui.widgets import aa
 
-_FONT_FAMILY = "Segoe UI"
 _WHEEL_EASE = 0.35  # частка залишку прокрутки, що проходиться за кадр
 
 
@@ -158,7 +158,22 @@ _BADGE_COLORS = {
     process_info.ANTICHEAT: theme.WARNING,
     process_info.SAFE: theme.ACCENT_GREEN,
 }
-PROCESS_BADGES = {kind: (text, _BADGE_COLORS[kind]) for kind, text in process_info.BADGES.items()}
+
+
+class _ProcessBadges(Mapping):
+    """kind -> (текст позначки поточною мовою, колір) — текст береться при кожному зверненні."""
+
+    def __getitem__(self, kind):
+        return process_info.BADGES[kind], _BADGE_COLORS[kind]
+
+    def __iter__(self):
+        return iter(_BADGE_COLORS)
+
+    def __len__(self) -> int:
+        return len(_BADGE_COLORS)
+
+
+PROCESS_BADGES = _ProcessBadges()
 
 
 # ================================================================ скролбар
@@ -265,7 +280,7 @@ class Tooltip:
         win.wm_geometry(f"+{x + 12}+{y + 18}")
         win.attributes("-topmost", True)  # поверх головного вікна, навіть якщо воно «завжди зверху»
         tk.Label(
-            win, text=text, background="#1a1a1a", foreground="#dce4ee", font=(_FONT_FAMILY, 10),
+            win, text=text, background="#1a1a1a", foreground="#dce4ee", font=(theme.font_family(), 10),
             padx=8, pady=4, relief="solid", borderwidth=1, wraplength=380, justify="left",
         ).pack()
         self._win = win
@@ -413,7 +428,7 @@ class CanvasList(theme.PlainFrame):
         key = (size, weight)
         f = self._fonts.get(key)
         if f is None:
-            f = self._fonts[key] = (_FONT_FAMILY, -round(size * self.S), weight)
+            f = self._fonts[key] = (theme.font_family(), -round(size * self.S), weight)
         return f
 
     def text_width(self, text: str, font: tuple) -> int:

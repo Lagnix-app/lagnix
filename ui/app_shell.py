@@ -20,14 +20,15 @@ from core.settings import load_settings, update_setting
 from ui import bg
 from ui import overlay as overlay_view
 from ui.widgets import robot as robot_view
+from core.i18n import TDict, t
 
 _logger = get_logger(__name__)
 
-HOTKEY_LABELS = {
-    "game_mode": "Ігровий режим увімк/вимк",
-    "overlay": "Оверлей увімк/вимк",
-    "show_window": "Показати/сховати PulseFPS",
-}
+HOTKEY_LABELS = TDict({
+    "game_mode": "hotkeys.action.game_mode",
+    "overlay": "hotkeys.action.overlay",
+    "show_window": "hotkeys.action.show_window",
+})
 OVERHEAT_COOLDOWN_S = 5 * 60
 _TRAY_IMAGE_PX = 64
 _CLEANUP_TIMEOUT_S = 10 * 60
@@ -71,6 +72,21 @@ class AppShell:
         if self._overlay_on:
             self._show_overlay()
 
+    def on_language_changed(self) -> None:
+        """Мова інтерфейсу змінилась: меню трею (тексти — функції, pystray перебудовує
+        меню) та оверлей — одразу, без перезапуску."""
+        self.tray.refresh_menu()
+        if self._overlay is not None:
+            try:
+                self._overlay.refresh_language()
+            except tk.TclError:
+                pass
+
+    def on_tab_rebuilt(self, key: str, frame) -> None:
+        """Вкладку перестворено (зміна мови): «Монітор» — знову джерело зрізів для оверлею й сповіщень."""
+        if key == "monitor" and hasattr(frame, "add_snapshot_listener"):
+            frame.add_snapshot_listener(self._on_snapshot)
+
     def shutdown(self) -> None:
         if self._stopped:
             return
@@ -88,7 +104,7 @@ class AppShell:
             try:
                 self._tray_images[mood] = robot_view.render_robot(_TRAY_IMAGE_PX, mood)
             except Exception:
-                _logger.exception("Не вдалося намалювати робота для трею")
+                _logger.exception("Failed to draw the robot for the tray")
                 return None
         return self._tray_images[mood]
 
@@ -119,8 +135,8 @@ class AppShell:
         self.window.withdraw()
         if not self._tray_hint_shown:
             self._tray_hint_shown = True
-            self.tray.notify("PulseFPS працює у треї",
-                             "Подвійний клік по іконці — відкрити вікно, правий клік — меню.")
+            self.tray.notify(t("shell.tray_running.title"),
+                             t("shell.tray_running.text"))
 
     def toggle_window(self) -> None:
         """Сховати, лише якщо вікно на передньому плані; перекрите грою — вивести наперед."""
@@ -152,8 +168,8 @@ class AppShell:
     def notify_game_mode_auto(self, game_name: str) -> None:
         if not load_settings().get("notify_game_mode", True):
             return
-        self.tray.notify(f"Ігровий режим увімкнено: {game_name}" if game_name else "Ігровий режим увімкнено",
-                         "План живлення перемкнено на ігровий. Програми не закривались.")
+        self.tray.notify(t("shell.game_mode_on_for", game_name=game_name) if game_name else t("shell.game_mode_on"),
+                         t("shell.game_mode_on.text"))
 
     # ------------------------------------------------------------- оверлей
 
@@ -204,7 +220,7 @@ class AppShell:
         try:
             self._overlay = overlay_view.OverlayWindow(self.window, self.overlay_config(), self._on_overlay_moved)
         except Exception:
-            _logger.exception("Не вдалося показати оверлей")
+            _logger.exception("Failed to show the overlay")
             self._overlay = None
             return
         monitor = self.window.tab_frames.get("monitor")
@@ -241,9 +257,8 @@ class AppShell:
             if last is not None and now - last < OVERHEAT_COOLDOWN_S:
                 continue
             self._last_overheat[kind] = now
-            self.tray.notify(f"Перегрів {kind}: {temp:.0f}°C",
-                             f"Поріг — {threshold}°C. Перевірте охолодження й навантаження "
-                             f"(поріг змінюється в «Налаштуваннях»).")
+            self.tray.notify(t("shell.overheat.title", kind=kind, temp=temp),
+                             t("shell.overheat.text", threshold=threshold))
 
     # ------------------------------------------------------ гарячі клавіші
 
@@ -268,7 +283,7 @@ class AppShell:
         bindings = self.hotkey_bindings()
         for other, other_combo in bindings.items():
             if other != action and other_combo and other_combo.lower() == combo.lower():
-                return f"{combo} уже призначено для «{HOTKEY_LABELS.get(other, other)}»"
+                return t("shell.hotkey_taken", combo=combo, other=HOTKEY_LABELS.get(other, other))
         wanted = dict(bindings, **{action: combo})
         errors = self.hotkeys.apply(wanted)
         if action in errors:
@@ -295,43 +310,42 @@ class AppShell:
         """Трей → «Швидке очищення тимчасових файлів»: %TEMP% і Windows\\Temp.
         Видалення — лише після підтвердження (core/process_control.ask_user_action)."""
         if self._cleanup_task is not None and not self._cleanup_task.finished:
-            self.tray.notify("Очищення вже триває", "Дочекайтеся завершення попереднього очищення.")
+            self.tray.notify(t("shell.cleanup_running.title"), t("shell.cleanup_running.text"))
             return
-        targets = [t for t in cleanup.get_targets() if t.get("category") == cleanup.CAT_TEMP]
+        targets = [tw for tw in cleanup.get_targets() if tw.get("category") == cleanup.CAT_TEMP]
         if not targets:
             return
         host = self._dialog_host()
         try:
             action = process_control.ask_user_action(
-                host, "Швидке очищення",
-                "Видалити тимчасові файли?\n\n" + "\n".join("• " + t["label"] for t in targets)
-                + "\n\nФайли, які зараз використовуються, буде пропущено.",
-                reason="Трей → «Швидке очищення тимчасових файлів»",
+                host, t("shell.quick_cleanup.title"),
+                t("shell.quick_cleanup.question") + "\n".join("• " + tw["label"] for tw in targets)
+                + t("shell.quick_cleanup.skipped_note"),
+                reason="Tray → \"Quick cleanup of temporary files\"",
             )
         finally:
             if host is not self.window:
                 host.destroy()
         if action is None:
             return
-        keys = [t["key"] for t in targets]
+        keys = [tw["key"] for tw in targets]
         self._cleanup_task = bg.run_task(
-            self.window, "Трей: швидке очищення", lambda: cleanup.clean_many(keys, action),
+            self.window, "Tray: quick cleanup", lambda: cleanup.clean_many(keys, action),
             lambda result: self._on_cleanup_done(keys, result), self._on_cleanup_failed,
             timeout=_CLEANUP_TIMEOUT_S,
         )
 
     def _on_cleanup_done(self, keys: list[str], result: dict) -> None:
-        text = (f"Звільнено {cleanup.format_size(result['freed_bytes'])}, "
-                f"видалено файлів: {result['deleted_count']}")
+        text = (t("shell.cleanup_done.text", freed=cleanup.format_size(result['freed_bytes']), count=result['deleted_count']))
         if result["skipped_count"]:
-            text += f", пропущено (зайняті): {result['skipped_count']}"
-        self.tray.notify("Тимчасові файли очищено", text)
+            text += t("shell.cleanup_done.skipped", count=result['skipped_count'])
+        self.tray.notify(t("shell.cleanup_done.title"), text)
         hook = getattr(self.window.tab_frames.get("cleanup"), "rescan_targets", None)
         if hook is not None:
             hook(keys)
 
     def _on_cleanup_failed(self, exc: BaseException) -> None:
-        self.tray.notify("Не вдалося очистити тимчасові файли", bg.error_text(exc))
+        self.tray.notify(t("shell.cleanup_failed"), bg.error_text(exc))
 
     def _dialog_host(self):
         """Батько для діалогу: саме вікно, якщо воно видиме; інакше — невидиме вікно

@@ -2,11 +2,13 @@
 
 Малює напряму через Pillow (без cairosvg, якого немає в оточенні) з 4x
 supersampling для згладжування, тож і 16-піксельна іконка виходить чіткою.
+Також малює прапорці мов (assets/flags/, через ui/widgets/flags.py).
 Запуск: python tools/gen_assets.py — перезаписує файли в assets/.
 """
 
 import math
 import os
+import sys
 
 from PIL import Image, ImageDraw
 
@@ -138,7 +140,12 @@ def main() -> None:
     banner = draw_logo_banner()
     banner.save(os.path.join(ASSETS, "pulsefps-logo.png"))
 
-    print("Готово:", ", ".join(sorted(os.listdir(ASSETS))))
+    # прапорці мов для вибору мови: assets/flags/<код>.png (20x14) і <код>@2x.png
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from ui.widgets import flags
+    flags.ensure_flags(force=True)
+
+    print("Done:", ", ".join(sorted(os.listdir(ASSETS))))
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import tkinter as tk
 import customtkinter as ctk
 
 from ui import theme
+from core.i18n import t
 
 _WIDTH = 360
 _MARGIN = 24
@@ -44,7 +45,7 @@ class CountdownToast(ctk.CTkToplevel):
 
         buttons = ctk.CTkFrame(body, fg_color="transparent")
         buttons.pack(fill="x", padx=16, pady=(0, 14))
-        ctk.CTkButton(buttons, text="Скасувати", width=110, height=30, fg_color=theme.BG_PANEL_LIGHT,
+        ctk.CTkButton(buttons, text=t("common.cancel"), width=110, height=30, fg_color=theme.BG_PANEL_LIGHT,
                       hover_color=theme.BORDER, text_color=theme.TEXT_MAIN,
                       command=lambda: self._finish(self._on_cancel)).pack(side="right")
         if extra is not None:
@@ -66,7 +67,7 @@ class CountdownToast(ctk.CTkToplevel):
         if self._remaining <= 0:
             self._finish(self._on_timeout)
             return
-        self.countdown_label.configure(text=f"Застосую через {max(1, round(self._remaining))} с")
+        self.countdown_label.configure(text=t("toast.apply_in", seconds=max(1, round(self._remaining))))
         self.progress.set(self._remaining / self._seconds)
         self._remaining -= _TICK_MS / 1000
         self._job = self.after(_TICK_MS, self._tick)

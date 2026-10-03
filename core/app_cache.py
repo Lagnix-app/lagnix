@@ -30,14 +30,12 @@ from core import process_control
 from core.admin import is_admin
 from core.logging_setup import get_audit_logger, get_logger
 from core.system_processes import is_hidden, is_protected
+from core.i18n import t
 
 MAX_DEPTH = 4
 SMALL_BYTES = 10 * 1024 * 1024
 
-DEPOT_NOTE = (
-    "depotcache — маніфести завантажень ігор (списки файлів). Безпечно: Steam завантажить "
-    "потрібні знову під час наступного оновлення чи перевірки гри."
-)
+DEPOT_NOTE = "app_cache.depot_note"  # ключ перекладу (UI показує t(folder["note"]))
 
 _CACHE_NAMES = {
     "cache", "code cache", "gpucache", "dawncache", "dawngraphitecache", "shadercache",
@@ -789,12 +787,12 @@ def scan(progress_cb=None, stop_event: threading.Event | None = None) -> list[di
     def stopped():
         return stop_event is not None and stop_event.is_set()
 
-    report(0, 1, "Читаю реєстр програм і лаунчерів…")
+    report(0, 1, t("app_cache.progress.registry"))
     try:
         from core.installed_programs import list_installed_programs
         programs = list_installed_programs()
     except Exception:
-        _log.exception("Не вдалося прочитати список встановлених програм")
+        _log.exception("Failed to read the list of installed programs")
         programs = []
 
     specs = []
@@ -802,7 +800,7 @@ def scan(progress_cb=None, stop_event: threading.Event | None = None) -> list[di
         try:
             result = builder(programs)
         except Exception:
-            _log.exception("Помилка визначення лаунчера (%s)", builder.__name__)
+            _log.exception("Launcher detection error (%s)", builder.__name__)
             continue
         specs.extend(result if isinstance(result, list) else [result] if result else [])
 
@@ -825,7 +823,7 @@ def scan(progress_cb=None, stop_event: threading.Event | None = None) -> list[di
     for spec in specs:
         if stopped():
             return None
-        report(done, total, f"Лаунчер {spec['name']}…")
+        report(done, total, t("app_cache.progress.launcher", name=spec['name']))
         groups[spec["key"]] = _launcher_group(spec)
         for data_dir in spec.get("data_dirs", ()):
             launcher_by_dir[data_dir] = spec["key"]
@@ -842,10 +840,10 @@ def scan(progress_cb=None, stop_event: threading.Event | None = None) -> list[di
             else:
                 _add_package(groups, entry, package_index)
         except Exception:
-            _log.exception("Помилка сканування %s", entry.path)
+            _log.exception("Scan error %s", entry.path)
         done += 1
 
-    report(done, total, "Визначаю програми…")
+    report(done, total, t("app_cache.progress.detecting"))
     _dedupe_folders(groups)
     table = _process_table()
     program_index = _program_index(programs)
@@ -854,7 +852,7 @@ def scan(progress_cb=None, stop_event: threading.Event | None = None) -> list[di
             try:
                 _identify(group, program_index, table)
             except Exception:
-                _log.exception("Помилка визначення програми %s", group["key"])
+                _log.exception("Program detection error %s", group["key"])
                 group["name"] = group["name"] or group["key"].split(":", 1)[-1]
         group["name"] = group["name"] or group["key"].split(":", 1)[-1]
     done += 1
@@ -862,16 +860,16 @@ def scan(progress_cb=None, stop_event: threading.Event | None = None) -> list[di
     for group in groups.values():
         if stopped():
             return None
-        report(done, total, f"Рахую розмір: {group['name']}")
+        report(done, total, t("app_cache.progress.sizing", name=group['name']))
         _measure(group)
         group["running"] = bool(_group_processes(group, table)) if group["file_count"] else False
     done += 1
 
     with _lock:
         _groups = groups
-    _log.info("Кеш програм: %d груп за %.1f с", sum(1 for g in groups.values() if g["file_count"]),
+    _log.info("App cache: %d groups in %.1f s", sum(1 for g in groups.values() if g["file_count"]),
               time.perf_counter() - started)
-    report(total, total, "Готово")
+    report(total, total, t("app_cache.progress.done"))
     return _sorted_public(groups)
 
 
@@ -918,16 +916,16 @@ def group_name(key: str) -> str:
 def clean_group(key: str, action) -> dict:
     """Видаляє вміст знайдених папок кешу групи — лише з action (process_control.UserAction).
     Зайняті файли пропускаються без помилок. Кожна тека пишеться в журнал аудиту."""
-    process_control.require(action, f"видалення кешу програми {key}")
+    process_control.require(action, f"deleting cache of program {key}")
     audit = get_audit_logger()
     result = {"key": key, "freed_bytes": 0, "deleted_count": 0, "skipped_count": 0, "skipped_reason": None}
     group = _get_group(key)
     if group is None:
-        result["skipped_reason"] = "Оновіть сканування"
+        result["skipped_reason"] = t("app_cache.err.rescan")
         return result
 
     if _group_processes(group, _process_table()):
-        result["skipped_reason"] = "Програма запущена — закрийте її й спробуйте ще раз"
+        result["skipped_reason"] = t("app_cache.err.running")
         return result
 
     for folder in group["folders"]:
@@ -945,7 +943,7 @@ def clean_group(key: str, action) -> dict:
         if folder["exts"] is None:
             _remove_empty_dirs(path)
         if deleted or skipped:
-            audit.info("Видалено %d файлів (%d байт, пропущено %d) у %s — програма «%s», причина: %s",
+            audit.info("Deleted %d files (%d bytes, skipped %d) in %s — program \"%s\", reason: %s",
                        deleted, freed, skipped, path, group["name"], action.reason)
         result["freed_bytes"] += freed
         result["deleted_count"] += deleted
@@ -969,10 +967,10 @@ def close_group(key: str, action) -> dict:
     """Закриває всі процеси програми через process_control (лише з UserAction).
     Повертає {"ok", "relaunch", "message"}: relaunch — ("aumid", id) / ("exe", шлях)
     для повторного запуску або None."""
-    process_control.require(action, f"закриття програми {key}")
+    process_control.require(action, f"closing program {key}")
     group = _get_group(key)
     if group is None:
-        return {"ok": False, "relaunch": None, "message": "Оновіть сканування"}
+        return {"ok": False, "relaunch": None, "message": t("app_cache.err.rescan")}
 
     matched = _group_processes(group, _process_table())
     if not matched:
@@ -994,10 +992,11 @@ def close_group(key: str, action) -> dict:
     time.sleep(0.5)  # Windows відпускає дескриптори файлів не миттєво
 
     if _group_processes(group, _process_table()):
-        _log.error("Не вдалося закрити програму %s: %s", key, "; ".join(errors))
-        denied = any("немає прав" in e for e in errors)
+        _log.error("Failed to close program %s: %s", key, "; ".join(errors))
+        denied_suffix = t("proc_control.err.no_rights", name="")  # ": немає прав …" — з process_control
+        denied = any(e.endswith(denied_suffix) for e in errors)
         return {"ok": False, "relaunch": relaunch,
-                "message": "Не вдалося закрити програму" + (" — немає прав" if denied else "")}
+                "message": t("app_cache.err.close") + (t("app_cache.err.no_rights_suffix") if denied else "")}
     return {"ok": True, "relaunch": relaunch, "message": ""}
 
 
@@ -1015,6 +1014,6 @@ def relaunch(target) -> bool:
         else:
             os.startfile(value)
     except OSError:
-        _log.exception("Не вдалося запустити %s", value)
+        _log.exception("Failed to launch %s", value)
         return False
     return True
