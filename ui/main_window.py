@@ -1,6 +1,7 @@
 """Головне вікно Lagnix з бічним меню та вкладками."""
 
 import os
+from core import paths as _paths
 
 
 import customtkinter as ctk
@@ -42,9 +43,7 @@ TABS = (
     ("settings", "tabs.settings", SettingsTab),
 )
 
-_ICON_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "lagnix.ico"
-)
+_ICON_PATH = _paths.resource("assets", "lagnix.ico")
 
 _INDICATOR_WIDTH = 3
 _PULSE_LOW = theme.BORDER  # рамка кнопки «Підтримати»: від спокійної до рожевої

@@ -8,6 +8,7 @@
 import copy
 import json
 import os
+from core import paths as _paths
 import threading
 import time
 
@@ -15,7 +16,7 @@ from core.hotkeys import DEFAULT_HOTKEYS
 from core.i18n import LANGUAGE_CODES, detect_system_language
 from core.migrate import migrate_if_needed
 
-SETTINGS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "settings.json")
+SETTINGS_PATH = _paths.user_file("settings.json")
 
 DEFAULT_SETTINGS = {
     "theme": "dark",

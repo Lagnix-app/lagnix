@@ -17,13 +17,14 @@ import contextlib
 import json
 import locale
 import os
+from core import paths as _paths
 import sys
 import threading
 from collections.abc import Mapping
 
 from core.logging_setup import get_logger
 
-LOCALES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "locales")
+LOCALES_DIR = _paths.resource("locales")
 
 # (код — він же ім'я locales/<код>.json, назва мови рідною мовою)
 LANGUAGES: tuple[tuple[str, str], ...] = (

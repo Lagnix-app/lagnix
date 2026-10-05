@@ -29,6 +29,7 @@ logs.txt через core.logging_setup, а не проковтуються мо�
 import json
 import math
 import os
+from core import paths as _paths
 import random
 import struct
 import time
@@ -38,9 +39,7 @@ from core.logging_setup import get_logger
 from core.settings import SETTINGS_PATH as SETTINGS_FILE
 from core.settings import load_settings, update_setting
 
-ASSETS_SOUNDS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "sounds"
-)
+ASSETS_SOUNDS_DIR = _paths.resource("assets", "sounds")
 
 _SAMPLE_RATE = 44100
 

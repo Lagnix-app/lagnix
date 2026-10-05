@@ -2,6 +2,7 @@
 
 import ctypes
 import os
+from core import paths as _paths
 import sys
 
 
@@ -20,6 +21,25 @@ def _enable_dpi_awareness() -> None:
             pass
 
 
+def _tweaks_cli() -> None:
+    """Службові режими без вікна для деінсталятора: `--tweaks-pending` -> код 10, якщо є
+    змінені Lagnix твіки, які можна повернути (інакше 0); `--restore-tweaks` повертає їх."""
+    args = sys.argv[1:]
+    if "--tweaks-pending" not in args and "--restore-tweaks" not in args:
+        return
+    code = 0
+    try:
+        from core import tweaks
+        if "--tweaks-pending" in args:
+            code = 10 if tweaks.restore_pending() else 0
+        else:
+            code = 0 if all(ok for _, ok, _ in tweaks.restore_tweaks(None)) else 1
+    except Exception:
+        code = 2
+    sys.exit(code)
+
+
+_tweaks_cli()
 _enable_dpi_awareness()
 
 from core import admin as admin_core  # noqa: E402
@@ -46,7 +66,7 @@ from core.sounds import ensure_sounds_exist  # noqa: E402
 from ui import bg  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
 
-_THEME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lagnix_theme.json")
+_THEME_PATH = _paths.resource("assets", "lagnix_theme.json")
 
 
 def main():

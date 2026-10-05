@@ -1133,3 +1133,27 @@ settings 206 / 185 → 127 / 57. *Перше відкриття Монітора
   екземпляр не блокує; Ігровий режим `is_active=True` лишається після старту з `--restarted`
   (без прапора скидається). Команди перевірені для `python main.py` і умовного `Lagnix.exe`.
   Нові ключі `restart.*` (12 мов), `language.changing` і код заставки видалено.
+
+## Збірка й інсталятор 1.0.0 (2026-10-05)
+
+- `build.ps1` (`powershell -ExecutionPolicy Bypass -File build.ps1`, `-SkipInstaller` —
+  лише exe): PyInstaller `--onedir --windowed --uac-admin`, іконка `assets/lagnix.ico`,
+  метадані з `installer/version_info.txt` (Lagnix, «Lagnix dev», © 2026, 1.0.0), потім
+  Inno Setup -> `dist/Lagnix-Setup-1.0.0.exe`. Усередині: locales/, assets/ (звуки, тема),
+  libs/ (LibreHardwareMonitorLib.dll), customtkinter, pythonnet/clr_loader, pystray, pynvml.
+- Шляхи: `core/paths.py`. Ресурси (locales, assets, libs) — `sys._MEIPASS`; settings.json,
+  data.json, logs.txt, backups/ — `%APPDATA%\Lagnix` у збірці (зі сирців — корінь проєкту).
+- Службові прапори `main.py` (без вікна, для деінсталятора): `--tweaks-pending` (код 10, якщо
+  є твіки, які можна повернути), `--restore-tweaks`.
+- `installer/Lagnix.iss`: Program Files, ярлик на робочому столі (галочка), мови uk/en,
+  галочка «Встановити драйвер PawnIO» (`installer/redist/PawnIO_setup.exe` v2.2.0, підпис
+  Authenticode Valid, без змін; запускається його майстер — тихих прапорців автор не
+  документує), запуск Lagnix в кінці. Деінсталятор: драйвер і `%APPDATA%\Lagnix` (бекапи
+  твіків) лишає, перед видаленням пропонує повернути твіки.
+- **Перевірено:** збірка проходить; перший зібраний exe запустився (відповідає, дані
+  створилися в %APPDATA%\Lagnix, помилок у logs.txt немає); Inno-скрипт компілюється.
+- **НЕ перевірено:** вкладки/мови/трей/оверлей/`--restarted` у зібраному exe, датчики,
+  інсталяція -> запуск -> видалення (і прапори `--tweaks-pending/--restore-tweaks`).
+  Після перезбірки **Smart App Control** на цьому ПК блокує непідписаний exe
+  («An Application Control policy has blocked this file», CodeIntegrity 3077/3033).
+  Потрібен підпис коду (або вимкнений SAC на тестовій машині) — обходити політику не стали.

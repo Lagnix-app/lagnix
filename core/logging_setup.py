@@ -3,8 +3,9 @@
 import logging
 import logging.handlers
 import os
+from core import paths as _paths
 
-LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs.txt")
+LOG_PATH = _paths.user_file("logs.txt")
 
 _configured_loggers = set()
 

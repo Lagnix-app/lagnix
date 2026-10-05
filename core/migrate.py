@@ -8,11 +8,11 @@
 
 import json
 import os
+from core import paths as _paths
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_LEGACY_CONFIG_PATH = os.path.join(_ROOT, "config.json")
-_SETTINGS_PATH = os.path.join(_ROOT, "settings.json")
-_DATA_PATH = os.path.join(_ROOT, "data.json")
+_LEGACY_CONFIG_PATH = _paths.user_file("config.json")
+_SETTINGS_PATH = _paths.user_file("settings.json")
+_DATA_PATH = _paths.user_file("data.json")
 
 # Ключі старого config.json, що є runtime-даними (переносяться в data.json);
 # усе інше вважається налаштуванням і переноситься в settings.json.

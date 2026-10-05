@@ -8,6 +8,7 @@ core/settings.py (settings.json), яким керує користувач з в
 import copy
 import json
 import os
+from core import paths as _paths
 import threading
 import time
 
@@ -17,7 +18,7 @@ from core.migrate import migrate_if_needed
 _log = get_logger("core.app_data")
 # Читання-зміна-запис кількох потоків (твіки, сесії ігор, вкладки) не повинні губити одне одного.
 _lock = threading.RLock()
-DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data.json")
+DATA_PATH = _paths.user_file("data.json")
 
 DEFAULT_DATA = {
     "last_tab": "monitor",

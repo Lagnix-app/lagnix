@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+from core import paths as _paths
 import subprocess
 import threading
 import winreg
@@ -44,7 +45,7 @@ from core.i18n import TDict, t
 _logger = get_logger(__name__)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-BACKUPS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backups")
+BACKUPS_DIR = _paths.user_file("backups")
 
 RISK_SAFE = "safe"
 RISK_CAUTION = "caution"

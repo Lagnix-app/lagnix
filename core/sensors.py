@@ -7,6 +7,7 @@
 драйвер не завантажується, якщо датчики вимкнені в налаштуваннях."""
 
 import os
+from core import paths as _paths
 import sys
 import threading
 import time
@@ -15,7 +16,7 @@ from core.logging_setup import get_logger
 
 _log = get_logger("lagnix.sensors")
 _LIBS_DIR = os.path.join(
-    getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "libs"
+    _paths.RESOURCE_DIR, "libs"
 )
 
 _lock = threading.Lock()

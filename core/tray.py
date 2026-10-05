@@ -10,6 +10,7 @@ pystray веде власний цикл повідомлень на окрем�
 читає лише звичайні булеві значення."""
 
 import os
+from core import paths as _paths
 
 from core.logging_setup import get_logger
 from core.i18n import t
@@ -26,9 +27,7 @@ except ImportError:
     _HAS_PYSTRAY = False
     _logger.error("pystray is unavailable — the tray icon and Windows notifications are disabled (pip install pystray)")
 
-_ICON_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "lagnix-icon-48.png"
-)
+_ICON_PATH = _paths.resource("assets", "lagnix-icon-48.png")
 
 _WM_LBUTTONUP = 0x0202
 _WM_LBUTTONDBLCLK = 0x0203
