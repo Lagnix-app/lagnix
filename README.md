@@ -31,6 +31,10 @@ Support the author: [Ko-fi](https://ko-fi.com/lagnix) · [itch.io](https://lagni
 |---|---|---|
 | ![Network](docs/screenshots/network.png) | ![Programs](docs/screenshots/programs.png) | ![Registry tweaks](docs/screenshots/tweaks.png) |
 
+| System |
+|---|
+| ![System](docs/screenshots/system.png) |
+
 ## Requirements
 
 - Windows 10 or 11 (64-bit)
@@ -96,6 +100,10 @@ Lagnix — безкоштовна утиліта для геймерів на Wi
 | Мережа | Програми | Твіки реєстру |
 |---|---|---|
 | ![Мережа](docs/screenshots/uk/network.png) | ![Програми](docs/screenshots/uk/programs.png) | ![Твіки реєстру](docs/screenshots/uk/tweaks.png) |
+
+| Система |
+|---|
+| ![Система](docs/screenshots/uk/system.png) |
 
 ### Вимоги
 
