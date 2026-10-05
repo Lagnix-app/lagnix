@@ -101,6 +101,8 @@ class ScrollController:
 def _on_wheel(event) -> None:
     if not _registry:
         return
+    from ui.widgets.dropdown import Dropdown  # відкриті списки не мають лишатися на місці
+    Dropdown.close_all()
     try:
         widget = event.widget if isinstance(event.widget, tk.Misc) else None
         widget = widget.winfo_containing(event.x_root, event.y_root) if widget is not None else None

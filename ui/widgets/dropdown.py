@@ -5,10 +5,11 @@
     відкритий → закрити (усі частини поля ведуть в один обробник; повторний
     виклик протягом 200 мс ігнорується — щоб одна дія не спрацювала двічі);
   * список має ширину поля, відкривається вниз, а якщо знизу мало місця — вгору;
-  * закривається при кліку поза ним, Esc, втраті фокуса, прокручуванні сторінки
-    (коліщатко поза списком), переміщенні/зміні розміру вікна, перемиканні вкладки
+  * модальний (grab_set): коліщатко прокручує лише список, сторінка не гортається;
+    закривається при кліку поза ним, Esc, втраті фокуса, переміщенні, зміні
+    розміру чи згортанні вікна, перемиканні вкладки
     (Dropdown.close_all()) і знищенні поля;
-  * коліщатко над списком прокручує сам список, якщо він довгий.
+  * не виходить за межі головного вікна: вниз або вгору, висота — за місцем.
 """
 
 from __future__ import annotations
@@ -43,8 +44,10 @@ class Dropdown(ctk.CTkFrame):
         self._row_h = max(_ROW_H, height - 4)
         self._value = value if value is not None else (variable.get() if variable is not None else "")
         self._popup: tk.Toplevel | None = None
+        self._scrolls = False
+        self._body = None
         self._last_toggle = 0.0
-        self._root_binding: tuple[tk.Misc, str] | None = None
+        self._root_binding: tuple[tk.Misc, str, str] | None = None
         self.grid_propagate(False)
         self.pack_propagate(False)
         self.grid_columnconfigure(0, weight=1)
@@ -140,16 +143,25 @@ class Dropdown(ctk.CTkFrame):
         self.update_idletasks()
         width = self.winfo_width()
 
-        content_h = len(self.values) * (self._row_h + 2) + 6
-        list_h = min(content_h, _MAX_LIST_H)
-        if content_h > _MAX_LIST_H:
+        top = self.winfo_toplevel()
+        win_top, win_bottom = top.winfo_rooty(), top.winfo_rooty() + top.winfo_height()
+        field_top = self.winfo_rooty()
+        field_bottom = field_top + self.winfo_height()
+        room_below = win_bottom - field_bottom - 6
+        room_above = field_top - win_top - 6
+        content_h = len(self.values) * (self._row_h + 2) + 8
+        up = content_h > room_below and room_above > room_below  # не влазить донизу — вгору
+        list_h = max(self._row_h, min(content_h, _MAX_LIST_H, room_above if up else room_below))
+        self._scrolls = content_h > list_h
+        if self._scrolls:
             body = ctk.CTkScrollableFrame(popup, fg_color=theme.BG_PANEL, corner_radius=0, width=width - 2,
-                                          height=list_h, scrollbar_button_color=theme.BORDER)
+                                          height=list_h - 2, scrollbar_button_color=theme.BORDER)
             holder = body
         else:
             body = ctk.CTkFrame(popup, fg_color=theme.BG_PANEL, corner_radius=0)
             holder = body
         body.pack(fill="both", expand=True, padx=1, pady=1)
+        self._body = body
         for item in self.values:
             selected = item == self._value
             ctk.CTkButton(
@@ -161,13 +173,9 @@ class Dropdown(ctk.CTkFrame):
             ).pack(fill="x", padx=4, pady=1)
 
         popup.update_idletasks()
-        height = popup.winfo_reqheight()
+        height = min(popup.winfo_reqheight(), list_h)
         x = self.winfo_rootx()
-        below = self.winfo_rooty() + self.winfo_height() + 2
-        if below + height > self.winfo_screenheight() - 8:  # знизу мало місця — вгору
-            y = max(8, self.winfo_rooty() - height - 2)
-        else:
-            y = below
+        y = field_top - height - 2 if up else field_bottom + 2
         popup.geometry(f"{width}x{height}+{x}+{y}")
         popup.deiconify()
         popup.lift()
@@ -178,8 +186,8 @@ class Dropdown(ctk.CTkFrame):
         popup.bind("<Button-1>", self._on_popup_click, add="+")
         popup.bind("<MouseWheel>", self._on_popup_wheel, add="+")
         popup.bind("<FocusOut>", lambda _e: self.after(50, self._close_if_unfocused), add="+")
-        top = self.winfo_toplevel()
-        self._root_binding = (top, top.bind("<Configure>", self._on_root_configure, add="+"))
+        self._root_binding = (top, top.bind("<Configure>", self._on_root_configure, add="+"),
+                              top.bind("<Unmap>", self._on_root_configure, add="+"))
         popup.focus_force()
         try:
             popup.grab_set()
@@ -192,9 +200,10 @@ class Dropdown(ctk.CTkFrame):
             _open.remove(self)
         binding, self._root_binding = self._root_binding, None
         if binding is not None:
-            top, funcid = binding
+            top, funcid, unmap_id = binding
             try:
                 top.unbind("<Configure>", funcid)
+                top.unbind("<Unmap>", unmap_id)
             except tk.TclError:
                 pass
         if popup is not None:
@@ -221,13 +230,14 @@ class Dropdown(ctk.CTkFrame):
             self._last_toggle = time.monotonic()
             self.close()
 
-    def _on_popup_wheel(self, event) -> str | None:
-        """Над списком — прокручує його (довгий список), поза ним — закриває."""
-        if not self._inside_popup(event):
-            self.close()
-            return None
-        # CTkScrollableFrame сам обробляє колесо; для короткого списку сторінка не їде
-        return "break" if len(self.values) * (self._row_h + 2) + 6 <= _MAX_LIST_H else None
+    def _on_popup_wheel(self, event) -> str:
+        """Список модальний: коліщатко прокручує лише його (довгий) і ніколи — сторінку."""
+        if self._scrolls and self._body is not None and self._inside_popup(event):
+            try:
+                self._body._parent_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+            except (tk.TclError, AttributeError):
+                pass
+        return "break"
 
     def _on_root_configure(self, event) -> None:
         if event.widget is self.winfo_toplevel():
