@@ -631,7 +631,7 @@ class SettingsTab(ctk.CTkFrame):
         shell = self._shell()
         if shell is None:
             return
-        shell.suspend_hotkeys()  # інакше Windows «з'їсть» комбінації, які вже зайняв PulseFPS
+        shell.suspend_hotkeys()  # інакше Windows «з'їсть» комбінації, які вже зайняв Lagnix
         self._recording = action
         field = self._hotkey_rows[action]["field"]
         field.configure(text=t("settings.hotkeys.press"), border_color=theme.ACCENT_GREEN)

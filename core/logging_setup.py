@@ -25,6 +25,6 @@ def get_logger(name: str) -> logging.Logger:
 def get_audit_logger() -> logging.Logger:
     """Журнал дій, що змінюють систему: кожне завершення процесу й кожне видалення
     (з причиною — яка кнопка) пишеться в logs.txt рівнем INFO."""
-    logger = get_logger("pulsefps.audit")
+    logger = get_logger("lagnix.audit")
     logger.setLevel(logging.INFO)
     return logger

@@ -1,4 +1,4 @@
-"""Перевірка та підвищення прав адміністратора PulseFPS."""
+"""Перевірка та підвищення прав адміністратора Lagnix."""
 
 import ctypes
 import os
@@ -49,7 +49,7 @@ def ask_retry_admin() -> bool:
 
     result = {"retry": False}
     root = tk.Tk()
-    root.title("PulseFPS")
+    root.title("Lagnix")
     root.resizable(False, False)
     root.configure(bg="#0d1321", padx=24, pady=20)
     tk.Label(

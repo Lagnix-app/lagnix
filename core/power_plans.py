@@ -1,6 +1,6 @@
-"""Плани живлення Windows і власний план «PulseFPS Ultra».
+"""Плани живлення Windows і власний план «Lagnix Ultra».
 
-«PulseFPS Ultra» створюється один раз дублюванням прихованого плану
+«Lagnix Ultra» створюється один раз дублюванням прихованого плану
 «Максимальна продуктивність» (Ultimate Performance), а якщо його немає
 (звичайно на ноутбуках із Modern Standby) — «Високої продуктивності».
 GUID плану зберігається в data.json (game_mode.ultra_guid), тож дублі не
@@ -22,7 +22,8 @@ from core.i18n import t
 _logger = get_logger(__name__)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-ULTRA_NAME = "PulseFPS Ultra"
+ULTRA_NAME = "Lagnix Ultra"
+_OLD_ULTRA_NAME = "PulseFPS Ultra"  # лише для міграції
 ULTRA_DESCRIPTION = "power_plan.ultra_desc"
 ULTIMATE_SOURCE_GUID = "e9a42b02-d5df-448d-aa00-03f14749eb61"
 HIGH_PERFORMANCE_GUID = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
@@ -99,12 +100,12 @@ def _apply_ultra_settings(guid: str) -> list[str]:
         ok, out = _powercfg("/setacvalueindex", guid, subgroup, setting, str(value))
         if not ok:
             failed.append(label)
-            _logger.warning("PulseFPS Ultra: failed to set \"%s\": %s", label, out.strip())
+            _logger.warning("Lagnix Ultra: failed to set \"%s\": %s", label, out.strip())
     return failed
 
 
 def ensure_ultra(saved_guid: str | None) -> tuple[str | None, str]:
-    """Гарантує наявність плану «PulseFPS Ultra». -> (GUID або None, повідомлення
+    """Гарантує наявність плану «Lagnix Ultra». -> (GUID або None, повідомлення
     про помилку). Існуючий збережений план не перестворюється (і не
     переналаштовується — користувач міг щось підкрутити)."""
     if saved_guid and scheme_exists(saved_guid):
@@ -126,8 +127,24 @@ def ensure_ultra(saved_guid: str | None) -> tuple[str | None, str]:
     _powercfg("/changename", guid, ULTRA_NAME, t(ULTRA_DESCRIPTION))
     failed = _apply_ultra_settings(guid)
     if failed:
-        _logger.info("PulseFPS Ultra created; not supported: %s", ", ".join(failed))
+        _logger.info("Lagnix Ultra created; not supported: %s", ", ".join(failed))
     return guid, ""
+
+
+def migrate_ultra_name(saved_guid: str | None) -> None:
+    """Перейменовує існуючий план «PulseFPS Ultra» на «Lagnix Ultra» за збереженим
+    GUID (новий не створюється). Нічого не робить, якщо план уже має нову назву."""
+    if not saved_guid:
+        return
+    ok, out = _powercfg("/list", timeout=5)
+    if not ok:
+        return
+    guid = saved_guid.lower()
+    for line in out.splitlines():
+        if guid in line.lower() and _OLD_ULTRA_NAME in line:
+            _powercfg("/changename", guid, ULTRA_NAME, t(ULTRA_DESCRIPTION))
+            _logger.info("Power plan renamed: %s -> %s", _OLD_ULTRA_NAME, ULTRA_NAME)
+            return
 
 
 def delete_scheme(guid: str) -> tuple[bool, str]:

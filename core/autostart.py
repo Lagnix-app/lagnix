@@ -5,7 +5,7 @@
   команда) зберігається в config.json (`autostart_disabled`), звідки при
   увімкненні записується назад;
 - для ярликів у папці Startup файл переноситься у приховану підпапку
-  `PulseFPS_Disabled` тієї ж теки Startup і повертається назад при увімкненні;
+  `Lagnix_Disabled` тієї ж теки Startup і повертається назад при увімкненні;
   сам запис так само дублюється в config.json для надійного відновлення.
 
 HKLM\\...\\Run, HKLM\\...\\WOW6432Node\\...\\Run і спільна папка Startup (усі
@@ -51,7 +51,7 @@ _REGISTRY_SOURCES = (
     (SOURCE_HKLM32, winreg.HKEY_LOCAL_MACHINE, _RUN_SUBKEY_WOW64, True),
 )
 
-_DISABLED_DIR_NAME = "PulseFPS_Disabled"
+_DISABLED_DIR_NAME = "Lagnix_Disabled"
 _IGNORED_STARTUP_NAMES = {"desktop.ini"}
 
 # Технічні ідентифікатори реєстру (напр. "MicrosoftEdgeAutoLaunch_a1b2c3d4e5")

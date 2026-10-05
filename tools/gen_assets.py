@@ -1,4 +1,4 @@
-"""Генерує лого/іконку PulseFPS у assets/ (робот + PNG різних розмірів + .ico).
+"""Генерує лого/іконку Lagnix у assets/ (робот + PNG різних розмірів + .ico).
 
 Малює напряму через Pillow (без cairosvg, якого немає в оточенні) з 4x
 supersampling для згладжування, тож і 16-піксельна іконка виходить чіткою.
@@ -128,15 +128,15 @@ def main() -> None:
     images = {size: draw_icon(size) for size in sizes}
 
     for size, image in images.items():
-        image.save(os.path.join(ASSETS, f"pulsefps-icon-{size}.png"))
+        image.save(os.path.join(ASSETS, f"lagnix-icon-{size}.png"))
 
     images[256].save(
-        os.path.join(ASSETS, "pulsefps.ico"),
+        os.path.join(ASSETS, "lagnix.ico"),
         sizes=[(s, s) for s in sizes],
     )
 
     banner = draw_logo_banner()
-    banner.save(os.path.join(ASSETS, "pulsefps-logo.png"))
+    banner.save(os.path.join(ASSETS, "lagnix-logo.png"))
 
     print("Done:", ", ".join(sorted(os.listdir(ASSETS))))
 

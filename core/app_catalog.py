@@ -160,8 +160,8 @@ DEFAULT_NEVER_CLOSE = (
     # запис і стрім
     "obs64", "obs32", "obs-", "streamlabs", "slobs", "xsplit", "medal", "outplayed", "bandicam", "fraps",
     "action_x64", "shadowplay",
-    # сам PulseFPS і середовище розробки / термінали
-    "pulsefps", "claude", "windowsterminal", "openconsole", "wt.exe", "cmd.exe", "powershell", "pwsh",
+    # сам Lagnix і середовище розробки / термінали
+    "lagnix", "pulsefps", "claude", "windowsterminal", "openconsole", "wt.exe", "cmd.exe", "powershell", "pwsh",
     "conhost", "bash.exe", "mintty", "node.exe", "python", "code.exe", "cursor.exe", "devenv",
     # драйвери й панелі відеокарт
     "nvcontainer", "nvdisplay", "nvcplui", "radeonsoftware", "amdrsserv", "amdow", "igfx", "intelgraphics",

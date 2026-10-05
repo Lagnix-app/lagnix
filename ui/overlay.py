@@ -262,7 +262,7 @@ class OverlayWindow(tk.Toplevel):
         pad = round(8 * scale)
         gap = round(10 * scale)
         line = self._font.metrics("linespace")
-        rows = self._rows or [("PulseFPS", "", theme.TEXT_DIM)]
+        rows = self._rows or [("Lagnix", "", theme.TEXT_DIM)]
         label_w = max(self._label_font.measure(r[0]) for r in rows)
         value_w = max(self._font.measure(m) for m in ("100%", "100°", t("common.na")))
         width = pad * 2 + label_w + gap + value_w

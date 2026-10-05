@@ -929,7 +929,7 @@ def _create_restore_point() -> bool:
     result = _run(
         [
             "powershell", "-NoProfile", "-NonInteractive", "-Command",
-            "Checkpoint-Computer -Description 'PulseFPS: registry tweaks' -RestorePointType 'MODIFY_SETTINGS'",
+            "Checkpoint-Computer -Description 'Lagnix: registry tweaks' -RestorePointType 'MODIFY_SETTINGS'",
         ],
         timeout=90,
     )
@@ -1064,7 +1064,7 @@ def get_recommended_tweaks() -> list[Tweak]:
 
 
 def restore_pending() -> list[tuple[Tweak, bool]]:
-    """Твіки, змінені PulseFPS, які зараз не в початковому стані: (твік, початковий стан)."""
+    """Твіки, змінені Lagnix, які зараз не в початковому стані: (твік, початковий стан)."""
     initial_state = load_data().get("registry_tweaks_initial_state", {})
     result = []
     for tweak in TWEAKS:

@@ -104,7 +104,7 @@ def pill_image(w: int, h: int, fill: str, radius: float | None = None):
 
 
 def checkbox_image(size: int, checked: bool, hover: bool, disabled: bool, scale: float):
-    """Чекбокс у стилі PulseFPS (як CTkCheckBox: рамка 2 dp, радіус 6 dp)."""
+    """Чекбокс у стилі Lagnix (як CTkCheckBox: рамка 2 dp, радіус 6 dp)."""
     def build():
         K = aa.SS
         layer = Image.new("RGBA", (size * K, size * K), (0, 0, 0, 0))

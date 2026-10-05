@@ -1,4 +1,4 @@
-"""Переклади інтерфейсу PulseFPS: locales/<код>.json, t("ключ", **параметри).
+"""Переклади інтерфейсу Lagnix: locales/<код>.json, t("ключ", **параметри).
 
 Значення в JSON — рядок-шаблон для str.format ("Знайдено {count} файлів") або,
 для множини, словник форм за категоріями CLDR:
@@ -6,7 +6,7 @@
      "other": "{count} файлу"}
 Форму обирає параметр count (див. plural_category). Якщо ключа немає в
 поточній мові — береться англійський варіант (а якщо немає й там — сам ключ);
-у режимі DEBUG (змінна оточення PULSEFPS_DEBUG=1 або аргумент --debug) кожен
+у режимі DEBUG (змінна оточення LAGNIX_DEBUG=1 або аргумент --debug) кожен
 такий пропуск один раз пишеться в logs.txt.
 
 t() можна кликати з будь-якого потоку: таблиці лише читаються, а перемикання
@@ -42,7 +42,7 @@ LANGUAGES: tuple[tuple[str, str], ...] = (
 LANGUAGE_CODES = tuple(code for code, _name in LANGUAGES)
 FALLBACK = "en"
 
-DEBUG = os.environ.get("PULSEFPS_DEBUG") == "1" or "--debug" in sys.argv[1:]
+DEBUG = (os.environ.get("LAGNIX_DEBUG") == "1" or os.environ.get("PULSEFPS_DEBUG") == "1") or "--debug" in sys.argv[1:]
 
 _log = get_logger("core.i18n")
 _lock = threading.Lock()

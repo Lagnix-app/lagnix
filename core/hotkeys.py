@@ -1,4 +1,4 @@
-"""Глобальні гарячі клавіші PulseFPS (працюють, навіть коли вікно сховане або
+"""Глобальні гарячі клавіші Lagnix (працюють, навіть коли вікно сховане або
 активна гра) — WinAPI RegisterHotKey без сторонніх бібліотек.
 
 RegisterHotKey прив'язує клавішу до ПОТОКУ, що її зареєстрував: WM_HOTKEY
@@ -143,7 +143,7 @@ class HotkeyManager:
     def start(self) -> None:
         if not self.available or self._thread is not None:
             return
-        self._thread = threading.Thread(target=self._run, daemon=True, name="PulseFPS: hotkeys")
+        self._thread = threading.Thread(target=self._run, daemon=True, name="Lagnix: hotkeys")
         self._thread.start()
         if not self._ready.wait(2.0):
             _logger.error("Hotkey thread did not start within 2 s")

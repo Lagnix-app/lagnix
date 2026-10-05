@@ -1,5 +1,5 @@
-"""Іконка PulseFPS у системному треї (pystray): видима весь час роботи програми.
-Меню — «Відкрити PulseFPS», «Ігровий режим» і «Оверлей» (з галочкою стану),
+"""Іконка Lagnix у системному треї (pystray): видима весь час роботи програми.
+Меню — «Відкрити Lagnix», «Ігровий режим» і «Оверлей» (з галочкою стану),
 «Швидке очищення тимчасових файлів», «Вихід»; подвійний клік — відкрити вікно.
 Через цю ж іконку показуються сповіщення Windows (notify) — на Windows 10/11
 вони з'являються як звичайні toast-сповіщення.
@@ -27,7 +27,7 @@ except ImportError:
     _logger.error("pystray is unavailable — the tray icon and Windows notifications are disabled (pip install pystray)")
 
 _ICON_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "pulsefps-icon-48.png"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "lagnix-icon-48.png"
 )
 
 _WM_LBUTTONUP = 0x0202
@@ -79,7 +79,7 @@ class TrayIcon:
         if not _HAS_PYSTRAY or self._icon is not None:
             return
         try:
-            icon = _icon_class()("PulseFPS", self._image or self._fallback_image(), "PulseFPS", self._menu())
+            icon = _icon_class()("Lagnix", self._image or self._fallback_image(), "Lagnix", self._menu())
             self._icon = icon
             icon.run_detached()
         except Exception:

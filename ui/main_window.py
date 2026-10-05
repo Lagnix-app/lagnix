@@ -1,4 +1,4 @@
-"""Головне вікно PulseFPS з бічним меню та вкладками."""
+"""Головне вікно Lagnix з бічним меню та вкладками."""
 
 import os
 
@@ -36,7 +36,7 @@ TABS = (
 )
 
 _ICON_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "pulsefps.ico"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "lagnix.ico"
 )
 
 _INDICATOR_WIDTH = 3
@@ -51,7 +51,7 @@ class MainWindow(ctk.CTk):
         theme.set_animations_enabled(self.settings.get("animations_enabled", True))
         theme.set_robot_animation_enabled(self.settings.get("robot_animation_enabled", True))
 
-        self.title("PulseFPS")
+        self.title("Lagnix")
         self._apply_icon()
         width = self.settings.get("window", {}).get("width", 1100)
         height = self.settings.get("window", {}).get("height", 700)

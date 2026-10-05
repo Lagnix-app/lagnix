@@ -1,7 +1,7 @@
 """Драйвер датчиків PawnIO: чи встановлено, і встановлення за згодою користувача.
 
 LibreHardwareMonitorLib 0.9.6 читає температуру CPU через підписаний драйвер
-PawnIO (github.com/namazso/PawnIO, pawnio.eu). PulseFPS не вбудовує драйвер:
+PawnIO (github.com/namazso/PawnIO, pawnio.eu). Lagnix не вбудовує драйвер:
 після явної згоди користувача install() завантажує ОФІЦІЙНИЙ інсталятор
 (посилання з pawnio.eu), перевіряє його підпис Authenticode і лише тоді
 запускає звичайний майстер встановлення (його прапорців тихого режиму автор
@@ -75,14 +75,14 @@ def status() -> dict:
 def _verify_signature(path: str) -> tuple[bool, str]:
     """Authenticode через PowerShell Get-AuthenticodeSignature: (дійсний?, підписант)."""
     script = (
-        "$s = Get-AuthenticodeSignature -LiteralPath $env:PULSEFPS_CHECK; "
+        "$s = Get-AuthenticodeSignature -LiteralPath $env:LAGNIX_CHECK; "
         "@{status = [string]$s.Status; signer = [string]$s.SignerCertificate.Subject} | ConvertTo-Json -Compress"
     )
     try:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
             capture_output=True, timeout=60, creationflags=_NO_WINDOW,
-            env=dict(os.environ, PULSEFPS_CHECK=path),
+            env=dict(os.environ, LAGNIX_CHECK=path),
         )
         data = json.loads(result.stdout.decode("utf-8", errors="replace").strip() or "{}")
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
@@ -93,11 +93,11 @@ def _verify_signature(path: str) -> tuple[bool, str]:
 def download_and_verify(reason: str) -> str:
     """Завантажує офіційний інсталятор і перевіряє підпис. -> шлях. Кидає RuntimeError з поясненням."""
     audit = get_audit_logger()
-    folder = os.path.join(tempfile.gettempdir(), "PulseFPS")
+    folder = os.path.join(tempfile.gettempdir(), "Lagnix")
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, "PawnIO_setup.exe")
     audit.info("Downloading the PawnIO installer from %s — reason: %s", INSTALLER_URL, reason)
-    request = urllib.request.Request(INSTALLER_URL, headers={"User-Agent": "PulseFPS"})
+    request = urllib.request.Request(INSTALLER_URL, headers={"User-Agent": "Lagnix"})
     try:
         with urllib.request.urlopen(request, timeout=60) as response, open(path, "wb") as out:
             size = 0
@@ -122,7 +122,7 @@ def download_and_verify(reason: str) -> str:
 
 
 def run_installer(path: str, reason: str) -> int:
-    """Запускає майстер встановлення (PulseFPS уже з правами адміністратора) і чекає завершення."""
+    """Запускає майстер встановлення (Lagnix уже з правами адміністратора) і чекає завершення."""
     get_audit_logger().info("Running the PawnIO setup wizard (%s) — reason: %s", path, reason)
     code = subprocess.call([path])
     get_audit_logger().info("The PawnIO wizard exited with code %s; driver: %s", code,

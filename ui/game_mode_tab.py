@@ -846,7 +846,7 @@ class GameModeTab(ctk.CTkFrame):
         self._render()
 
     def _reset_on_startup(self) -> None:
-        """Після запуску PulseFPS Ігровий режим ЗАВЖДИ вимкнений: збережений стан
+        """Після запуску Lagnix Ігровий режим ЗАВЖДИ вимкнений: збережений стан
         «увімкнено» (закрили програму чи вона впала під час режиму) не
         відновлюється. Лише повертаємо план живлення, який режим змінив, —
         без діалогів і без закриття будь-яких програм."""
@@ -860,7 +860,7 @@ class GameModeTab(ctk.CTkFrame):
             self._save()
         previous = work.get("previous_power_plan")
         get_audit_logger().info(
-            "PulseFPS startup: the saved \"Game Mode on\" state is not restored — the mode is off (power plan: %s; previously the mode closed: %s)",
+            "Lagnix startup: the saved \"Game Mode on\" state is not restored — the mode is off (power plan: %s; previously the mode closed: %s)",
             f'restoring "{game_mode_core.power_plan_name(game_mode_core.normal_plan_target(previous))}"'
             if previous else "unchanged", ", ".join(closed) or "nothing",
         )

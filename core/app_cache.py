@@ -1001,7 +1001,7 @@ def close_group(key: str, action) -> dict:
 
 
 def relaunch(target) -> bool:
-    """Запускає програму знову. PulseFPS працює з правами адміністратора, тому
+    """Запускає програму знову. Lagnix працює з правами адміністратора, тому
     запуск іде через explorer.exe — програма стартує зі звичайними правами."""
     if not target:
         return False

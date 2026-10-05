@@ -1,4 +1,4 @@
-"""Точка входу PulseFPS."""
+"""Точка входу Lagnix."""
 
 import ctypes
 import os
@@ -28,7 +28,7 @@ from core.settings import load_settings  # noqa: E402
 
 
 def _ensure_admin() -> None:
-    """PulseFPS завжди працює з правами адміністратора: без них — перезапуск
+    """Lagnix завжди працює з правами адміністратора: без них — перезапуск
     через UAC ("runas") і вихід із поточного процесу. Якщо користувач відмовив
     у вікні UAC — пропонуємо спробувати ще раз або вийти."""
     if admin_core.is_admin():
@@ -41,11 +41,11 @@ def _ensure_admin() -> None:
 
 import customtkinter as ctk  # noqa: E402
 
-from core import launch_on_windows, sensors  # noqa: E402
+from core import launch_on_windows, rename_migrate, sensors  # noqa: E402
 from core.sounds import ensure_sounds_exist  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
 
-_THEME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "pulsefps_theme.json")
+_THEME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lagnix_theme.json")
 
 
 def main():
@@ -57,6 +57,7 @@ def main():
 
     ensure_sounds_exist()
     launch_on_windows.migrate()
+    rename_migrate.run()  # PulseFPS -> Lagnix: теки автозапуску, назва плану Ultra
     sensors.set_enabled(load_settings().get("advanced_sensors_enabled", True))
 
     app = MainWindow()

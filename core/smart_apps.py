@@ -5,7 +5,7 @@
 core/app_catalog.py за рівнем («М'який» / «Збалансований» / «Максимальний») і
 вибір користувача для поточного профілю й рівня (перемикач «закривати / не
 закривати», додані вручну програми). НІКОЛИ не пропонуються:
-  * системні процеси, античити, сам PulseFPS (жорстко, без винятків);
+  * системні процеси, античити, сам Lagnix (жорстко, без винятків);
   * усе зі списку «Ніколи не закривати» (типовий — app_catalog.DEFAULT_NEVER_CLOSE,
     користувач його змінює);
   * лаунчер гри, що зараз запущена (Steam для Steam-гри, Riot Client для Valorant);
@@ -37,10 +37,10 @@ CATEGORY_LABELS = catalog.CATEGORY_LABELS  # сумісність зі стар�
 
 
 def is_hard_never(name: str) -> bool:
-    """Системне, античит, сам PulseFPS — не закриваємо ніколи, незалежно від налаштувань."""
+    """Системне, античит, сам Lagnix — не закриваємо ніколи, незалежно від налаштувань."""
     low = name.lower()
     return (
-        "pulsefps" in low
+        "lagnix" in low or "pulsefps" in low  # стара назва програми — теж не чіпаємо
         or process_info.kind_for(name) in (process_info.ANTICHEAT, process_info.SYSTEM)
         or is_protected(name) or is_hidden(name)
     )
@@ -205,7 +205,7 @@ def close_apps(apps: list[dict], action) -> tuple[list[dict], list[str]]:
 
 def reopen_apps(apps: list[dict]) -> list[str]:
     """Запускає програми знову. Через explorer.exe — так вони стартують із правами
-    звичайного користувача, а не адміністратора (PulseFPS завжди elevated).
+    звичайного користувача, а не адміністратора (Lagnix завжди elevated).
     -> назви, які не вдалося запустити."""
     failed = []
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)

@@ -1,11 +1,11 @@
-"""Єдина палітра, шрифти та базові анімовані віджети PulseFPS.
+"""Єдина палітра, шрифти та базові анімовані віджети Lagnix.
 
 Кольори й відступи звідси — джерело істини для всього інтерфейсу; більшість
 стандартних CTk-віджетів (CTkFrame/CTkButton/CTkCheckBox тощо) додатково
-беруть кольори з `assets/pulsefps_theme.json` (застосовується один раз у
+беруть кольори з `assets/lagnix_theme.json` (застосовується один раз у
 main.py через `ctk.set_default_color_theme`), тож модулі вкладок можуть і
 надалі створювати `ctk.CTkButton(...)`/`ctk.CTkFrame(..., corner_radius=10)`
-без явних кольорів і отримувати вигляд PulseFPS «безкоштовно».
+без явних кольорів і отримувати вигляд Lagnix «безкоштовно».
 
 AnimatedButton і AnimatedCard монкі-патчать `customtkinter.CTkButton` і
 `customtkinter.CTkFrame` (див. кінець файлу) — це свідомий вибір: додати

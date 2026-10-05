@@ -44,7 +44,7 @@ def _alive(widget) -> bool:
 
 def _install_exception_hooks(root) -> None:
     """Непіймані винятки будь-якого потоку й колбеків Tk — у logs.txt, а не лише в консоль."""
-    if getattr(threading.excepthook, "_pulsefps", False) is False:
+    if getattr(threading.excepthook, "_lagnix", False) is False:
         previous = threading.excepthook
 
         def thread_hook(args):
@@ -53,7 +53,7 @@ def _install_exception_hooks(root) -> None:
                            "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)))
             previous(args)
 
-        thread_hook._pulsefps = True
+        thread_hook._lagnix = True
         threading.excepthook = thread_hook
 
     def callback_hook(exc, value, tb):

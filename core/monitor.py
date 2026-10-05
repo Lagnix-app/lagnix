@@ -330,7 +330,7 @@ def get_process_groups() -> list[dict]:
 
 
 def _all_processes(track_cpu: bool = True) -> list[dict]:
-    """Усі процеси (крім ядра ОС і самого PulseFPS): pid, ppid, create_time,
+    """Усі процеси (крім ядра ОС і самого Lagnix): pid, ppid, create_time,
     name, cpu_percent (нормований на всі ядра, максимум 100%), memory_mb."""
     current_pid = os.getpid()
     if process_snapshot.is_available():

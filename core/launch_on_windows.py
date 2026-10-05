@@ -1,9 +1,9 @@
-"""Автозапуск самого PulseFPS разом із Windows через завдання Планувальника
+"""Автозапуск самого Lagnix разом із Windows через завдання Планувальника
 («Виконувати з найвищими правами», тригер — вхід користувача), окремо від
 core/autostart.py (той керує ЧУЖИМИ програмами автозапуску). Завдання дає
 запуск з правами адміністратора без вікна UAC; запис у HKCU\\...\\Run, який
 використовували раніше, при першому виклику migrate() переноситься в завдання
-й видаляється. Потребує прав адміністратора — PulseFPS їх завжди має."""
+й видаляється. Потребує прав адміністратора — Lagnix їх завжди має."""
 
 import getpass
 import os
@@ -16,8 +16,10 @@ from xml.sax.saxutils import escape
 from core.logging_setup import get_logger
 
 _RUN_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-_VALUE_NAME = "PulseFPS"
-TASK_NAME = "PulseFPS"
+_VALUE_NAME = "Lagnix"
+_OLD_VALUE_NAME = "PulseFPS"  # лише для міграції
+TASK_NAME = "Lagnix"
+_OLD_TASK_NAME = "PulseFPS"  # лише для міграції
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 _log = get_logger("core.launch_on_windows")
@@ -41,7 +43,7 @@ def _task_xml() -> str:
     workdir = escape(os.path.dirname(exe if getattr(sys, "frozen", False) else os.path.abspath(sys.argv[0])))
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Start PulseFPS at Windows sign-in</Description></RegistrationInfo>
+  <RegistrationInfo><Description>Start Lagnix at Windows sign-in</Description></RegistrationInfo>
   <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>
   <Principals><Principal id="Author"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
@@ -65,18 +67,24 @@ def _schtasks(*args: str) -> subprocess.CompletedProcess:
 def _run_value_exists() -> bool:
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_SUBKEY, 0, winreg.KEY_READ) as key:
-            winreg.QueryValueEx(key, _VALUE_NAME)
-            return True
+            for name in (_VALUE_NAME, _OLD_VALUE_NAME):
+                try:
+                    winreg.QueryValueEx(key, name)
+                    return True
+                except OSError:
+                    continue
     except OSError:
-        return False
+        pass
+    return False
 
 
 def _delete_run_value() -> None:
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_SUBKEY, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.DeleteValue(key, _VALUE_NAME)
-    except OSError:
-        pass
+    for name in (_VALUE_NAME, _OLD_VALUE_NAME):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_SUBKEY, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, name)
+        except OSError:
+            pass
 
 
 def is_enabled() -> bool:
@@ -117,8 +125,25 @@ def set_enabled(enabled: bool) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def _migrate_old_name() -> None:
+    """Завдання «PulseFPS» → «Lagnix»: нове створюється, старе видаляється."""
+    try:
+        if _schtasks("/Query", "/TN", _OLD_TASK_NAME).returncode != 0:
+            return
+        ok, err = set_enabled(True)
+        if not ok:
+            _log.error("Startup task rename failed: %s", err)
+            return
+        _schtasks("/Delete", "/TN", _OLD_TASK_NAME, "/F")
+        _log.info("Startup task renamed: %s -> %s", _OLD_TASK_NAME, TASK_NAME)
+    except (OSError, subprocess.SubprocessError):
+        _log.exception("Startup task rename error")
+
+
 def migrate() -> None:
-    """Старий автозапуск через HKCU\\Run → завдання Планувальника."""
+    """Старий автозапуск через HKCU\\Run → завдання Планувальника; завдання
+    зі старою назвою → нова назва."""
+    _migrate_old_name()
     if _run_value_exists():
         ok, err = set_enabled(True)
         if not ok:

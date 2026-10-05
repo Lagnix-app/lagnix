@@ -1,5 +1,5 @@
-"""Лого PulseFPS для верху бічного меню: мініатюрний робот (спільний RobotView,
-"дихає" й кліпає), напис Pulse/FPS і тонка лінія пульсу, що біжить під ним.
+"""Лого Lagnix для верху бічного меню: мініатюрний робот (спільний RobotView,
+"дихає" й кліпає), напис Lag/nix і тонка лінія пульсу, що біжить під ним.
 
 Лінія анімується на ~24 кадри/с (досить для декоративного ефекту, що працює
 безперервно весь час роботи програми) через власний after()-цикл із
@@ -38,11 +38,11 @@ class LogoWidget(ctk.CTkFrame):
         text_row = ctk.CTkFrame(self, fg_color="transparent")
         text_row.grid(row=0, column=1, sticky="w", pady=(8, 0))
         ctk.CTkLabel(
-            text_row, text="Pulse", text_color="#ffffff",
+            text_row, text="Lag", text_color="#ffffff",
             font=ctk.CTkFont(family="Segoe UI", size=19, weight="bold"),
         ).pack(side="left")
         ctk.CTkLabel(
-            text_row, text="FPS", text_color=_TEXT_TEAL,
+            text_row, text="nix", text_color=_TEXT_TEAL,
             font=ctk.CTkFont(family="Segoe UI", size=19, weight="bold"),
         ).pack(side="left")
 
