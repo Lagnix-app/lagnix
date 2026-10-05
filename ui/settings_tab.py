@@ -30,6 +30,7 @@ from ui.widgets import robot as robot_view
 from ui.app_shell import HOTKEY_LABELS
 from ui.overlay import METRICS as OVERLAY_METRICS
 from ui.widgets.canvas_list import Tooltip
+from ui.widgets.dropdown import Dropdown
 from ui.widgets.language_picker import LanguagePicker
 from core import i18n
 from core.i18n import TDict, t
@@ -493,14 +494,12 @@ class SettingsTab(ctk.CTkFrame):
         row = theme.plain_frame(card)
         row.pack(fill="x", padx=theme.PAD_M, pady=(0, 12))
         ctk.CTkLabel(row, text=t("settings.overlay.corner"), font=theme.font_body()).pack(anchor="w")
-        corner_menu = ctk.CTkOptionMenu(
-            row, values=list(_OVERLAY_CORNER_LABELS.values()), width=220, height=30, corner_radius=8,
-            fg_color=theme.BG_PANEL_LIGHT, button_color=theme.BG_PANEL_LIGHT, button_hover_color=theme.BORDER,
-            dropdown_fg_color=theme.BG_PANEL, dropdown_hover_color=theme.BORDER, text_color=theme.TEXT_MAIN,
+        corner_menu = Dropdown(
+            row, values=list(_OVERLAY_CORNER_LABELS.values()), width=220, height=30,
             command=self._on_overlay_corner,
+            value=_OVERLAY_CORNER_LABELS.get(settings.get("overlay_corner", "top_left"),
+                                             _OVERLAY_CORNER_LABELS["top_left"]),
         )
-        corner_menu.set(_OVERLAY_CORNER_LABELS.get(settings.get("overlay_corner", "top_left"),
-                                                   _OVERLAY_CORNER_LABELS["top_left"]))
         corner_menu.pack(anchor="w", pady=(6, 0))
         self._hint(row, t("settings.overlay.drag_hint")).pack(
             anchor="w", pady=(4, 0))

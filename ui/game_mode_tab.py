@@ -23,6 +23,7 @@ from ui.widgets import aa
 from ui.widgets import robot as robot_view
 from ui.game_mode_apps import AppsPanel
 from ui.widgets.countdown_toast import CountdownToast
+from ui.widgets.dropdown import Dropdown
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, Tooltip, card_image, checkbox_image
 from ui.widgets.game_widgets import (
     BigSwitch, ChipBoard, GamesList, IconCache, ScrollPage, SessionsList,
@@ -347,13 +348,7 @@ class GameModeTab(ctk.CTkFrame):
 
     def _menu(self, parent, variable, values: list[str], command, width: int = 240):
         """Випадний список у стилі решти програми (темний, фіксованої ширини)."""
-        return ctk.CTkOptionMenu(
-            parent, variable=variable, values=values, command=command, width=width, height=30,
-            corner_radius=8, fg_color=theme.BG_PANEL_LIGHT, button_color=theme.BG_PANEL_LIGHT,
-            button_hover_color=theme.BORDER, dropdown_fg_color=theme.BG_PANEL,
-            dropdown_hover_color=theme.BORDER, text_color=theme.TEXT_MAIN,
-            dropdown_text_color=theme.TEXT_MAIN, font=theme.font_body(), dynamic_resizing=False,
-        )
+        return Dropdown(parent, values=values, command=command, variable=variable, width=width, height=30)
 
     def _build_games_card(self, inner) -> None:
         card = self._card(inner, 3, column=0, columnspan=1)

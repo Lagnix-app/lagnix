@@ -10,6 +10,7 @@ from core import i18n
 from core.i18n import t
 from ui import bg, theme
 from ui.app_shell import AppShell
+from ui.widgets.dropdown import Dropdown
 from ui.widgets.logo_widget import LogoWidget
 from ui.monitor_tab import MonitorTab
 from ui.game_mode_tab import GameModeTab
@@ -266,6 +267,7 @@ class MainWindow(ctk.CTk):
         self._select_tab(key)
 
     def _select_tab(self, key: str):
+        Dropdown.close_all()
         if key == self._current_tab:
             return
         previous, self._current_tab = self._current_tab, key

@@ -18,6 +18,7 @@ from core.cleanup import format_size
 from ui import bg, theme
 from ui.widgets import aa
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
+from ui.widgets.dropdown import Dropdown
 from ui.widgets.program_list import CATEGORIES, VirtualList
 from core.i18n import TDict, t
 
@@ -215,13 +216,10 @@ class ProgramsTab(ctk.CTkFrame):
         )
         self.refresh_button.grid(row=0, column=1, padx=(0, 8))
 
-        self.sort_menu = ctk.CTkOptionMenu(
+        self.sort_menu = Dropdown(
             line, values=list(SORT_LABELS.values()), command=self._on_sort_selected, width=196, height=38,
-            corner_radius=10, fg_color=theme.BG_PANEL_LIGHT, button_color=theme.BG_PANEL_LIGHT,
-            button_hover_color=theme.BORDER, dropdown_fg_color=theme.BG_PANEL,
-            dropdown_hover_color=theme.BORDER, text_color=theme.TEXT_MAIN, dropdown_text_color=theme.TEXT_MAIN,
+            corner_radius=10, value=SORT_LABELS[self._sort_key],
         )
-        self.sort_menu.set(SORT_LABELS[self._sort_key])
         self.sort_menu.grid(row=0, column=2, padx=(0, 8))
 
         self.direction_button = ctk.CTkButton(
