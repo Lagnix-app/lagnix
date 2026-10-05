@@ -202,12 +202,6 @@ class OverlayWindow(tk.Toplevel):
         if resized or old.get("corner") != config.get("corner") or old.get("position") != config.get("position"):
             self._place()
 
-    def refresh_language(self) -> None:
-        """Нова мова інтерфейсу: шрифт мови (CJK) і підписи на кшталт «н/д»."""
-        px = round(_SIZES.get(self._config.get("size"), _SIZES["small"]) * self._scale())
-        self._font, self._label_font = _fonts_for(self, px)
-        self._redraw(force=True)
-
     def set_opacity(self, value: float) -> None:
         """Лише прозорість цього Toplevel (ніколи не головного вікна)."""
         value = max(0.3, min(1.0, float(value)))

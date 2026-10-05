@@ -1070,5 +1070,9 @@
  "support.text": "Lagnix jest darmowy i bez reklam. Jeśli Ci pomógł, możesz wesprzeć autora — to pomaga rozwijać program.",
  "support.kofi": "Wesprzyj na Ko-fi",
  "support.title": "Wesprzyj Lagnix",
- "language.changing": "Zmieniam język…"
+ "restart.title": "Zmiana języka",
+ "restart.text": "Język zmieni się po ponownym uruchomieniu Lagnix.",
+ "restart.now": "Uruchom ponownie teraz",
+ "restart.later": "Później",
+ "restart.failed": "Nie udało się ponownie uruchomić Lagnix: {exc}"
 }

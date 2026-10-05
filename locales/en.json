@@ -1044,5 +1044,9 @@
  "support.text": "Lagnix is free and ad-free. If it helped you, you can support the author — it helps keep the app growing.",
  "support.kofi": "Support on Ko-fi",
  "support.title": "Support Lagnix",
- "language.changing": "Changing language…"
+ "restart.title": "Language change",
+ "restart.text": "The language will change after Lagnix restarts.",
+ "restart.now": "Restart now",
+ "restart.later": "Later",
+ "restart.failed": "Could not restart Lagnix: {exc}"
 }

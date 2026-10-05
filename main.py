@@ -41,7 +41,7 @@ def _ensure_admin() -> None:
 
 import customtkinter as ctk  # noqa: E402
 
-from core import launch_on_windows, rename_migrate, sensors, single_instance  # noqa: E402
+from core import launch_on_windows, rename_migrate, restart, sensors, single_instance  # noqa: E402
 from core.sounds import ensure_sounds_exist  # noqa: E402
 from ui import bg  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
@@ -52,6 +52,7 @@ _THEME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets",
 def main():
     i18n.set_language(load_settings().get("language"))  # до першого вікна (зокрема запиту прав)
     _ensure_admin()
+    restart.wait_for_previous()  # перезапуск (зміна мови): старий екземпляр має встигнути вийти
     if not single_instance.acquire():  # Lagnix уже запущено — показуємо його вікно й виходимо
         single_instance.signal_existing()
         return
@@ -65,7 +66,10 @@ def main():
     sensors.set_enabled(load_settings().get("advanced_sensors_enabled", True))
 
     app = MainWindow()
-    if "--minimized" in sys.argv[1:]:
+    restart_state = restart.pop_state()
+    if restart_state:
+        app.apply_restart_state(restart_state)
+    elif "--minimized" in sys.argv[1:]:
         app.start_minimized()
     single_instance.listen(lambda: bg.ui_call(app, app.shell.show_window))
     try:

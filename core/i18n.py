@@ -13,6 +13,7 @@ t() можна кликати з будь-якого потоку: таблиц�
 мови підміняє посилання на словник цілком.
 """
 
+import contextlib
 import json
 import locale
 import os
@@ -135,6 +136,19 @@ def set_language(code: str) -> None:
                 callback(code)
             except Exception:
                 _log.exception("Language change listener failed")
+
+
+@contextlib.contextmanager
+def using_language(code: str):
+    """Тимчасово перекладає t() мовою code (без сповіщення слухачів) — лише з потоку UI:
+    діалог «Мову буде змінено після перезапуску» має бути вже НОВОЮ мовою."""
+    global _current, _current_table
+    previous = (_current, _current_table)
+    _current, _current_table = code, _load_table(code)
+    try:
+        yield
+    finally:
+        _current, _current_table = previous
 
 
 def on_change(callback) -> None:

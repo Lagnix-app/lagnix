@@ -1044,5 +1044,9 @@
  "support.text": "Lagnix est gratuit et sans publicité. S'il vous a aidé, vous pouvez soutenir l'auteur : cela aide à faire évoluer l'application.",
  "support.kofi": "Soutenir sur Ko-fi",
  "support.title": "Soutenir Lagnix",
- "language.changing": "Changement de langue…"
+ "restart.title": "Changement de langue",
+ "restart.text": "La langue changera après le redémarrage de Lagnix.",
+ "restart.now": "Redémarrer maintenant",
+ "restart.later": "Plus tard",
+ "restart.failed": "Impossible de redémarrer Lagnix : {exc}"
 }

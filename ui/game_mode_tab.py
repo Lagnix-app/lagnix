@@ -23,6 +23,7 @@ from ui.widgets import aa
 from ui.widgets import robot as robot_view
 from ui.game_mode_apps import AppsPanel
 from ui.widgets.countdown_toast import CountdownToast
+from core import restart as restart_core
 from ui.widgets.dropdown import Dropdown
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, Tooltip, card_image, checkbox_image
 from ui.widgets.game_widgets import (
@@ -241,29 +242,6 @@ class GameModeTab(ctk.CTkFrame):
         self._build_games_card(inner)
         self._build_sessions_card(inner)
         self._build_advanced_card(inner)
-
-    def rebuild_view(self) -> None:
-        """Зміна мови інтерфейсу: перебудувати лише вигляд. Стан режиму, фонові
-        потоки, сесія гри й автоувімкнення лишаються як є — повне перестворення
-        вкладки вимкнуло б активний Ігровий режим (_reset_on_startup)."""
-        adv_open = self.adv_body is not None and bool(self.adv_body.winfo_manager())
-        try:
-            fraction = self.page.canvas.yview()[0]
-        except Exception:
-            fraction = 0.0
-        self.page.destroy()
-        self._advanced_built = False
-        self._build_view()
-        self._render()
-        self._render_sessions()
-        if self._games:
-            self._refresh_games_list()
-        elif self._games_task is not None and not self._games_task.finished:
-            theme.set_text(self.games_info, t("game_mode.games.searching"), text_color=theme.TEXT_DIM)
-        if adv_open:
-            self._toggle_advanced()
-        self.robot.set_running(self._visible)
-        self.after(120, lambda: self.page.winfo_exists() and self.page.controller.moveto_now(fraction))
 
     def _card(self, parent, row: int, column: int = 0, columnspan: int = 2, pady=(0, 14)):
         card = theme.PlainFrame(parent, fg_color=theme.BG_PANEL, corner_radius=14)
@@ -854,6 +832,11 @@ class GameModeTab(ctk.CTkFrame):
         відновлюється. Лише повертаємо план живлення, який режим змінив, —
         без діалогів і без закриття будь-яких програм."""
         if not self.state.get("is_active"):
+            return
+        if restart_core.is_restarted():
+            # перезапуск з кнопки (зміна мови): режим лишається таким, яким був — план, закриті
+            # програми й прапорець живуть у data.json, нічого не повертаємо
+            get_audit_logger().info("Lagnix restart: Game Mode state kept as it was")
             return
         work = copy.deepcopy(self.state)
         closed = [c.get("title") for c in self.state.get("closed_apps", [])]

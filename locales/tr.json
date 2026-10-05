@@ -1044,5 +1044,9 @@
  "support.text": "Lagnix ücretsiz ve reklamsızdır. Işine yaradıysa yazarı destekleyebilirsin — bu, uygulamanın gelişmesine yardımcı olur.",
  "support.kofi": "Ko-fi'de destekle",
  "support.title": "Lagnix'i destekle",
- "language.changing": "Dil değiştiriliyor…"
+ "restart.title": "Dil değişikliği",
+ "restart.text": "Dil, Lagnix yeniden başlatıldıktan sonra değişecek.",
+ "restart.now": "Şimdi yeniden başlat",
+ "restart.later": "Daha sonra",
+ "restart.failed": "Lagnix yeniden başlatılamadı: {exc}"
 }

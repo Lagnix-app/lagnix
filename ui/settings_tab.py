@@ -32,6 +32,7 @@ from ui.app_shell import HOTKEY_LABELS
 from ui.overlay import METRICS as OVERLAY_METRICS
 from ui.widgets.canvas_list import Tooltip
 from ui.widgets.dropdown import Dropdown
+from ui.widgets import restart_dialog
 from ui.widgets.language_picker import LanguagePicker
 from core import i18n
 from core.i18n import TDict, t
@@ -736,10 +737,14 @@ class SettingsTab(ctk.CTkFrame):
                                             self._on_toggle_robot_animation)
 
     def _on_language(self, code: str) -> None:
-        """Мова змінюється одразу: MainWindow перебудовує інтерфейс (core/i18n.on_change)."""
+        """Мова зберігається одразу, а діє після перезапуску (як у Steam/Discord): без перебудови
+        вкладок на льоту. Вибір поточної мови скасовує відкладену зміну."""
         update_setting("language", code)
         sounds.play_click()
-        i18n.set_language(code)
+        if code == i18n.get_language():
+            return
+        if restart_dialog.ask_restart(self, code):
+            self.winfo_toplevel().restart_app()
 
     def _on_toggle_animations(self) -> None:
         enabled = self._anim_var.get()

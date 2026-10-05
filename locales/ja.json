@@ -1031,5 +1031,9 @@
  "support.text": "Lagnix は無料で広告もありません。役に立ったと感じたら、作者を応援していただけると開発の励みになります。",
  "support.kofi": "Ko-fi で応援",
  "support.title": "Lagnix を応援",
- "language.changing": "言語を切り替えています…"
+ "restart.title": "言語の変更",
+ "restart.text": "Lagnix を再起動すると言語が変更されます。",
+ "restart.now": "今すぐ再起動",
+ "restart.later": "後で",
+ "restart.failed": "Lagnix を再起動できませんでした: {exc}"
 }

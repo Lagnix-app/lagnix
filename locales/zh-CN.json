@@ -1031,5 +1031,9 @@
  "support.text": "Lagnix 免费且无广告。如果它帮到了你,可以支持作者——这有助于程序持续改进。",
  "support.kofi": "在 Ko-fi 上支持",
  "support.title": "支持 Lagnix",
- "language.changing": "正在切换语言…"
+ "restart.title": "更改语言",
+ "restart.text": "重启 Lagnix 后将更改语言。",
+ "restart.now": "立即重启",
+ "restart.later": "稍后",
+ "restart.failed": "无法重启 Lagnix：{exc}"
 }

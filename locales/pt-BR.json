@@ -1044,5 +1044,9 @@
  "support.text": "O Lagnix é gratuito e sem anúncios. Se ele ajudou você, pode apoiar o autor — isso ajuda o app a continuar evoluindo.",
  "support.kofi": "Apoiar no Ko-fi",
  "support.title": "Apoiar o Lagnix",
- "language.changing": "Alterando o idioma…"
+ "restart.title": "Alteração de idioma",
+ "restart.text": "O idioma será alterado após reiniciar o Lagnix.",
+ "restart.now": "Reiniciar agora",
+ "restart.later": "Mais tarde",
+ "restart.failed": "Não foi possível reiniciar o Lagnix: {exc}"
 }

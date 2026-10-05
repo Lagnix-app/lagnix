@@ -1070,5 +1070,9 @@
  "support.text": "Lagnix бесплатна и без рекламы. Если она вам помогла, вы можете поддержать автора — это помогает развивать программу дальше.",
  "support.kofi": "Поддержать на Ko-fi",
  "support.title": "Поддержать Lagnix",
- "language.changing": "Меняю язык…"
+ "restart.title": "Смена языка",
+ "restart.text": "Язык изменится после перезапуска Lagnix.",
+ "restart.now": "Перезапустить сейчас",
+ "restart.later": "Позже",
+ "restart.failed": "Не удалось перезапустить Lagnix: {exc}"
 }

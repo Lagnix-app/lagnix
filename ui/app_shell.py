@@ -72,21 +72,6 @@ class AppShell:
         if self._overlay_on:
             self._show_overlay()
 
-    def on_language_changed(self) -> None:
-        """Мова інтерфейсу змінилась: меню трею (тексти — функції, pystray перебудовує
-        меню) та оверлей — одразу, без перезапуску."""
-        self.tray.refresh_menu()
-        if self._overlay is not None:
-            try:
-                self._overlay.refresh_language()
-            except tk.TclError:
-                pass
-
-    def on_tab_rebuilt(self, key: str, frame) -> None:
-        """Вкладку перестворено (зміна мови): «Монітор» — знову джерело зрізів для оверлею й сповіщень."""
-        if key == "monitor" and hasattr(frame, "add_snapshot_listener"):
-            frame.add_snapshot_listener(self._on_snapshot)
-
     def shutdown(self) -> None:
         if self._stopped:
             return
