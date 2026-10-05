@@ -21,21 +21,54 @@ def _enable_dpi_awareness() -> None:
             pass
 
 
+def _ultra_active() -> bool:
+    """Ігровий режим увімкнений або активний план живлення — «Lagnix Ultra»."""
+    from core import game_mode, power_plans
+    state = game_mode.load_game_mode()
+    ultra = (state.get("ultra_guid") or "").lower()
+    return bool(state.get("is_active")) or bool(ultra and power_plans.get_active_scheme() == ultra)
+
+
+def _restore_plan() -> bool:
+    """Повертає попередній план живлення й прибирає «Lagnix Ultra». -> усе вдалося."""
+    from core import game_mode, power_plans
+    state = game_mode.load_game_mode()
+    ultra = (state.get("ultra_guid") or "").lower()
+    previous = state.get("previous_power_plan")
+    ok = True
+    if state.get("is_active"):
+        game_mode.deactivate(state)
+        game_mode.save_game_mode(state)
+    elif ultra and power_plans.get_active_scheme() == ultra:
+        ok = power_plans.set_active_scheme(game_mode.normal_plan_target(previous))[0]
+    if ok and ultra and power_plans.scheme_exists(ultra):
+        ok = power_plans.delete_scheme(ultra)[0]
+    return ok
+
+
 def _tweaks_cli() -> None:
-    """Службові режими без вікна для деінсталятора: `--tweaks-pending` -> код 10, якщо є
-    змінені Lagnix твіки, які можна повернути (інакше 0); `--restore-tweaks` повертає їх."""
+    """Службові режими без вікна для деінсталятора (installer/Lagnix.iss):
+    `--uninstall-state` -> код: біт 1 — є змінені Lagnix твіки, біт 2 — застосовано
+    «Lagnix Ultra»/Ігровий режим; `--restore-all` повертає твіки з бекапів і попередній
+    план живлення (код 0 — усе гаразд); `--tweaks-pending`/`--restore-tweaks` — лише твіки."""
     args = sys.argv[1:]
-    if "--tweaks-pending" not in args and "--restore-tweaks" not in args:
+    modes = ("--uninstall-state", "--restore-all", "--tweaks-pending", "--restore-tweaks")
+    if not any(m in args for m in modes):
         return
     code = 0
     try:
         from core import tweaks
-        if "--tweaks-pending" in args:
+        if "--uninstall-state" in args:
+            code = (1 if tweaks.restore_pending() else 0) | (2 if _ultra_active() else 0)
+        elif "--tweaks-pending" in args:
             code = 10 if tweaks.restore_pending() else 0
+        elif "--restore-all" in args:
+            tweaks_ok = all(ok for _, ok, _ in tweaks.restore_tweaks(None))
+            code = 0 if (_restore_plan() and tweaks_ok) else 1
         else:
             code = 0 if all(ok for _, ok, _ in tweaks.restore_tweaks(None)) else 1
     except Exception:
-        code = 2
+        code = 255 if "--uninstall-state" in args else 2
     sys.exit(code)
 
 

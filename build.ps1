@@ -60,6 +60,9 @@ Write-Host "OK: dist\Lagnix\Lagnix.exe"
 
 if ($SkipInstaller) { return }
 Get-PawnIO
+# Картинки майстра (робот у настроях) генеруються з ui/widgets/robot.py: у git не зберігаються
+python tools\gen_installer_images.py
+if ($LASTEXITCODE -ne 0) { throw "gen_installer_images.py завершився з кодом $LASTEXITCODE" }
 $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
     Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) { throw "Inno Setup 6 не знайдено" }

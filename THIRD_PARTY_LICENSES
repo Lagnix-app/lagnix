@@ -66,3 +66,7 @@ LGPL libraries are compatible when used as unmodified, replaceable libraries
 (our case). The licenses of bundled components must be kept with any
 redistribution (this file and libs/LICENSE-LibreHardwareMonitor.txt).
 This is an engineering summary, not legal advice.
+
+Installer: installer/lang/ChineseSimplified.isl is the Inno Setup Chinese Simplified
+translation from https://github.com/jrsoftware/issrc (Files/Languages),
+used unmodified under the Inno Setup license.

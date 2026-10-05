@@ -22,6 +22,7 @@ logs.txt.*
 
 # Лише локальне / завантажується build.ps1
 installer/redist/*.exe
+installer/img/
 *.pfx
 *.p12
 .env
