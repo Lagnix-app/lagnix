@@ -24,7 +24,7 @@ from core.logging_setup import get_logger
 
 LOCALES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "locales")
 
-# (код — він же ім'я locales/<код>.json і assets/flags/<код>.png, назва мови рідною мовою)
+# (код — він же ім'я locales/<код>.json, назва мови рідною мовою)
 LANGUAGES: tuple[tuple[str, str], ...] = (
     ("uk", "Українська"),
     ("en", "English"),

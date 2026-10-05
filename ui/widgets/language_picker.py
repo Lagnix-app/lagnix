@@ -1,6 +1,6 @@
-"""Випадний список мов із прапорцями: кнопка «[прапорець] Назва ▾», по кліку —
-спливний список усіх мов (прапорець + назва мови рідною мовою, кожна — своїм
-шрифтом, щоб ієрогліфи не ставали квадратиками).
+"""Випадний список мов: кнопка «Назва ▾», по кліку — спливний список усіх мов
+(назва мови рідною мовою, кожна — своїм шрифтом, щоб ієрогліфи не ставали
+квадратиками).
 
 CTkOptionMenu не вміє показувати картинки в пунктах, тому список — власний
 Toplevel без рамки: grab_set() перехоплює кліки, клік поза списком, Esc чи
@@ -12,27 +12,12 @@ from __future__ import annotations
 import tkinter as tk
 
 import customtkinter as ctk
-from PIL import Image
 
 from core import i18n
 from ui import theme
-from ui.widgets import flags
 
 _ROW_H = 32
 _WIDTH = 240
-
-_images: dict[str, ctk.CTkImage] = {}
-
-
-def flag_image(code: str) -> ctk.CTkImage:
-    """CTkImage прапорця 20x14 (джерело — @2x, тож на 125–200% лишається чітким)."""
-    image = _images.get(code)
-    if image is None:
-        flags.ensure_flags()
-        source = Image.open(flags.flag_path(code, 2))
-        image = _images[code] = ctk.CTkImage(light_image=source, dark_image=source, size=flags.SIZE)
-    return image
-
 
 def _font(code: str, size: int = 13) -> ctk.CTkFont:
     return ctk.CTkFont(family=i18n.ui_font_family(code), size=size)
@@ -46,7 +31,7 @@ class LanguagePicker(ctk.CTkFrame):
         self._width = width
         self._popup: tk.Toplevel | None = None
         self.button = ctk.CTkButton(
-            self, text=i18n.language_name(current), image=flag_image(current), compound="left", anchor="w",
+            self, text=i18n.language_name(current), anchor="w",
             width=width, height=_ROW_H, corner_radius=8, font=_font(current),
             fg_color=theme.BG_PANEL_LIGHT, hover_color=theme.BORDER, text_color=theme.TEXT_MAIN,
             command=self.toggle,
@@ -77,7 +62,7 @@ class LanguagePicker(ctk.CTkFrame):
         for code, name in i18n.LANGUAGES:
             selected = code == self._current
             ctk.CTkButton(
-                body, text=name, image=flag_image(code), compound="left", anchor="w",
+                body, text=name, anchor="w",
                 width=self._width - 2, height=_ROW_H, corner_radius=6, font=_font(code),
                 fg_color=theme.BG_PANEL_LIGHT if selected else "transparent",
                 hover_color=theme.BORDER, text_color=theme.ACCENT_GREEN if selected else theme.TEXT_MAIN,
@@ -137,5 +122,5 @@ class LanguagePicker(ctk.CTkFrame):
         if code == self._current:
             return
         self._current = code
-        self.button.configure(text=i18n.language_name(code), image=flag_image(code), font=_font(code))
+        self.button.configure(text=i18n.language_name(code), font=_font(code))
         self._on_select(code)

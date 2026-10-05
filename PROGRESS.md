@@ -766,14 +766,9 @@
   мови). `data.json` мігрується автоматично (схема Ігрового режиму 3 → 4: ключі
   `profiles`, `levels`, `app_choices`, `active_profile` перейменовуються).
 - **Вибір мови (`ui/widgets/language_picker.py`, «Налаштування → Інтерфейс»,
-  «Мова / Language»):** випадний список із прапорцем і назвою рідною мовою
+  «Мова / Language»):** випадний список лише з назвою рідною мовою (без прапорців)
   (Українська, English, Polski, Deutsch, Español, Português (Brasil), Français,
   Türkçe, Русский, 简体中文, 日本語, 한국어); кожен пункт — власним шрифтом.
-- **Прапорці (`ui/widgets/flags.py`, `assets/flags/`):** PNG 20x14 і `@2x`
-  (40x28, з нього малюється CTkImage), малюються кодом через Pillow (4x
-  supersampling), злегка заокруглені кути й тонка сіра рамка. «Русский» — біло-
-  синьо-біла горизонтальна триколірна смуга (#FFFFFF / #0055A4 / #FFFFFF) із сірою
-  рамкою. Генеруються при першому використанні; `tools/gen_assets.py` перемальовує.
 - **Шрифти:** `theme.font_family()` — Segoe UI; для zh-CN/ja/ko — Microsoft YaHei
   UI / Yu Gothic UI / Malgun Gothic (`i18n.ui_font_family`); `apply_language_fonts`
   міняє типовий шрифт CTk і іменовані шрифти Tk. Квадратиків немає (перевірено
