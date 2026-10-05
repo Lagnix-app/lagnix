@@ -1,5 +1,11 @@
 # Changelog / Журнал змін
 
+## 0.9.1 (beta) — 2026-10-05
+
+- Settings → About: "GitHub" and "Report a bug" buttons (shown only when the link is set).
+- Uninstaller: removed the emoji from the title, in all 12 languages.
+- Version bump for the code-signing application.
+
 ## 0.9.0 (beta) — 2026-10-05
 
 First public beta release / Перший публічний бета-реліз.

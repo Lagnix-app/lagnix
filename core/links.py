@@ -4,8 +4,8 @@ import webbrowser
 
 KOFI_URL = "https://ko-fi.com/lagnix"
 ITCH_URL = "https://lagnixapp.itch.io/lagnix"
-GITHUB_URL = ""  # поки порожньо
-ISSUES_URL = ""  # поки порожньо
+GITHUB_URL = "https://github.com/Lagnix-app/lagnix"
+ISSUES_URL = "https://github.com/Lagnix-app/lagnix/issues"
 
 
 def open_link(url: str) -> bool:

@@ -23,7 +23,7 @@ begin
   A('uk', 'inst_run_pawnio', 'Встановлюю драйвер датчиків PawnIO…');
   A('uk', 'finish_title', 'Готово! Я вже тут.');
   A('uk', 'finish_text', 'Lagnix встановлено. Запускай, і я покажу, що в тебе під капотом.');
-  A('uk', 'un_title', 'Ти реально хочеш мене видалити? 🥺');
+  A('uk', 'un_title', 'Ти реально хочеш мене видалити?');
   A('uk', 'un_text', 'Я ще багато чого вмію… Але якщо треба, я зрозумію.');
   A('uk', 'un_yes', 'Так, видалити');
   A('uk', 'un_no', 'Ні, залишусь');
@@ -53,7 +53,7 @@ begin
   A('en', 'inst_run_pawnio', 'Installing the PawnIO sensor driver…');
   A('en', 'finish_title', 'Done! I’m here.');
   A('en', 'finish_text', 'Lagnix is installed. Launch it and I’ll show you what’s under your hood.');
-  A('en', 'un_title', 'Do you really want to remove me? 🥺');
+  A('en', 'un_title', 'Do you really want to remove me?');
   A('en', 'un_text', 'I can still do so much… But if you must, I’ll understand.');
   A('en', 'un_yes', 'Yes, remove');
   A('en', 'un_no', 'No, I’ll stay');
@@ -83,7 +83,7 @@ begin
   A('pl', 'inst_run_pawnio', 'Instaluję sterownik czujników PawnIO…');
   A('pl', 'finish_title', 'Gotowe! Jestem na miejscu.');
   A('pl', 'finish_text', 'Lagnix jest zainstalowany. Uruchom mnie, a pokażę, co masz pod maską.');
-  A('pl', 'un_title', 'Naprawdę chcesz mnie usunąć? 🥺');
+  A('pl', 'un_title', 'Naprawdę chcesz mnie usunąć?');
   A('pl', 'un_text', 'Jeszcze wiele potrafię… Ale jeśli trzeba, zrozumiem.');
   A('pl', 'un_yes', 'Tak, usuń');
   A('pl', 'un_no', 'Nie, zostanę');
@@ -113,7 +113,7 @@ begin
   A('de', 'inst_run_pawnio', 'PawnIO-Sensortreiber wird installiert…');
   A('de', 'finish_title', 'Fertig! Ich bin da.');
   A('de', 'finish_text', 'Lagnix ist installiert. Starte mich, und ich zeige dir, was unter deiner Haube steckt.');
-  A('de', 'un_title', 'Willst du mich wirklich entfernen? 🥺');
+  A('de', 'un_title', 'Willst du mich wirklich entfernen?');
   A('de', 'un_text', 'Ich kann noch so viel… Aber wenn es sein muss, verstehe ich das.');
   A('de', 'un_yes', 'Ja, entfernen');
   A('de', 'un_no', 'Nein, ich bleibe');
@@ -143,7 +143,7 @@ begin
   A('es', 'inst_run_pawnio', 'Instalando el controlador de sensores PawnIO…');
   A('es', 'finish_title', '¡Listo! Ya estoy aquí.');
   A('es', 'finish_text', 'Lagnix está instalado. Ábreme y te enseñaré qué hay bajo el capó.');
-  A('es', 'un_title', '¿De verdad quieres desinstalarme? 🥺');
+  A('es', 'un_title', '¿De verdad quieres desinstalarme?');
   A('es', 'un_text', 'Aún sé hacer muchas cosas… Pero si hace falta, lo entenderé.');
   A('es', 'un_yes', 'Sí, desinstalar');
   A('es', 'un_no', 'No, me quedo');
@@ -173,7 +173,7 @@ begin
   A('pt-BR', 'inst_run_pawnio', 'Instalando o driver de sensores PawnIO…');
   A('pt-BR', 'finish_title', 'Pronto! Já estou aqui.');
   A('pt-BR', 'finish_text', 'O Lagnix foi instalado. Abra-me e eu mostro o que tem debaixo do capô.');
-  A('pt-BR', 'un_title', 'Você quer mesmo me remover? 🥺');
+  A('pt-BR', 'un_title', 'Você quer mesmo me remover?');
   A('pt-BR', 'un_text', 'Eu ainda sei fazer tanta coisa… Mas se precisar, eu entendo.');
   A('pt-BR', 'un_yes', 'Sim, remover');
   A('pt-BR', 'un_no', 'Não, vou ficar');
@@ -203,7 +203,7 @@ begin
   A('fr', 'inst_run_pawnio', 'Installation du pilote de capteurs PawnIO…');
   A('fr', 'finish_title', 'Terminé ! Je suis là.');
   A('fr', 'finish_text', 'Lagnix est installé. Lance-moi et je te montre ce qu’il y a sous ton capot.');
-  A('fr', 'un_title', 'Tu veux vraiment me supprimer ? 🥺');
+  A('fr', 'un_title', 'Tu veux vraiment me supprimer ?');
   A('fr', 'un_text', 'Je sais encore faire tant de choses… Mais si tu y tiens, je comprendrai.');
   A('fr', 'un_yes', 'Oui, supprimer');
   A('fr', 'un_no', 'Non, je reste');
@@ -233,7 +233,7 @@ begin
   A('tr', 'inst_run_pawnio', 'PawnIO sensör sürücüsü kuruluyor…');
   A('tr', 'finish_title', 'Tamam! Buradayım.');
   A('tr', 'finish_text', 'Lagnix kuruldu. Beni aç, kaputun altında neler olduğunu göstereyim.');
-  A('tr', 'un_title', 'Beni gerçekten kaldırmak mı istiyorsun? 🥺');
+  A('tr', 'un_title', 'Beni gerçekten kaldırmak mı istiyorsun?');
   A('tr', 'un_text', 'Daha yapabileceğim çok şey var… Ama gerekiyorsa anlarım.');
   A('tr', 'un_yes', 'Evet, kaldır');
   A('tr', 'un_no', 'Hayır, kalıyorum');
@@ -263,7 +263,7 @@ begin
   A('ru', 'inst_run_pawnio', 'Устанавливаю драйвер датчиков PawnIO…');
   A('ru', 'finish_title', 'Готово! Я уже здесь.');
   A('ru', 'finish_text', 'Lagnix установлен. Запускай, и я покажу, что у тебя под капотом.');
-  A('ru', 'un_title', 'Ты правда хочешь меня удалить? 🥺');
+  A('ru', 'un_title', 'Ты правда хочешь меня удалить?');
   A('ru', 'un_text', 'Я ещё много чего умею… Но если нужно, я пойму.');
   A('ru', 'un_yes', 'Да, удалить');
   A('ru', 'un_no', 'Нет, останусь');
@@ -293,7 +293,7 @@ begin
   A('zh-CN', 'inst_run_pawnio', '正在安装 PawnIO 传感器驱动……');
   A('zh-CN', 'finish_title', '好了！我到啦。');
   A('zh-CN', 'finish_text', 'Lagnix 已安装。打开我，我来给你看看机箱里的情况。');
-  A('zh-CN', 'un_title', '你真的要卸载我吗？🥺');
+  A('zh-CN', 'un_title', '你真的要卸载我吗？');
   A('zh-CN', 'un_text', '我还会很多东西呢……不过如果你决定了，我能理解。');
   A('zh-CN', 'un_yes', '是的，卸载');
   A('zh-CN', 'un_no', '不，我留下');
@@ -323,7 +323,7 @@ begin
   A('ja', 'inst_run_pawnio', 'PawnIO センサードライバーをインストールしています…');
   A('ja', 'finish_title', '完了！ここにいますよ。');
   A('ja', 'finish_text', 'Lagnix をインストールしました。起動すれば、PC の中身をお見せします。');
-  A('ja', 'un_title', '本当に私を削除しますか？🥺');
+  A('ja', 'un_title', '本当に私を削除しますか？');
   A('ja', 'un_text', 'まだまだできることがあるのに…でも、必要なら仕方ないですね。');
   A('ja', 'un_yes', 'はい、削除する');
   A('ja', 'un_no', 'いいえ、残ります');
@@ -353,7 +353,7 @@ begin
   A('ko', 'inst_run_pawnio', 'PawnIO 센서 드라이버를 설치하는 중…');
   A('ko', 'finish_title', '끝났어요! 저 여기 있어요.');
   A('ko', 'finish_text', 'Lagnix가 설치됐어요. 실행하면 PC 속이 어떤지 보여 드릴게요.');
-  A('ko', 'un_title', '정말 저를 삭제할 건가요? 🥺');
+  A('ko', 'un_title', '정말 저를 삭제할 건가요?');
   A('ko', 'un_text', '아직 할 수 있는 게 많은데요… 그래도 필요하다면 이해할게요.');
   A('ko', 'un_yes', '네, 삭제할게요');
   A('ko', 'un_no', '아니요, 남을래요');
