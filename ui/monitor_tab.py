@@ -26,10 +26,16 @@ from ui.widgets.game_widgets import ScrollPage
 from core.i18n import TDict, maybe_t, t
 
 DEFAULT_UPDATE_INTERVAL_SEC = 1.0
-# «Бракує оперативної пам'яті»: зайнято понад 85% RAM або Windows уже
-# стиснула понад 1 ГБ (Memory Compression) — ознака, що пам'яті не вистачає
-LOW_RAM_PERCENT = 85
-LOW_RAM_COMPRESSION_MB = 1024
+# Рівні статусу робота (0 — усе добре, 1 — навантаження зростає, 2 — критично):
+# межі в % для RAM / CPU / GPU. Стиснення пам'яті Windows (Memory Compression) —
+# лише додаткова ознака в підписі, на рівень не впливає. Температури: рівень 1
+# за TEMP_WARN_MARGIN_C до порога перегріву, рівень 2 — понад поріг.
+RAM_LEVELS = (70, 85)
+CPU_LEVELS = (70, 90)
+GPU_LEVELS = (80, 95)
+TEMP_WARN_MARGIN_C = 10
+COMPRESSION_NOTE_MB = 1024
+SMOOTH_WINDOW_S = 5.0  # статус рахується за середнім за це вікно, щоб не «мерехтів»
 GRAPH_POINTS = 60
 TABLE_MIN_DP = 200  # мінімальна висота картки таблиці процесів
 GRAPH_MIN_DP = 220  # мінімальна висота полотна графіка; решту висоти він ділить з таблицею процесів
@@ -46,6 +52,27 @@ def _level_color(percent: float) -> str:
     if percent >= 60:
         return theme.WARNING
     return theme.ACCENT_GREEN
+
+
+def _level(value: float, levels: tuple[float, float]) -> int:
+    return 2 if value > levels[1] else (1 if value >= levels[0] else 0)
+
+
+class _Smoother:
+    """Ковзне середнє значень зрізів за SMOOTH_WINDOW_S секунд."""
+
+    def __init__(self):
+        self._samples: deque = deque()
+
+    def add(self, **values) -> None:
+        now = time.monotonic()
+        self._samples.append((now, values))
+        while len(self._samples) > 1 and now - self._samples[0][0] > SMOOTH_WINDOW_S:
+            self._samples.popleft()
+
+    def avg(self, key: str) -> float | None:
+        vals = [v[key] for _ts, v in self._samples if v.get(key) is not None]
+        return sum(vals) / len(vals) if vals else None
 
 
 def _fmt_rate(mb_per_s: float) -> str:
@@ -740,6 +767,10 @@ class ProcessList(CanvasList):
         return text
 
 
+def _fmt_size(mb: float) -> str:
+    return t("units.gb_1", v=mb / 1024) if mb >= 1024 else t("units.mb_0", mb=mb)
+
+
 def _fmt_mem(mb: float) -> str:
     return t("units.gb_1", v=mb / 1024) if mb >= 10 * 1024 else t("units.mb_0", mb=mb)
 
@@ -834,72 +865,60 @@ class ProcessTable(ctk.CTkFrame):
 
 # настрій стану системи -> настрій спільного робота (ui/widgets/robot.py)
 _ROBOT_MOODS = {"happy": robot_view.HAPPY, "neutral": robot_view.CALM, "worried": robot_view.WORRIED}
-ROBOT_SIZE = 64
+ROBOT_SIZE = 112
 STATUS_WIDTH_DP = 260
-
-
-def _page_bg(widget) -> str:
-    """Колір фону під карткою (перший непрозорий предок) — для tk-контейнера."""
-    while widget is not None:
-        if isinstance(widget, ctk.CTkBaseClass) or isinstance(widget, ctk.CTk):
-            color = widget.cget("fg_color")
-            color = None if color == "transparent" else widget._apply_appearance_mode(color)
-        else:  # звичайний tk-віджет (напр. внутрішня рамка ScrollPage) — його фон і видно
-            try:
-                color = widget.cget("bg")
-            except tk.TclError:
-                color = None
-        if color:
-            r, g, b = widget.winfo_rgb(color)
-            return f"#{r >> 8:02x}{g >> 8:02x}{b >> 8:02x}"
-        widget = widget.master
-    return theme.BG_MAIN
+_STATUS_PAD_DP = 16
 
 
 class StatusRobot(ctk.CTkFrame):
-    """Компактна картка «Статус системи»: робот ліворуч, праворуч — заголовок,
-    коротка фраза про стан і (за потреби) кнопка-дія. Лежить у звичайному
-    tk-контейнері, висоту якого MonitorTab зрівнює з рядком плиток поруч
-    (match_height) — картка не звисає на графік, а CTk малює її штатно."""
+    """Картка «Статус системи»: заголовок, великий робот, фраза про стан,
+    деталі (RAM %, найбільший «їдець»), кнопка-дія й 2–3 короткі поради.
+    Стоїть у grid поруч із плитками й графіком (rowspan) і розтягується до
+    низу графіка; мінімальну висоту задає вміст (body)."""
 
     def __init__(self, master):
-        # контейнер (tk.Frame) задає розмір; картка заповнює його
-        self.holder = tk.Frame(master, bg=_page_bg(master), highlightthickness=0, bd=0)
-        super().__init__(self.holder, corner_radius=10)  # як у плиток поруч
-        self.pack(fill="both", expand=True)
+        super().__init__(master, corner_radius=14, width=STATUS_WIDTH_DP, height=10)
         self._scale = self._get_widget_scaling()
-        self._target_px = 0
+        self._min_height_dp = 0
+        self._wrap_dp = None
 
+        # body не бере участі в розмірах картки (place) — мінімум виставляє _fit_height
         self.body = ctk.CTkFrame(self, fg_color="transparent")
         self.body.place(relx=0, rely=0.5, anchor="w", relwidth=1)
-        self.body.grid_columnconfigure(1, weight=1)
 
         # фон робота = колір картки (у темі він може бути назвою Tk на кшталт "gray17" — переводимо в hex)
         r, g, b = self.winfo_rgb(self._apply_appearance_mode(self.cget("fg_color")))
         card_color = f"#{r >> 8:02x}{g >> 8:02x}{b >> 8:02x}"
+
+        ctk.CTkLabel(self.body, text=t("monitor.status"), font=theme.font_header()).pack(pady=(14, 0))
         self.robot = robot_view.RobotView(self.body, size=ROBOT_SIZE, mood=robot_view.CALM, bg=card_color)
-        self.robot.grid(row=0, column=0, rowspan=3, padx=(12, 10), pady=8)
-
-        ctk.CTkLabel(self.body, text=t("monitor.status"), font=ctk.CTkFont(size=13, weight="bold"),
-                     anchor="w").grid(row=0, column=1, padx=(0, 12), pady=(8, 0), sticky="sw")
+        self.robot.pack(pady=(6, 2))
         self.phrase_label = ctk.CTkLabel(
-            self.body, text=t("monitor.collecting"), font=theme.font_small(), text_color=theme.TEXT_DIM,
-            wraplength=150, justify="left", anchor="w",
+            self.body, text=t("monitor.collecting"), font=ctk.CTkFont(family=theme.font_family(), size=15, weight="bold"),
+            wraplength=STATUS_WIDTH_DP - 2 * _STATUS_PAD_DP, justify="center",
         )
-        self.phrase_label.grid(row=1, column=1, padx=(0, 12), sticky="nw")
-
-        # кнопка-дія під фразою (напр. «Увімкнути Ігровий режим», коли бракує RAM)
+        self.phrase_label.pack(padx=_STATUS_PAD_DP, pady=(4, 0))
+        self.detail_label = ctk.CTkLabel(
+            self.body, text="", font=theme.font_small(), text_color=theme.TEXT_DIM,
+            wraplength=STATUS_WIDTH_DP - 2 * _STATUS_PAD_DP, justify="center",
+        )
+        # кнопка-дія (напр. «Увімкнути Ігровий режим»); з'являється лише коли потрібна
         self._action = None
         self.action_button = ctk.CTkButton(
-            self.body, text="", height=26, corner_radius=8, font=theme.font_small(),
+            self.body, text="", height=28, corner_radius=8, font=theme.font_small(),
             fg_color=theme.ACCENT_GREEN, hover_color=theme.ACCENT_GREEN_DIM, text_color=theme.BG_MAIN,
             command=lambda: self._action and self._action[1](),
         )
-        self._wrap_dp = None
-        tk.Misc.bind(self, "<Configure>", self._on_resize, "+")
-        tk.Misc.bind(self.body, "<Configure>", lambda _e: self._fit_height(), "+")
+        self.tips_label = ctk.CTkLabel(
+            self.body, text="", font=theme.font_small(), text_color=theme.TEXT_DIM,
+            wraplength=STATUS_WIDTH_DP - 2 * _STATUS_PAD_DP, justify="left", anchor="w",
+        )
+        self.detail_label.pack(padx=_STATUS_PAD_DP, pady=(2, 0))
+        self.tips_label.pack(padx=_STATUS_PAD_DP, pady=(12, 14), fill="x")
 
-        self._mood = None
+        tk.Misc.bind(self.body, "<Configure>", lambda _e: self._fit_height(), "+")
+        tk.Misc.bind(self, "<Configure>", self._on_resize, "+")
+        self._state = None
 
     def set_active(self, active: bool) -> None:
         """Анімація робота працює лише на видимій вкладці."""
@@ -909,27 +928,22 @@ class StatusRobot(ctk.CTkFrame):
         super()._set_scaling(*args, **kwargs)
         self._scale = args[0]
 
-    def match_height(self, height_px: int) -> None:
-        """Висота рядка плиток поруч (px)."""
-        if height_px > 1 and height_px != self._target_px:
-            self._target_px = height_px
-            self._fit_height()
-
     def _fit_height(self) -> None:
-        needed = max(self._target_px, self.body.winfo_reqheight())
-        width = round(STATUS_WIDTH_DP * self._scale)
-        if needed > 1 and (int(self.holder.cget("height")) != needed or int(self.holder.cget("width")) != width):
-            self.holder.configure(height=needed, width=width)
-            self.holder.pack_propagate(False)
+        """Запитувана висота картки = висота вмісту (понад неї грид розтягує картку)."""
+        dp = max(round(self.body.winfo_reqheight() / self._scale), 10)
+        if dp != self._min_height_dp:
+            self._min_height_dp = dp
+            self.configure(height=dp)
 
     def _on_resize(self, event=None) -> None:
         width = self.winfo_width()
         if width <= 1:
             return
-        wrap = max(round(width / self._scale) - ROBOT_SIZE - 40, 80)
+        wrap = max(round(width / self._scale) - 2 * _STATUS_PAD_DP, 80)
         if wrap != self._wrap_dp:
             self._wrap_dp = wrap
-            self.phrase_label.configure(wraplength=wrap)
+            for label in (self.phrase_label, self.detail_label, self.tips_label):
+                label.configure(wraplength=wrap)
         self._fit_action_text()
 
     def _fit_action_text(self) -> None:
@@ -938,30 +952,35 @@ class StatusRobot(ctk.CTkFrame):
             return
         text = self._action[0]
         short = self._action[2] if len(self._action) > 2 else text
-        avail = self.winfo_width() - round((ROBOT_SIZE + 40) * self._scale)
+        avail = self.winfo_width() - round(2 * _STATUS_PAD_DP * self._scale)
         font = tkfont.Font(family=theme.font_family(), size=-round(11 * self._scale))
         needed = font.measure(text) + round(24 * self._scale)
         wanted = text if needed <= avail or avail <= 0 else short
         if self.action_button.cget("text") != wanted:
             self.action_button.configure(text=wanted)
 
-    def set_mood(self, mood: str, phrase: str, action: tuple | None = None) -> None:
+    def set_mood(self, mood: str, headline: str, detail: str = "", tips: tuple = (), action: tuple | None = None) -> None:
         """action — (текст кнопки, колбек[, короткий текст для вузької картки]) або None."""
         new_text = action[0] if action else None
         old_text = self._action[0] if self._action else None
         self._action = action
         if new_text != old_text:
             if new_text is None:
-                self.action_button.grid_forget()
+                self.action_button.pack_forget()
             else:
                 self.action_button.configure(text=new_text)
-                self.action_button.grid(row=2, column=1, padx=(0, 12), pady=(4, 8), sticky="w")
+                self.action_button.pack(before=self.tips_label, pady=(8, 0))
                 self._fit_action_text()
-        if mood == self._mood and phrase == self.phrase_label.cget("text"):
+        state = (mood, headline, detail, tips)
+        if state == self._state:
             return
-        self._mood = mood
-        self.robot.set_mood(_ROBOT_MOODS.get(mood, robot_view.CALM))
-        theme.set_text(self.phrase_label, phrase, text_color=theme.TEXT_MAIN)
+        if not self._state or mood != self._state[0]:
+            self.robot.set_mood(_ROBOT_MOODS.get(mood, robot_view.CALM))
+        self._state = state
+        theme.set_text(self.phrase_label, headline, text_color=theme.TEXT_MAIN)
+        theme.set_text(self.detail_label, detail)
+        theme.set_text(self.tips_label, "\n".join(f"• {tip}" for tip in tips))
+        self.after_idle(self._fit_height)
 
 
 # ------------------------------------------------------------------ the tab
@@ -975,6 +994,8 @@ class MonitorTab(ctk.CTkFrame):
         # історію графіка; останній зріз застосовується повністю при показі.
         self._visible = False
         self._last_data: dict | None = None
+        self._smooth = _Smoother()
+        self._top_ram = self._top_cpu = None  # (назва, cpu %, МБ) найбільших «їдців»
         # оверлей і сповіщення про перегрів читають ті самі зрізи (ui/app_shell.py)
         self._snapshot_listeners: list = []
 
@@ -985,8 +1006,7 @@ class MonitorTab(ctk.CTkFrame):
         self.page = ScrollPage(self, fill_height=True)
         self.page.grid(row=0, column=0, sticky="nsew")
         body = self._body = self.page.inner
-        body.grid_columnconfigure(0, weight=3)
-        body.grid_columnconfigure(1, weight=1)
+        body.grid_columnconfigure(0, weight=1)
         body.grid_rowconfigure(3, weight=1)
 
         self._build_header()
@@ -1033,8 +1053,8 @@ class MonitorTab(ctk.CTkFrame):
 
     def _build_main_and_sidebar(self):
         main = ctk.CTkFrame(self._body, fg_color="transparent")
-        main.grid(row=3, column=0, padx=(20, 10), pady=(0, 20), sticky="nsew")
-        main.grid_columnconfigure(0, weight=1)
+        main.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="nsew")
+        main.grid_columnconfigure(0, weight=1)  # колонка 1 — картка статусу фіксованої ширини
         # графік і таблиця процесів ділять висоту, що лишилася — на
         # невисокому вікні таблиця більше не зникає за графіком (2 : 3)
         main.grid_rowconfigure(1, weight=2)
@@ -1065,10 +1085,9 @@ class MonitorTab(ctk.CTkFrame):
         self.process_table = ProcessTable(main, on_terminate=self._confirm_terminate)
         self.process_table.grid(row=2, column=0, sticky="nsew")
 
-        self.status_robot = StatusRobot(self._body)
-        self.status_robot.holder.grid(row=3, column=1, padx=(10, 20), pady=(0, 20), sticky="new")
-        # висота картки = висота рядка плиток поруч (і коли плитки переносяться у 2 рядки)
-        tk.Misc.bind(tiles_frame, "<Configure>", lambda e: self.status_robot.match_height(e.height), "+")
+        # картка статусу: від верху плиток до низу графіка (rowspan 0–1)
+        self.status_robot = StatusRobot(main)
+        self.status_robot.grid(row=0, column=1, rowspan=2, padx=(12, 0), pady=(0, 10), sticky="nsew")
 
     def _fit_graph_row(self) -> None:
         """Мінімуми рядків: графік — не нижче GRAPH_MIN_DP, таблиця — TABLE_MIN_DP;
@@ -1150,6 +1169,11 @@ class MonitorTab(ctk.CTkFrame):
             return
 
         self._last_data = data
+        gpu = data["gpu"]
+        self._smooth.add(
+            cpu=data["cpu_percent"], ram=data["ram_percent"], cpu_temp=data["cpu_temp"],
+            gpu=gpu["load_percent"] if gpu else None, gpu_temp=gpu["temperature_c"] if gpu else None,
+        )
         for listener in list(self._snapshot_listeners):
             try:
                 listener(data)
@@ -1157,7 +1181,6 @@ class MonitorTab(ctk.CTkFrame):
                 _logger.exception("Monitor snapshot listener error")
         if not self._visible:
             # лише накопичуємо історію графіка — нічого не перемальовуємо
-            gpu = data["gpu"]
             self.graph.push(data["cpu_percent"], gpu["load_percent"] if gpu else None, data["ram_percent"], data["cpu_temp"])
             return
         self._render_snapshot(data)
@@ -1230,31 +1253,76 @@ class MonitorTab(ctk.CTkFrame):
 
         if data["processes"] is not None:
             self.process_table.update_processes(data["processes"], data.get("process_groups"))
+            self._update_top_eaters(data)
 
-        self._update_status_robot(data, warnings)
+        self._update_status_robot(data)
 
-    def _update_status_robot(self, data: dict, warnings: list[str]) -> None:
-        if warnings:
-            self.status_robot.set_mood("worried", warnings[0])
-            return
-        compression = data.get("memory_compression_mb") or 0.0
-        if data["ram_percent"] > LOW_RAM_PERCENT or compression > LOW_RAM_COMPRESSION_MB:
-            details = f"RAM {data['ram_percent']:.0f}%"
-            if compression > LOW_RAM_COMPRESSION_MB:
-                details += t("monitor.compressed", gb=compression / 1024)
-            action = None if self._game_mode_active() else (t("monitor.enable_game_mode"), self._enable_game_mode, t("tabs.game_mode"))
-            self.status_robot.set_mood("worried", t("monitor.low_ram", details=details), action)
-            return
-        if data["cpu_percent"] > 90:
-            self.status_robot.set_mood("worried", t("monitor.cpu_high"))
-            return
-
-        gpu = data["gpu"]
-        elevated = data["ram_percent"] > 75 or data["cpu_percent"] > 75 or (gpu and gpu["load_percent"] > 85)
-        if elevated:
-            self.status_robot.set_mood("neutral", t("monitor.some_load"))
+    def _update_top_eaters(self, data: dict) -> None:
+        """Найбільші споживачі RAM і CPU (без системних процесів) — для підпису статусу."""
+        groups = data.get("process_groups")
+        if groups is not None:
+            rows = [(g["title"], g["cpu_percent"], g["memory_mb"]) for g in groups if not g["protected"]]
         else:
-            self.status_robot.set_mood("happy", t("monitor.all_good"))
+            rows = [(p["name"], p["cpu_percent"], p["memory_mb"]) for p in data["processes"] if not is_protected(p["name"])]
+        self._top_ram = max(rows, key=lambda r: r[2], default=None)
+        self._top_cpu = max(rows, key=lambda r: r[1], default=None)
+
+    def _update_status_robot(self, data: dict) -> None:
+        """Статус за середнім за SMOOTH_WINDOW_S: бере найгірший за рівнем показник
+        (при рівності — температури, RAM, CPU, GPU)."""
+        sm = self._smooth
+        threshold = data["temp_threshold"]
+        ram, cpu, gpu = sm.avg("ram"), sm.avg("cpu"), sm.avg("gpu")
+        cpu_t, gpu_t = sm.avg("cpu_temp"), sm.avg("gpu_temp")
+
+        def temp_level(value):
+            return 2 if value > threshold else (1 if value >= threshold - TEMP_WARN_MARGIN_C else 0)
+
+        candidates = []  # (ключ, рівень, значення) у порядку пріоритету
+        if cpu_t is not None:
+            candidates.append(("cpu_temp", temp_level(cpu_t), cpu_t))
+        if gpu_t is not None:
+            candidates.append(("gpu_temp", temp_level(gpu_t), gpu_t))
+        candidates.append(("ram", _level(ram, RAM_LEVELS), ram))
+        candidates.append(("cpu", _level(cpu, CPU_LEVELS), cpu))
+        if gpu is not None:
+            candidates.append(("gpu", _level(gpu, GPU_LEVELS), gpu))
+        key, level, value = max(candidates, key=lambda c: c[1])
+
+        if level == 0:
+            self._set_status("happy", t("monitor.all_good"), "", "ok")
+            return
+        detail = ""
+        action = None
+        if key == "ram":
+            detail = f"RAM {value:.0f}%"
+            compression = data.get("memory_compression_mb") or 0.0
+            if compression > COMPRESSION_NOTE_MB:
+                detail += t("monitor.compressed", gb=compression / 1024)
+            if self._top_ram:
+                detail += "\n" + t("monitor.top_eater", name=self._top_ram[0], size=_fmt_size(self._top_ram[2]))
+            phrase = t("monitor.low_ram" if level == 2 else "monitor.ram_filling", details="")
+        elif key == "cpu":
+            detail = f"CPU {value:.0f}%"
+            if self._top_cpu:
+                detail += "\n" + t("monitor.top_cpu", name=self._top_cpu[0], cpu=self._top_cpu[1])
+            phrase = t("monitor.cpu_high" if level == 2 else "monitor.cpu_busy")
+        elif key == "gpu":
+            detail = f"GPU {value:.0f}%"
+            phrase = t("monitor.gpu_high" if level == 2 else "monitor.gpu_busy")
+        elif key == "cpu_temp":
+            phrase = t("monitor.cpu_overheat", temp=value, threshold=threshold) if level == 2 else t("monitor.cpu_warm", temp=value)
+        else:
+            phrase = t("monitor.gpu_overheat", temp=value, threshold=threshold) if level == 2 else t("monitor.gpu_warm", temp=value)
+        if key in ("ram", "cpu", "gpu") and not self._game_mode_active():
+            action = (t("monitor.enable_game_mode"), self._enable_game_mode, t("tabs.game_mode"))
+        phrase = phrase.strip()
+        tips_group = "temp" if key.endswith("_temp") else key
+        self._set_status("worried" if level == 2 else "neutral", phrase, detail, tips_group, action)
+
+    def _set_status(self, mood: str, phrase: str, detail: str, tips_group: str, action: tuple | None = None) -> None:
+        tips = tuple(t(f"monitor.tip.{tips_group}.{i}") for i in (1, 2))
+        self.status_robot.set_mood(mood, phrase, detail, tips, action)
 
     def add_snapshot_listener(self, listener) -> None:
         """listener(data) — у потоці UI на кожен зріз (і коли вкладку не видно)."""
