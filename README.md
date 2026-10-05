@@ -60,7 +60,7 @@ Support the author: [Ko-fi](https://ko-fi.com/lagnix) · [itch.io](https://lagni
 - **No telemetry, analytics or update checks.** Lagnix accesses the internet only on your action: ICMP pings to 8.8.8.8, 1.1.1.1 and a host you enter (Network tab), and the download of the PawnIO driver installer from GitHub (CPU temperature) after your confirmation. Links (Ko-fi, itch.io, GPU driver pages) just open in your browser. Details: [Code signing policy](CODE_SIGNING_POLICY.md).
 - Everything is stored locally in `%APPDATA%\Lagnix` (`settings.json`, `data.json`, `backups/`, `logs.txt`).
 
-Windows builds are code-signed with a free certificate provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org) — see [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
+**Code signing:** we have applied for free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org) (see [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md)). The current beta (v0.9.0) is not signed yet — Windows SmartScreen may show a warning.
 
 ## Disclaimer
 
@@ -131,7 +131,7 @@ Lagnix — безкоштовна утиліта для геймерів на Wi
 - **Жодної телеметрії, аналітики чи перевірки оновлень.** Lagnix звертається в інтернет лише за вашою дією: ICMP-пінг до 8.8.8.8, 1.1.1.1 і вказаного вами хоста (вкладка «Мережа») та завантаження інсталятора драйвера PawnIO з GitHub (температура CPU) після вашого підтвердження. Посилання (Ko-fi, itch.io, сторінки драйверів GPU) лише відкриваються у браузері. Деталі: [Політика підпису коду](CODE_SIGNING_POLICY.md).
 - Усе зберігається локально в `%APPDATA%\Lagnix` (`settings.json`, `data.json`, `backups/`, `logs.txt`).
 
-Збірки для Windows підписуються безкоштовним сертифікатом від [SignPath.io](https://signpath.io), сертифікат від [SignPath Foundation](https://signpath.org) — див. [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
+**Підпис коду:** ми подали заявку на безкоштовний підпис коду від [SignPath.io](https://signpath.io), сертифікат від [SignPath Foundation](https://signpath.org) (див. [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md)). Поточна бета (v0.9.0) ще не підписана — Windows SmartScreen може показати попередження.
 
 ### Застереження
 
