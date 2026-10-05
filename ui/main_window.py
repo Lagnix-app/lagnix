@@ -12,6 +12,10 @@ from ui import bg, theme
 from ui.app_shell import AppShell
 from ui.widgets.dropdown import Dropdown
 from ui.widgets.logo_widget import LogoWidget
+from ui.widgets.support_dialog import SupportDialog
+from core import links
+import math
+import time
 from ui.monitor_tab import MonitorTab
 from ui.game_mode_tab import GameModeTab
 from ui.network_tab import NetworkTab
@@ -40,6 +44,8 @@ _ICON_PATH = os.path.join(
 )
 
 _INDICATOR_WIDTH = 3
+_PULSE_LOW = theme.BORDER  # рамка кнопки «Підтримати»: від спокійної до рожевої
+_PULSE_HIGH = "#ff5e5b"
 _TAB_SLIDE_OFFSET = 16
 
 
@@ -165,6 +171,40 @@ class MainWindow(ctk.CTk):
             button.grid(row=index, column=0, padx=10, pady=4, sticky="ew")
             self.nav_buttons[key] = button
 
+        self._support_button = None
+        self._support_dialog = None
+        self._pulse_job = None
+        if links.KOFI_URL or links.ITCH_URL:
+            self._support_button = ctk.CTkButton(
+                sidebar, text="❤ " + t("support.button"), height=34, corner_radius=8, fg_color="transparent",
+                border_width=1, border_color=_PULSE_LOW, hover_color=theme.BG_PANEL_LIGHT,
+                text_color=theme.TEXT_MAIN, command=self._open_support)
+            self._support_button.grid(row=spacer_row + 1, column=0, padx=10, pady=(4, 14), sticky="ew")
+            self._pulse()
+
+    def _open_support(self) -> None:
+        dialog = self._support_dialog
+        if dialog is not None and dialog.winfo_exists():
+            dialog.lift()
+            dialog.focus_force()
+            return
+        self._support_dialog = SupportDialog(self)
+
+    def _pulse(self) -> None:
+        """Лёгка пульсація рамки кнопки «Підтримати» (~12 к/с); на паузі, поки вікно згорнуте."""
+        self._pulse_job = None
+        button = self._support_button
+        if button is None:
+            return
+        try:
+            shown = self.state() not in ("iconic", "withdrawn")
+            if shown and theme.animations_enabled():
+                k = (math.sin(time.perf_counter() * 2 * math.pi / 2.4) + 1) / 2
+                button.configure(border_color=theme.lerp_color(self, _PULSE_LOW, _PULSE_HIGH, k))
+            self._pulse_job = self.after(90, self._pulse)
+        except Exception:
+            pass
+
     def _place_indicator(self, y: float) -> None:
         self._indicator.place(x=4, y=round(y))
 
@@ -222,6 +262,8 @@ class MainWindow(ctk.CTk):
         theme.apply_language_fonts(self)
         for key, label, _frame_cls in TABS:
             self.nav_buttons[key].configure(text=t(label), font=ctk.CTkFont())
+        if self._support_button is not None:
+            self._support_button.configure(text="❤ " + t("support.button"), font=ctk.CTkFont())
         self._stale_tabs = {key for key in self.tab_frames if key != "game_mode"}
         game_tab = self.tab_frames.get("game_mode")
         if game_tab is not None:

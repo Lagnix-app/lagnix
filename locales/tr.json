@@ -1038,5 +1038,11 @@
  "dialog.freed": "Boşaltıldı: {freed}",
  "toast.apply_in": "{seconds} sn sonra uygulanacak",
  "pawnio.no_signature": "imza yok",
- "settings.language": "Dil"
+ "settings.language": "Dil",
+ "support.button": "Destekle",
+ "support.heading": "Lagnix'i kullandığın için teşekkürler!",
+ "support.text": "Lagnix ücretsiz ve reklamsızdır. Işine yaradıysa yazarı destekleyebilirsin — bu, uygulamanın gelişmesine yardımcı olur.",
+ "support.kofi": "Ko-fi'de destekle",
+ "support.itch": "itch.io'dan indir",
+ "support.title": "Lagnix'i destekle"
 }

@@ -25,7 +25,7 @@ LANCZOS — як кільця на «Моніторі».
 
 Настрої: calm (спокійний), happy (радий), sad (сумний), worried (стурбований),
 gaming (ігровий, у навушниках, яскраві очі зі свіченням), sleepy (сонний, очі-
-риски — вимкнений ігровий режим).
+риски — вимкнений ігровий режим), love (радий і тримає серце — вікно підтримки).
 """
 
 from __future__ import annotations
@@ -46,8 +46,8 @@ from ui.widgets import aa
 
 _logger = get_logger(__name__)
 
-CALM, HAPPY, SAD, WORRIED, GAMING, SLEEPY = "calm", "happy", "sad", "worried", "gaming", "sleepy"
-MOODS = (CALM, HAPPY, SAD, WORRIED, GAMING, SLEEPY)
+CALM, HAPPY, SAD, WORRIED, GAMING, SLEEPY, LOVE = "calm", "happy", "sad", "worried", "gaming", "sleepy", "love"
+MOODS = (CALM, HAPPY, SAD, WORRIED, GAMING, SLEEPY, LOVE)
 
 UNIT = 100  # сторона квадрата робота в умовних одиницях
 BODY_CX, BODY_CY, BODY_R = 50, 58, 35
@@ -71,6 +71,8 @@ _STICK = aa.rgb("#8a94a6")
 _BLUSH = aa.rgb("#ff6fa3")
 _BAND = aa.rgb("#3b4b70")
 _HIGHLIGHT = aa.rgb("#d8fff0")
+_HEART = aa.rgb("#ff4d79")
+_HEART_LIGHT = aa.rgb("#ffb3c6")
 
 
 def light_color(mood: str) -> tuple:
@@ -199,14 +201,33 @@ def paint_robot(layer: Image.Image, x0: float, y0: float, side: float, mood: str
     if gaming and openness > 0.2:
         c.soft_ellipses([(40, 54), (60, 54)], 8, 8.5 * openness, _GREEN, round(235 * strength * openness),
                         blur=3.2)
-    _paint_eyes(p, mood, openness, eye)
-    _paint_mouth(p, mood, eye)
+    face = HAPPY if mood == LOVE else mood  # «love» — обличчя як у «happy» + серце
+    _paint_eyes(p, face, openness, eye)
+    _paint_mouth(p, face, eye)
+    if mood == LOVE:
+        _paint_heart(p)
 
     # --- вогник антени (поверх усього)
     if light:
         r = 4.2 if mood != SLEEPY else 3.6
         p.ellipse(lx - r, ly - r, lx + r, ly + r, fill=light_color(mood))
         p.ellipse(lx - r * 0.55, ly - r * 0.6, lx - r * 0.05, ly - r * 0.1, fill=_HIGHLIGHT)
+
+
+def _paint_heart(p: aa.Painter) -> None:
+    """Серце в «руках» робота: дві ручки з боків і серце перед нижньою частиною тіла."""
+    cx, cy, k = 50.0, 83.0, 1.0
+    pts = []
+    for i in range(48):  # класична параметрична крива серця
+        a = 2 * math.pi * i / 48
+        x = 16 * math.sin(a) ** 3
+        y = 13 * math.cos(a) - 5 * math.cos(2 * a) - 2 * math.cos(3 * a) - math.cos(4 * a)
+        pts.append((cx + x * 0.62 * k, cy - y * 0.62 * k))
+    for hx, sx in ((39, 24), (61, 76)):
+        p.line([(sx, 70), (hx, 83)], fill=_BODY_BOTTOM, width=4.4)
+        p.ellipse(hx - 4.4, 78.6, hx + 4.4, 87.4, fill=_BODY_TOP, outline=_BODY_BOTTOM, width=1.4)
+    p.polygon(pts, fill=_HEART)
+    p.ellipse(cx - 7.5, cy - 8.5, cx - 3.5, cy - 5, fill=_HEART_LIGHT)
 
 
 def _squash(cy: float, y: float, openness: float) -> float:

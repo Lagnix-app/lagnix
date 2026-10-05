@@ -1064,5 +1064,11 @@
  "dialog.freed": "Освобождено: {freed}",
  "toast.apply_in": "Применю через {seconds} с",
  "pawnio.no_signature": "нет подписи",
- "settings.language": "Язык"
+ "settings.language": "Язык",
+ "support.button": "Поддержать",
+ "support.heading": "Спасибо, что вы с Lagnix!",
+ "support.text": "Lagnix бесплатна и без рекламы. Если она вам помогла, вы можете поддержать автора — это помогает развивать программу дальше.",
+ "support.kofi": "Поддержать на Ko-fi",
+ "support.itch": "Скачать на itch.io",
+ "support.title": "Поддержать Lagnix"
 }

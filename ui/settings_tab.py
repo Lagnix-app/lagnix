@@ -19,6 +19,7 @@ from core import app_catalog, game_sessions, launch_on_windows, pawnio, sensors,
 from core import hotkeys as hotkeys_core
 from core import network as network_core
 from core import tray as tray_core
+from core import links
 from core.app_info import APP_DESCRIPTION, APP_VERSION
 from core.logging_setup import LOG_PATH
 from core.settings import load_settings, reset_to_defaults, update_setting
@@ -838,14 +839,16 @@ class SettingsTab(ctk.CTkFrame):
         self._hint(text_col, t(APP_DESCRIPTION)).pack(anchor="w", pady=(4, 0))
         self._hint(text_col, t("settings.about.licenses")).pack(anchor="w", pady=(6, 0))
 
-        links = theme.plain_frame(card)
-        links.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
-        for text in ("GitHub", t("settings.about.report_bug"), t("settings.about.support")):
-            button = self._secondary_button(links, text, None, state="disabled", text_color_disabled=theme.TEXT_DIM)
-            button.pack(side="left", padx=(0, 8))
-            tooltip = Tooltip(button)
-            button.bind("<Enter>", lambda _e, tw=tooltip: tw.schedule(t("settings.about.soon")), add="+")
-            button.bind("<Leave>", lambda _e, tw=tooltip: tw.hide(), add="+")
+        links_row = theme.plain_frame(card)
+        links_row.pack(fill="x", padx=theme.PAD_M, pady=(0, theme.PAD_M))
+        buttons = (
+            ("Ko-fi", links.KOFI_URL), ("itch.io", links.ITCH_URL),
+            ("GitHub", links.GITHUB_URL), (t("settings.about.report_bug"), links.ISSUES_URL),
+        )
+        for text, url in buttons:
+            if url:  # порожнє посилання — кнопку не показуємо
+                self._secondary_button(links_row, text, lambda u=url: links.open_link(u)).pack(
+                    side="left", padx=(0, 8))
 
     def is_busy(self) -> bool:
         """Триває операція, яку не можна перервати перебудовою вкладки (зміна мови)."""

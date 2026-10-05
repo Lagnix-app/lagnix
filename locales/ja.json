@@ -1025,5 +1025,11 @@
  "dialog.freed": "解放：{freed}",
  "toast.apply_in": "{seconds} 秒後に適用します",
  "pawnio.no_signature": "署名なし",
- "settings.language": "言語"
+ "settings.language": "言語",
+ "support.button": "応援する",
+ "support.heading": "Lagnix をご利用いただきありがとうございます!",
+ "support.text": "Lagnix は無料で広告もありません。役に立ったと感じたら、作者を応援していただけると開発の励みになります。",
+ "support.kofi": "Ko-fi で応援",
+ "support.itch": "itch.io で入手",
+ "support.title": "Lagnix を応援"
 }

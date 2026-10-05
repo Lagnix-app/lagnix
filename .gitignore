@@ -8,3 +8,12 @@ dist/
 logs.txt
 backups/
 config.json.bak
+data.json
+settings.json
+settings.json.tmp
+data.json.tmp
+*.tmp
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
