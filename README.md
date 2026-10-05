@@ -57,6 +57,7 @@ Support the author: [Ko-fi](https://ko-fi.com/lagnix) · [itch.io](https://lagni
 
 - Registry changes are **backed up** first and can be reverted; a **system restore point** is offered before risky actions.
 - Processes are closed or files deleted **only after you press a button and confirm**; scans are read-only.
+- **Anti-cheat friendly.** Lagnix never injects code or DLLs into games, never installs hooks, never reads or writes game memory, never opens game processes with memory access, and never changes the priority or CPU affinity of any process. It never closes anti-cheat processes (Vanguard, VAC/CS2, FACEIT, Easy Anti-Cheat, BattlEye). Game Mode only switches the power plan and closes the background apps you chose; the overlay is a separate click-through topmost window with no interaction with the game. These rules are enforced by `tools/check_safety.py`.
 - **No telemetry, analytics or update checks.** Lagnix accesses the internet only on your action: ICMP pings to 8.8.8.8, 1.1.1.1 and a host you enter (Network tab), and the download of the PawnIO driver installer from GitHub (CPU temperature) after your confirmation. Links (Ko-fi, itch.io, GPU driver pages) just open in your browser. Details: [Code signing policy](CODE_SIGNING_POLICY.md).
 - Everything is stored locally in `%APPDATA%\Lagnix` (`settings.json`, `data.json`, `backups/`, `logs.txt`).
 
@@ -128,6 +129,7 @@ Lagnix — безкоштовна утиліта для геймерів на Wi
 
 - Перед змінами реєстру робляться **бекапи**, їх можна відкотити; перед ризикованими діями пропонується **точка відновлення системи**.
 - Процеси закриваються, а файли видаляються **лише після натискання кнопки й підтвердження**; сканування нічого не змінює.
+- **Дружній до античитів.** Lagnix ніколи не інжектить код чи DLL у ігри, не ставить хуків, не читає й не пише пам'ять ігор, не відкриває процеси ігор із доступом до пам'яті та не змінює пріоритет чи affinity жодного процесу. Він ніколи не закриває процеси античитів (Vanguard, VAC/CS2, FACEIT, Easy Anti-Cheat, BattlEye). Ігровий режим лише перемикає план живлення й закриває вибрані вами фонові програми; оверлей — окреме прозоре для кліків вікно поверх усіх без жодної взаємодії з грою. Ці правила перевіряє `tools/check_safety.py`.
 - **Жодної телеметрії, аналітики чи перевірки оновлень.** Lagnix звертається в інтернет лише за вашою дією: ICMP-пінг до 8.8.8.8, 1.1.1.1 і вказаного вами хоста (вкладка «Мережа») та завантаження інсталятора драйвера PawnIO з GitHub (температура CPU) після вашого підтвердження. Посилання (Ko-fi, itch.io, сторінки драйверів GPU) лише відкриваються у браузері. Деталі: [Політика підпису коду](CODE_SIGNING_POLICY.md).
 - Усе зберігається локально в `%APPDATA%\Lagnix` (`settings.json`, `data.json`, `backups/`, `logs.txt`).
 

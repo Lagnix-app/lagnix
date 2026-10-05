@@ -1239,3 +1239,26 @@ settings 206 / 185 → 127 / 57. *Перше відкриття Монітора
 - README: встановлена версія зберігає дані в `%APPDATA%\Lagnix`; Safety уточнено.
 - Тег `v0.9.0` запускає `.github/workflows/build.yml`; Release (pre-release) створюється вручну.
 - **НЕ перевірено:** збірка в GitHub Actions (результат дивитись на вкладці Actions), справжній підпис.
+
+## Безпека від античитів (2026-10-05)
+
+- Аудит `core/`, `ui/`: немає ін'єкцій, хуків, DLL, читання/запису чужої пам'яті, зміни пріоритету/affinity;
+  `OpenProcess` лише з `PROCESS_QUERY_LIMITED_INFORMATION` (`core/process_info.py`); оверлей працює лише зі
+  своїм вікном (`WS_EX_TRANSPARENT/NOACTIVATE/TOOLWINDOW`, topmost); гарячі клавіші — `RegisterHotKey`.
+- `core/anticheat.py`: процеси античитів (vgc, vgtray, Vanguard, EasyAntiCheat, BEService/BattlEye, FACEIT, ESEA…)
+  входять в `system_processes.is_protected()` — `process_control` їх не завершує, незалежно від списку
+  «ніколи не закривати» (який користувач редагує). Список ігор з античитом — `ANTICHEAT_GAMES`.
+- `tools/check_safety.py`: правило 4 (заборонені API, OpenProcess, оверлей, захист античитів); перевірено
+  негативним тестом (штучний `.nice()` і `OpenProcess` у `game_mode.py` ловляться). Старе зауваження
+  про `ui/screenshot_mode.py:seed_settings` додано у білий список (власний data.json знімків).
+- README (en/uk): пункт Safety про античити.
+
+## 0.9.3 (2026-10-05)
+
+- `nagle_off` перевірено вручну (з правами адміна): запис TcpAckFrequency/TCPNoDelay на 2 адаптерах, відкат —
+  значення відновлено точно (None → None), бекапи `.reg` створені, початковий стан збережено.
+- Оверлей: `core/fullscreen.py` (SHQueryUserNotificationState == QUNS_RUNNING_D3D_FULL_SCREEN, лише читання).
+  `ui/app_shell.py`: один раз за сеанс — сповіщення в треї, а підказка (модальне вікно з галочкою
+  «Більше не показувати», `overlay_fs_hint_hidden`) — коли вікно Lagnix перед очима. Той самий текст у
+  Налаштуваннях біля оверлею (`settings.overlay.fullscreen_hint`). 12 мов.
+- **НЕ перевірено:** підказка в реальній грі (модальне вікно перевірено окремо: показ і читання галочки).

@@ -12,13 +12,16 @@ import ctypes
 import time
 import tkinter as tk
 
-from core import cleanup, process_control
+import customtkinter as ctk
+
+from core import cleanup, fullscreen, process_control
 from core import hotkeys as hotkeys_core
 from core import tray as tray_core
 from core.logging_setup import get_logger
 from core.settings import load_settings, update_setting
 from ui import bg
 from ui import overlay as overlay_view
+from ui.widgets import modal
 from ui.widgets import robot as robot_view
 from core.i18n import TDict, t
 
@@ -54,6 +57,8 @@ class AppShell:
         self._game_active = False
         self._overlay_on = bool(load_settings().get("overlay_enabled", False))
         self._overlay: overlay_view.OverlayWindow | None = None
+        self._fs_hint_pending = False  # ексклюзивний повний екран помічено, підказку ще не показано
+        self._fs_hint_done = False     # підказку вже показано в цьому сеансі
         self._tray_images: dict[str, object] = {}
         self._tray_hint_shown = False
         self._last_overheat: dict[str, float] = {}
@@ -226,7 +231,33 @@ class AppShell:
     def _on_snapshot(self, data: dict) -> None:
         if self._overlay is not None:
             self._overlay.update_data(data)
+        self._check_overlay_fullscreen()
         self._check_overheat(data)
+
+    def _check_overlay_fullscreen(self) -> None:
+        """Гра в ексклюзивному повноекранному режимі: оверлей там не видно. Один раз за сеанс шлемо
+        сповіщення, а підказку з галочкою «Більше не показувати» показуємо, коли вікно Lagnix перед очима."""
+        if not self._overlay_on or self._fs_hint_done or load_settings().get("overlay_fs_hint_hidden", False):
+            return
+        if not self._fs_hint_pending:
+            if not fullscreen.is_exclusive_fullscreen():
+                return
+            self._fs_hint_pending = True
+            self.tray.notify(t("overlay.fs_hint.title"), t("settings.overlay.fullscreen_hint"))
+        if self.window_shown() and self._window_in_front():
+            self._fs_hint_done = True
+            self.window.after(0, self._show_fullscreen_hint)
+
+    def _show_fullscreen_hint(self) -> None:
+        dialog = modal.Modal(self.window, t("overlay.fs_hint.title"), t("settings.overlay.fullscreen_hint"),
+                             kind="info")
+        var = tk.IntVar(self.window, 0)
+        ctk.CTkCheckBox(dialog.body, text=t("overlay.fs_hint.dont_show"), variable=var, checkbox_width=18,
+                        checkbox_height=18).pack(anchor="w")
+        dialog.add_button(t("common.ok"), None, "primary")
+        dialog.run()
+        if var.get():
+            update_setting("overlay_fs_hint_hidden", True)
 
     def _check_overheat(self, data: dict) -> None:
         settings = load_settings()

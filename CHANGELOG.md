@@ -1,5 +1,11 @@
 # Changelog / Журнал змін
 
+## 0.9.3 (beta) — 2026-10-05
+
+- Anti-cheat safety: processes of anti-cheats (Vanguard, Easy Anti-Cheat, BattlEye, FACEIT, …) can never be closed by Lagnix; `tools/check_safety.py` now also forbids injection, foreign memory access and priority/affinity changes.
+- Overlay: detects exclusive fullscreen and tells you once to switch the game to Windowed Fullscreen (with "Don't show again"); same hint in Settings.
+- Verified the network-latency tweak (Nagle) writes and rolls back exactly, with correct backups.
+
 ## 0.9.2 (beta) — 2026-10-05
 
 - Fix: the "widgets and Copilot" tweak failed with "Could not change the value AllowNewsAndInterests". Windows 11 blocks writing this value even for an administrator. It is now two tweaks: "widgets" (shown as unavailable with an explanation on builds where Windows protects it, and left out of presets) and "Copilot" (works).

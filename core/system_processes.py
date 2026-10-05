@@ -10,6 +10,8 @@ PROTECTED_PROCESS_NAMES — процеси, які показуються, ал�
 Використовується вкладками «Монітор» та «Ігровий режим».
 """
 
+from core import anticheat
+
 HIDDEN_PROCESS_NAMES = {
     "system idle process",
     "system",
@@ -62,4 +64,5 @@ def is_hidden(name: str) -> bool:
 
 
 def is_protected(name: str) -> bool:
-    return bool(name) and name.strip().lower() in PROTECTED_PROCESS_NAMES
+    """Системний процес або процес античита — Lagnix їх не завершує ніколи (core/anticheat.py)."""
+    return (bool(name) and name.strip().lower() in PROTECTED_PROCESS_NAMES) or anticheat.is_anticheat_process(name)

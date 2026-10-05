@@ -9,6 +9,11 @@
    SHEmptyRecycleBin) можна лише у функціях з білого списку нижче. Публічні
    функції видалення мусять викликати process_control.require(), а приватні
    помічники — викликатися тільки з таких захищених функцій.
+4. Сумісність з античитами (Vanguard, VAC, FACEIT, EasyAntiCheat, BattlEye): у коді немає
+   ін'єкцій, хуків, DLL у чужі процеси, читання/запису чужої пам'яті, хендлів із правами PROCESS_VM_*,
+   зміни пріоритету / affinity процесів, емуляції введення; OpenProcess — лише з
+   PROCESS_QUERY_LIMITED_INFORMATION (core/process_info.py); оверлей не шукає й не чіпає чужих вікон;
+   процеси античитів (core/anticheat.py) завжди захищені від завершення.
 Код виходу 1 — є порушення.
 """
 
@@ -21,9 +26,21 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PROCESS_CONTROL = os.path.join("core", "process_control.py")
 # функції, що видаляють лише власні тимчасові файли, створені тут же (не дані користувача)
-OWN_TEMP_FILE_FUNCS = {"set_enabled", "download_and_verify"}
+OWN_TEMP_FILE_FUNCS = {"set_enabled", "download_and_verify", "seed_settings"}
 KILL_RE = re.compile(r"\.terminate\(|\.kill\(|TerminateProcess|taskkill|os\.kill\(|Stop-Process|"
                      r"WM_CLOSE|PostMessage|SendMessage|EndTask")
+# 4. заборонені в усьому коді (поза цим файлом) виклики/константи
+ANTICHEAT_RE = re.compile(
+    r"WriteProcessMemory|ReadProcessMemory|VirtualAllocEx|VirtualProtectEx|CreateRemoteThread|NtCreateThreadEx|"
+    r"QueueUserAPC|SetWindowsHookEx|SetWinEventHook|DebugActiveProcess|NtReadVirtualMemory|NtWriteVirtualMemory|"
+    r"SetPriorityClass|SetProcessAffinityMask|SetThreadAffinityMask|SetProcessPriorityBoost|cpu_affinity|\.nice\(|ionice|"
+    r"PROCESS_VM_|PROCESS_ALL_ACCESS|PROCESS_CREATE_THREAD|PROCESS_DUP_HANDLE|PROCESS_SET_INFORMATION|pymem|"
+    r"SendInput|keybd_event|mouse_event|LoadLibraryExW?\(|InjectDll")
+OPEN_PROCESS_FILE = os.path.join("core", "process_info.py")
+OVERLAY_FILE = os.path.join("ui", "overlay.py")
+# оверлей — лише власне вікно topmost: жодного пошуку/керування чужими вікнами
+OVERLAY_FORBIDDEN_RE = re.compile(r"FindWindow|EnumWindows|GetForegroundWindow|SetForegroundWindow|SetParent|"
+                                  r"GetWindowThreadProcessId|AttachThreadInput|GetWindowDC|BitBlt|PrintWindow")
 DELETE_CALLS = {"remove", "unlink", "rmdir", "rmtree", "removedirs", "SHEmptyRecycleBinW"}
 
 # модуль -> (захищені функції, що мусять викликати require; помічники, які видаляють)
@@ -34,6 +51,8 @@ DELETE_ALLOWED = {
     os.path.join("core", "launch_on_windows.py"): (set(), {"set_enabled"}),
     # власний завантажений інсталятор PawnIO, якщо його підпис недійсний
     os.path.join("core", "pawnio.py"): (set(), {"download_and_verify"}),
+    # прихований режим знімків: лише власний data.json в окремій теці знімків
+    os.path.join("ui", "screenshot_mode.py"): (set(), {"seed_settings"}),
 }
 
 
@@ -84,6 +103,19 @@ def main() -> int:
                 if KILL_RE.search(code):
                     problems.append(f"{rel}:{lineno}: process termination outside process_control: {line.strip()}")
 
+        if rel != this_file:
+            for lineno, line in enumerate(source.splitlines(), 1):
+                code = line.split("#", 1)[0]
+                if ANTICHEAT_RE.search(code):
+                    problems.append(f"{rel}:{lineno}: forbidden for anti-cheat safety (injection / foreign memory / "
+                                    f"priority / affinity / input): {line.strip()}")
+                if "OpenProcess" in code and not (rel == OPEN_PROCESS_FILE and "_PROCESS_QUERY_LIMITED_INFORMATION" in code
+                                                  or ".argtypes" in code or ".restype" in code):
+                    problems.append(f"{rel}:{lineno}: OpenProcess is allowed only with PROCESS_QUERY_LIMITED_INFORMATION "
+                                    f"in {OPEN_PROCESS_FILE}: {line.strip()}")
+                if rel == OVERLAY_FILE and OVERLAY_FORBIDDEN_RE.search(code):
+                    problems.append(f"{rel}:{lineno}: the overlay must not touch other windows: {line.strip()}")
+
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -116,12 +148,25 @@ def main() -> int:
                 if uses and fn.name != helper and fn.name not in guarded:
                     problems.append(f"{rel}:{fn.lineno}: deletion helper {helper} is called from an unprotected function {fn.name}")
 
+    # процеси античитів завжди захищені: is_protected() їх знає, а terminate() перевіряє is_protected()
+    for rel, needle in (("core/system_processes.py", "anticheat.is_anticheat_process"),
+                        ("core/process_control.py", "is_protected(proc.name())")):
+        with open(os.path.join(ROOT, *rel.split("/")), encoding="utf-8") as f:
+            if needle not in f.read():
+                problems.append(f"{rel}: missing the anti-cheat process protection ({needle})")
+    from importlib import import_module
+    sys.path.insert(0, ROOT)
+    anticheat = import_module("core.anticheat")
+    for name in ("vgc.exe", "vgtray.exe", "EasyAntiCheat.exe", "EasyAntiCheat_EOS.exe", "BEService.exe", "FACEIT.exe"):
+        if not anticheat.is_anticheat_process(name):
+            problems.append(f"core/anticheat.py: {name} is not recognised as an anti-cheat process")
+
     if problems:
         print("SAFETY RULE VIOLATION:")
         for problem in problems:
             print("  " + problem)
         return 1
-    print("OK: processes are terminated only in core/process_control.py, deletion — only after confirmation.")
+    print("OK: processes are terminated only in core/process_control.py, deletion — only after confirmation; no injection / foreign memory access / priority changes (anti-cheat safe).")
     return 0
 
 
