@@ -1,5 +1,7 @@
 # Lagnix
 
+[![build](https://github.com/Lagnix-app/lagnix/actions/workflows/build.yml/badge.svg)](https://github.com/Lagnix-app/lagnix/actions/workflows/build.yml)
+
 **English** · [Українська](#українська)
 
 Lagnix is a free Windows utility for gamers: live system monitor, Game Mode, network

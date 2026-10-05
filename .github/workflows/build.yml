@@ -1,0 +1,33 @@
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build (build.ps1)
+        shell: pwsh
+        run: ./build.ps1
+        env:
+          LAGNIX_SIGN_CERT: ${{ secrets.LAGNIX_SIGN_CERT }}
+          LAGNIX_SIGN_PASSWORD: ${{ secrets.LAGNIX_SIGN_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lagnix-Setup
+          path: dist/Lagnix-Setup-*.exe
+          if-no-files-found: error

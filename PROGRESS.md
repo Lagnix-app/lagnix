@@ -1157,3 +1157,21 @@ settings 206 / 185 → 127 / 57. *Перше відкриття Монітора
   Після перезбірки **Smart App Control** на цьому ПК блокує непідписаний exe
   («An Application Control policy has blocked this file», CodeIntegrity 3077/3033).
   Потрібен підпис коду (або вимкнений SAC на тестовій машині) — обходити політику не стали.
+
+## Публікація на GitHub (2026-10-05)
+
+- Репозиторій: https://github.com/Lagnix-app/lagnix (гілка `main`). Автор усіх комітів —
+  «Lagnix dev» з прихованою поштою GitHub (історію переписано `git filter-repo`; резервна
+  копія старого `.git` — `C:\Projects\GameBoost-git-backup`, поза репозиторієм).
+- З усієї історії прибрано `data.json`, `settings.json` (містили шляхи з іменем користувача
+  Windows), `installer/redist/PawnIO_setup.exe`, `dist/`, `build/`, `logs.txt`, `backups/`.
+  Повторне сканування історії (ім'я, пошта, `C:\Users`, токени/ключі) — чисте.
+- `.gitignore`: додано `installer/redist/*.exe`, `*.pfx`, `*.p12`, `.env`.
+- `build.ps1` сам завантажує PawnIO з офіційного джерела й перевіряє підпис
+  (Valid + підписант namazso), а також підписує `Lagnix.exe` і інсталятор через signtool —
+  лише якщо задано `LAGNIX_SIGN_CERT` + `LAGNIX_SIGN_PASSWORD` або `LAGNIX_SIGN_THUMBPRINT`
+  (необов'язково `LAGNIX_SIGN_TIMESTAMP`); інакше крок пропускається.
+- `.github/workflows/build.yml`: на тег `v*` (і вручну) збирає на windows-latest через
+  `build.ps1`, артефакт — `Lagnix-Setup-<версія>.exe`; секрети підпису —
+  `LAGNIX_SIGN_CERT`/`LAGNIX_SIGN_PASSWORD` (необов'язкові).
+- README: бейдж збірки; посилання на itch.io і Ko-fi вже були.

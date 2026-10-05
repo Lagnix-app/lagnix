@@ -19,3 +19,9 @@ data.json.tmp
 *.log
 logs.txt.*
 *.corrupt
+
+# Лише локальне / завантажується build.ps1
+installer/redist/*.exe
+*.pfx
+*.p12
+.env
