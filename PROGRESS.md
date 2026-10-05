@@ -1225,3 +1225,17 @@ settings 206 / 185 → 127 / 57. *Перше відкриття Монітора
   заблокував непідписані `unins000.exe`, код 4551; обходити не стали), справжній відкат
   (`--restore-all` на живій системі), встановлення з галочкою PawnIO, решта 11 мов візуально
   (довжина рядків), встановлення з правами адміністратора (тест ішов із `lowest`).
+
+## Підготовка до SignPath Foundation, версія 0.9.0 (2026-10-05)
+
+- Версія скрізь **0.9.0 (бета)**: `core/app_info.py`, `build.ps1`, `installer/Lagnix.iss`
+  (`AppVersion`, `VersionInfoProductName/Version/Company/Description`), `installer/version_info.txt`,
+  `CHANGELOG.md`. Файл інсталятора: `Lagnix-Setup-0.9.0.exe`.
+- **Перевірено** після `build.ps1`: `Lagnix.exe` і інсталятор містять ProductName «Lagnix»,
+  CompanyName «Lagnix dev», FileVersion/ProductVersion 0.9.0.0 (PyInstaller вшиває version info).
+- Аудит мережі: телеметрії/оновлень немає. Лише пінг (8.8.8.8, 1.1.1.1, власний хост — за кнопкою),
+  завантаження PawnIO з GitHub (після підтвердження, підпис перевіряється), відкриття посилань
+  у браузері. Описано в `CODE_SIGNING_POLICY.md` (ролі: Lagnix-app; privacy policy), лінк у README (en/uk).
+- README: встановлена версія зберігає дані в `%APPDATA%\Lagnix`; Safety уточнено.
+- Тег `v0.9.0` запускає `.github/workflows/build.yml`; Release (pre-release) створюється вручну.
+- **НЕ перевірено:** збірка в GitHub Actions (результат дивитись на вкладці Actions), справжній підпис.

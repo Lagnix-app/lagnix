@@ -51,15 +51,14 @@ Support the author: [Ko-fi](https://ko-fi.com/lagnix) · [itch.io](https://lagni
   ```
   Set `LAGNIX_DEBUG=1` for debug output.
 
-`settings.json` and `data.json` are created automatically on first run.
+`settings.json` and `data.json` are created automatically on first run. The installed version stores them (together with `backups/` and `logs.txt`) in `%APPDATA%\Lagnix`; when run from source — next to the app.
 
 ## Safety
 
 - Registry changes are **backed up** first and can be reverted; a **system restore point** is offered before risky actions.
 - Processes are closed or files deleted **only after you press a button and confirm**; scans are read-only.
-- **Nothing is sent to the internet**, except the ping tests you run and the download of the PawnIO
-  driver installer (CPU temperature) — only with your consent.
-- Everything is stored locally next to the app (`settings.json`, `data.json`, `backups/`, `logs.txt`).
+- **No telemetry, analytics or update checks.** Lagnix accesses the internet only on your action: ICMP pings to 8.8.8.8, 1.1.1.1 and a host you enter (Network tab), and the download of the PawnIO driver installer from GitHub (CPU temperature) after your confirmation. Links (Ko-fi, itch.io, GPU driver pages) just open in your browser. Details: [Code signing policy](CODE_SIGNING_POLICY.md).
+- Everything is stored locally in `%APPDATA%\Lagnix` (`settings.json`, `data.json`, `backups/`, `logs.txt`).
 
 ## Disclaimer
 
@@ -121,15 +120,14 @@ Lagnix — безкоштовна утиліта для геймерів на Wi
   ```
   `LAGNIX_DEBUG=1` вмикає налагоджувальний вивід.
 
-`settings.json` і `data.json` створюються автоматично при першому запуску.
+`settings.json` і `data.json` створюються автоматично при першому запуску. Встановлена версія зберігає їх (разом із `backups/` і `logs.txt`) у `%APPDATA%\Lagnix`; при запуску з вихідників — поруч із програмою.
 
 ### Безпека
 
 - Перед змінами реєстру робляться **бекапи**, їх можна відкотити; перед ризикованими діями пропонується **точка відновлення системи**.
 - Процеси закриваються, а файли видаляються **лише після натискання кнопки й підтвердження**; сканування нічого не змінює.
-- **Нічого не надсилається в інтернет**, окрім пінгу, який ви запускаєте, і завантаження інсталятора
-  драйвера PawnIO (температура CPU) — лише за вашою згодою.
-- Усе зберігається локально поруч із програмою (`settings.json`, `data.json`, `backups/`, `logs.txt`).
+- **Жодної телеметрії, аналітики чи перевірки оновлень.** Lagnix звертається в інтернет лише за вашою дією: ICMP-пінг до 8.8.8.8, 1.1.1.1 і вказаного вами хоста (вкладка «Мережа») та завантаження інсталятора драйвера PawnIO з GitHub (температура CPU) після вашого підтвердження. Посилання (Ko-fi, itch.io, сторінки драйверів GPU) лише відкриваються у браузері. Деталі: [Політика підпису коду](CODE_SIGNING_POLICY.md).
+- Усе зберігається локально в `%APPDATA%\Lagnix` (`settings.json`, `data.json`, `backups/`, `logs.txt`).
 
 ### Застереження
 

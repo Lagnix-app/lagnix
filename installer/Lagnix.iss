@@ -1,8 +1,8 @@
-; Інсталятор Lagnix. Збірка: build.ps1 (ISCC /DAppVersion=1.0.0 installer\Lagnix.iss)
+; Інсталятор Lagnix. Збірка: build.ps1 (ISCC /DAppVersion=0.9.0 installer\Lagnix.iss)
 ; Картинки майстра: python tools/gen_installer_images.py (installer\img\*.bmp).
 ; Тексти робота — installer\strings.inc (12 мов); Inno-мова лише для стандартних кнопок.
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "0.9.0"
 #endif
 #define AppName "Lagnix"
 #define AppExe "Lagnix.exe"
@@ -15,6 +15,10 @@ AppVerName={#AppName} {#AppVersion}
 AppPublisher=Lagnix dev
 AppCopyright=Copyright (C) 2026 Lagnix dev
 VersionInfoVersion={#AppVersion}.0
+VersionInfoProductName={#AppName}
+VersionInfoProductVersion={#AppVersion}.0
+VersionInfoCompany=Lagnix dev
+VersionInfoDescription=Lagnix Setup
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes

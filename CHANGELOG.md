@@ -1,8 +1,8 @@
 # Changelog / Журнал змін
 
-## 1.0.0 — 2026-10-05
+## 0.9.0 (beta) — 2026-10-05
 
-First public release / Перший публічний реліз.
+First public beta release / Перший публічний бета-реліз.
 
 - Live monitor: CPU / GPU / RAM / disk / network, temperatures, processes grouped by app.
 - Game Mode: closes background apps, switches power plan, per-game profiles, auto-enable with notification.
