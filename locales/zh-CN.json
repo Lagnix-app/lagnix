@@ -1053,5 +1053,8 @@
  "monitor.tip.gpu.1": "关闭使用视频或 3D 的后台程序。",
  "monitor.tip.gpu.2": "降低游戏画质或限制 FPS。",
  "monitor.tip.temp.1": "检查风扇和散热口是否积灰。",
- "monitor.tip.temp.2": "不要堵住机箱进风，并降低画质。"
+ "monitor.tip.temp.2": "不要堵住机箱进风，并降低画质。",
+ "common.yes": "是",
+ "common.no": "否",
+ "common.ok": "确定"
 }

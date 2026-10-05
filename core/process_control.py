@@ -44,8 +44,8 @@ def ask_user_action(parent, title: str, message: str, reason: str, icon: str = "
     if threading.current_thread() is not threading.main_thread():
         get_audit_logger().error("Denied: confirmation requested from a background thread (%s)", reason)
         return None
-    from tkinter import messagebox
-    if not messagebox.askyesno(title, message, icon=icon, parent=parent):
+    from ui.widgets import modal  # діалог усередині головного вікна; імпорт тут, щоб core не залежав від UI під час завантаження
+    if not modal.confirm(parent, title, message, kind="warning" if icon == "warning" else None):
         get_audit_logger().info("Cancelled by the user: %s", reason)
         return None
     UserAction._issuing = True

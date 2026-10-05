@@ -8,7 +8,6 @@ import os
 import threading
 import tkinter as tk
 from datetime import date
-from tkinter import messagebox
 
 import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageTk
@@ -16,6 +15,7 @@ from PIL import Image, ImageDraw, ImageTk
 from core import installed_programs as programs_core
 from core.cleanup import format_size
 from ui import bg, theme
+from ui.widgets import modal
 from ui.widgets import aa
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 from ui.widgets.dropdown import Dropdown
@@ -535,7 +535,7 @@ class ProgramsTab(ctk.CTkFrame):
             note = t("programs.steam_note")
         else:
             note = t("programs.wizard_note")
-        if not messagebox.askyesno(t("common.confirmation"), t("programs.confirm_one", name=program['name'], note=note), parent=self):
+        if not modal.confirm(self, t("common.confirmation"), t("programs.confirm_one", name=program['name'], note=note)):
             return
         self._run_uninstall_queue([program])
 
@@ -547,11 +547,7 @@ class ProgramsTab(ctk.CTkFrame):
         names = "\n".join(f"• {p['name']}" for p in programs[:8])
         if len(programs) > 8:
             names += t("game_mode.and_more", count=len(programs) - 8)
-        confirmed = messagebox.askyesno(
-            t("common.confirmation"),
-            t("programs.confirm_many", count=len(programs), names=names),
-            parent=self,
-        )
+        confirmed = modal.confirm(self, t("common.confirmation"), t("programs.confirm_many", count=len(programs), names=names))
         if confirmed:
             self._run_uninstall_queue(programs)
 
@@ -626,16 +622,12 @@ class ProgramsTab(ctk.CTkFrame):
     def _open_install_folder(self, program: dict):
         folder = program.get("install_folder")
         if not folder:
-            messagebox.showinfo(
-                t("programs.location_unknown"),
-                t("programs.no_folder", name=program['name']),
-                parent=self,
-            )
+            modal.notify(self, t("programs.location_unknown"), t("programs.no_folder", name=program['name']))
             return
         try:
             os.startfile(folder)
         except OSError as exc:
-            messagebox.showerror(t("common.error"), t("programs.open_folder_failed", exc=exc), parent=self)
+            modal.notify(self, t("common.error"), t("programs.open_folder_failed", exc=exc), "error")
 
     def is_busy(self) -> bool:
         """Триває операція, яку не можна перервати перебудовою вкладки (зміна мови)."""

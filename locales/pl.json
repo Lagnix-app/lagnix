@@ -1092,5 +1092,8 @@
  "monitor.tip.gpu.1": "Zamknij aplikacje w tle z wideo i 3D.",
  "monitor.tip.gpu.2": "Obniż grafikę lub ogranicz FPS w grze.",
  "monitor.tip.temp.1": "Sprawdź, czy wentylatory i kratki nie są zakurzone.",
- "monitor.tip.temp.2": "Nie blokuj dopływu powietrza do obudowy, obniż grafikę."
+ "monitor.tip.temp.2": "Nie blokuj dopływu powietrza do obudowy, obniż grafikę.",
+ "common.yes": "Tak",
+ "common.no": "Nie",
+ "common.ok": "OK"
 }

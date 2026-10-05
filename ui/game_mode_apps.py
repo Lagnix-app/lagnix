@@ -16,6 +16,7 @@ from core import smart_apps
 from ui.widgets.scroll import ScrollFrame
 from core.i18n import t
 from ui import bg, theme
+from ui.widgets import modal
 from ui.widgets.game_widgets import ChipBoard, fmt_mem
 
 _ICON = 20
@@ -316,50 +317,40 @@ class AppsPanel(ctk.CTkFrame):
         AddAppDialog(self.winfo_toplevel(), mode, chosen)
 
 
-class AddAppDialog(ctk.CTkToplevel):
-    """Вибір програми: запущені (з пошуком та іконками) або exe вручну."""
+class AddAppDialog:
+    """Вибір програми: запущені (з пошуком та іконками) або exe вручну. Модальне
+    вікно всередині головного (ui/widgets/modal.py), без очікування."""
+
+    LIST_HEIGHT_DP = 300
 
     def __init__(self, master, mode: str, on_choose):
-        super().__init__(master)
         self._on_choose = on_choose
         self._rows: list[tuple[ctk.CTkButton, str, str | None]] = []
-        self.title(t("game_mode_apps.add_title") if mode == "add" else t("game_mode_apps.never_add_title"))
-        self.geometry("480x540")
-        self.configure(fg_color=theme.BG_PANEL)
-        self.transient(master)
-        ctk.CTkLabel(self, text=(t("game_mode_apps.pick_running")
-                                 if mode == "add" else t("game_mode_apps.pick_never")),
-                     font=theme.font_body(), wraplength=440, justify="left").pack(padx=16, pady=(14, 6), anchor="w")
-        self.search = ctk.CTkEntry(self, placeholder_text=t("game_mode_apps.search"))
-        self.search.pack(fill="x", padx=16)
+        self._modal = modal.Modal(
+            master, t("game_mode_apps.add_title") if mode == "add" else t("game_mode_apps.never_add_title"),
+            t("game_mode_apps.pick_running") if mode == "add" else t("game_mode_apps.pick_never"), scroll=False)
+        body = self._modal.body
+        self.search = ctk.CTkEntry(body, placeholder_text=t("game_mode_apps.search"))
+        self.search.pack(fill="x")
         self.search.bind("<KeyRelease>", lambda _e: self._filter())
-        self.list = ScrollFrame(self, bg=theme.BG_MAIN)
-        self.list.pack(fill="both", expand=True, padx=16, pady=8)
+        self.list = ScrollFrame(body, bg=theme.BG_MAIN, height=round(self.LIST_HEIGHT_DP * self._modal._scale))
+        self.list.pack(fill="x", pady=(8, 0))
         self.status = ctk.CTkLabel(self.list, text=t("game_mode_apps.loading"), text_color=theme.TEXT_DIM)
         self.status.pack(pady=20)
-        bottom = ctk.CTkFrame(self, fg_color="transparent")
-        bottom.pack(fill="x", padx=16, pady=(0, 14))
-        ctk.CTkButton(bottom, text=t("game_mode_apps.manual_exe"), width=10, fg_color=theme.BG_PANEL_LIGHT,
-                      hover_color=theme.BORDER, command=self._browse).pack(side="left")
-        ctk.CTkButton(bottom, text=t("common.close"), width=90, fg_color="transparent", border_width=1,
-                      command=self.destroy).pack(side="right")
-        self._icons = _IconStore(self, self._icon_ready)
-        self.after(50, self._grab)
-        bg.run_task(self, "Game Mode: running program list", monitor_core.get_process_groups,
-                    self._fill, self._failed, timeout=30)
-
-    def _grab(self) -> None:
-        try:
-            self.grab_set()
+        self._modal.add_button(t("game_mode_apps.manual_exe"), style="secondary", command=self._browse, left=True)
+        self._modal.add_button(t("common.close"), None, "secondary")
+        self._owner = self._modal.card
+        self._icons = _IconStore(self._owner, self._icon_ready)
+        if self._modal.show():
             self.search.focus_set()
-        except Exception:
-            pass
+        bg.run_task(self._owner, "Game Mode: running program list", monitor_core.get_process_groups,
+                    self._fill, self._failed, timeout=30)
 
     def _failed(self, exc) -> None:
         self.status.configure(text=t("game_mode_apps.load_failed", exc=bg.error_text(exc)))
 
     def _fill(self, groups: list[dict]) -> None:
-        if not self.winfo_exists():
+        if self._modal.closed:
             return
         self.status.pack_forget()
         seen = set()
@@ -399,12 +390,12 @@ class AddAppDialog(ctk.CTkToplevel):
                 button.pack(fill="x")
 
     def _browse(self) -> None:
-        path = filedialog.askopenfilename(parent=self, title=t("game_mode_apps.pick_exe"),
+        path = filedialog.askopenfilename(parent=self._modal.root, title=t("game_mode_apps.pick_exe"),
                                           filetypes=[(t("tabs.programs"), "*.exe"), (t("common.all_files"), "*.*")])
         if path:
             name = os.path.basename(path)
             self._choose(name, os.path.splitext(name)[0], os.path.normpath(path))
 
     def _choose(self, exe_name: str, title: str, exe_path) -> None:
-        self.destroy()
+        self._modal.close()
         self._on_choose(exe_name, title, exe_path)

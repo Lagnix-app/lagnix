@@ -1066,5 +1066,8 @@
  "monitor.tip.gpu.1": "Close background apps that use video or 3D.",
  "monitor.tip.gpu.2": "Lower the graphics or cap FPS in the game.",
  "monitor.tip.temp.1": "Check the fans and vents for dust.",
- "monitor.tip.temp.2": "Do not block airflow to the case; lower the graphics."
+ "monitor.tip.temp.2": "Do not block airflow to the case; lower the graphics.",
+ "common.yes": "Yes",
+ "common.no": "No",
+ "common.ok": "OK"
 }

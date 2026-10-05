@@ -1066,5 +1066,8 @@
  "monitor.tip.gpu.1": "Video veya 3D kullanan arka plan uygulamalarını kapatın.",
  "monitor.tip.gpu.2": "Oyunda grafikleri düşürün veya FPS'i sınırlayın.",
  "monitor.tip.temp.1": "Fanlarda ve havalandırma deliklerinde toz olup olmadığına bakın.",
- "monitor.tip.temp.2": "Kasaya giden havayı engellemeyin, grafikleri düşürün."
+ "monitor.tip.temp.2": "Kasaya giden havayı engellemeyin, grafikleri düşürün.",
+ "common.yes": "Evet",
+ "common.no": "Hayır",
+ "common.ok": "Tamam"
 }

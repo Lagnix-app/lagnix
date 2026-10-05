@@ -11,7 +11,6 @@ import os
 import threading
 import time
 import tkinter
-from tkinter import messagebox
 
 import customtkinter as ctk
 
@@ -26,7 +25,7 @@ from core.settings import load_settings, reset_to_defaults, update_setting
 from core.tweaks import BACKUPS_DIR
 from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
-from ui.widgets import confirm_dialog
+from ui.widgets import modal
 from ui.widgets import robot as robot_view
 from ui.app_shell import HOTKEY_LABELS
 from ui.overlay import METRICS as OVERLAY_METRICS
@@ -239,7 +238,7 @@ class SettingsTab(ctk.CTkFrame):
         success, error = launch_on_windows.set_enabled(enabled)
         if not success:
             self._launch_var.set(not enabled)
-            messagebox.showerror(t("common.error"), t("settings.err.launch", error=error), parent=self)
+            modal.notify(self, t("common.error"), t("settings.err.launch", error=error), "error")
             return
         sounds.play_click()
 
@@ -311,7 +310,7 @@ class SettingsTab(ctk.CTkFrame):
                 self._pawnio_button.pack(anchor="w", padx=12, pady=(0, 12))
 
     def _on_install_pawnio(self) -> None:
-        if not confirm_dialog.ask(
+        if not modal.confirm(
             self, t("settings.pawnio.confirm.title"),
             t("settings.pawnio.confirm.text"),
             t("settings.pawnio.confirm.ok"),
@@ -332,13 +331,12 @@ class SettingsTab(ctk.CTkFrame):
         if status["installed"] and load_settings().get("advanced_sensors_enabled", True):
             # перезапуск датчиків, щоб LibreHardwareMonitor підхопив драйвер
             threading.Thread(target=lambda: (sensors.stop(), sensors.start()), daemon=True).start()
-            messagebox.showinfo(t("settings.pawnio.driver"), t("settings.pawnio.done"), parent=self)
+            modal.notify(self, t("settings.pawnio.driver"), t("settings.pawnio.done"))
 
     def _on_pawnio_failed(self, exc) -> None:
         self._pawnio_installing = False
         self._pawnio_button.configure(state="normal", text=t("settings.pawnio.install"))
-        messagebox.showerror(t("settings.pawnio.driver"), t("settings.pawnio.failed", exc=bg.error_text(exc)),
-                             parent=self)
+        modal.notify(self, t("settings.pawnio.driver"), t("settings.pawnio.failed", exc=bg.error_text(exc)), "error")
 
     def _on_interval_change(self, value: float) -> None:
         update_setting("monitor_update_interval_s", value)
@@ -784,7 +782,7 @@ class SettingsTab(ctk.CTkFrame):
     def _confirm_clear_history(self) -> None:
         tests = len(network_core.load_test_history())
         sessions = len(game_sessions.load_sessions())
-        if not confirm_dialog.ask(
+        if not modal.confirm(
             self, t("settings.data.clear_history.title"),
             t("settings.data.clear_history.text", tests=tests, sessions=sessions),
             t("settings.data.clear"), danger=True,
@@ -802,7 +800,7 @@ class SettingsTab(ctk.CTkFrame):
         sounds.play_success()
 
     def _confirm_reset_settings(self) -> None:
-        if not confirm_dialog.ask(
+        if not modal.confirm(
             self, t("settings.data.reset.title"),
             t("settings.data.reset.text"),
             t("common.reset"), danger=True,

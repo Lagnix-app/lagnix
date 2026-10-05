@@ -7,7 +7,7 @@ import os
 import threading
 import time
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 
 import customtkinter as ctk
 
@@ -19,6 +19,7 @@ from core.settings import load_settings
 from core.system_processes import is_protected
 from core.logging_setup import get_audit_logger, get_logger
 from ui import bg, theme
+from ui.widgets import modal
 from ui.widgets import aa
 from ui.widgets import robot as robot_view
 from ui.game_mode_apps import AppsPanel
@@ -169,11 +170,7 @@ class ProcessCheckList(CanvasList):
         item = self.items[index]
         anticheat = [n for n in item["names"] if process_info.is_anticheat(n)]
         if not item["checked"] and anticheat:
-            if not messagebox.askyesno(
-                t("game_mode.anticheat.title"),
-                t("game_mode.anticheat.question", name=anticheat[0], warning=process_info.anticheat_warning()),
-                parent=self,
-            ):
+            if not modal.confirm(self, t("game_mode.anticheat.title"), t("game_mode.anticheat.question", name=anticheat[0], warning=process_info.anticheat_warning())):
                 return
         item["checked"] = not item["checked"]
         slot = self.slot_for(index)
@@ -719,11 +716,7 @@ class GameModeTab(ctk.CTkFrame):
     def _request_enable(self) -> None:
         plan_override = None
         if self._plan_value() == game_mode_core.ULTRA and power_plans.on_battery():
-            answer = messagebox.askyesnocancel(
-                t("game_mode.battery.title"),
-                t("game_mode.battery.question"),
-                parent=self,
-            )
+            answer = modal.choose(self, t("game_mode.battery.title"), t("game_mode.battery.question"))
             if answer is None:
                 return
             if answer is False:
@@ -810,11 +803,7 @@ class GameModeTab(ctk.CTkFrame):
 
     def _offer_reopen(self, closed: list[dict]) -> None:
         names = "\n".join("• " + c["title"] for c in closed[:12])
-        if messagebox.askyesno(
-            t("game_mode.reopen.title"),
-            t("game_mode.reopen.question", names=names),
-            parent=self,
-        ):
+        if modal.confirm(self, t("game_mode.reopen.title"), t("game_mode.reopen.question", names=names)):
             threading.Thread(target=self._reopen_worker, args=(closed,), daemon=True).start()
 
     def _reopen_worker(self, closed: list[dict]) -> None:
@@ -1097,7 +1086,7 @@ class GameModeTab(ctk.CTkFrame):
     def _clear_sessions(self) -> None:
         if not game_sessions.load_sessions():
             return
-        if messagebox.askyesno(t("game_mode.sessions.history"), t("game_mode.sessions.clear_question"), parent=self):
+        if modal.confirm(self, t("game_mode.sessions.history"), t("game_mode.sessions.clear_question")):
             game_sessions.clear_sessions()
             self._render_sessions()
 
@@ -1229,10 +1218,7 @@ class GameModeTab(ctk.CTkFrame):
             theme.set_text(self.adv_result, text, text_color=theme.ERROR if error else theme.TEXT_DIM)
 
     def _on_delete_ultra(self) -> None:
-        if not messagebox.askyesno(
-            t("game_mode.ultra.title"),
-            t("game_mode.ultra.delete_question"), parent=self,
-        ):
+        if not modal.confirm(self, t("game_mode.ultra.title"), t("game_mode.ultra.delete_question")):
             return
         threading.Thread(target=self._delete_ultra_worker, daemon=True).start()
 
@@ -1352,7 +1338,7 @@ class GameModeTab(ctk.CTkFrame):
         if not name.lower().endswith(".exe"):
             name += ".exe"
         if name.lower() in {g.lower() for g in self.state["games"]}:
-            messagebox.showinfo(t("common.info"), t("game_mode.already_listed", name=name), parent=self)
+            modal.notify(self, t("common.info"), t("game_mode.already_listed", name=name))
             return
         with self._lock:
             self.state["games"].append(name)

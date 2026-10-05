@@ -7,7 +7,6 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 from collections import deque
-from tkinter import messagebox
 
 import customtkinter as ctk
 from PIL import Image, ImageChops, ImageDraw, ImageTk
@@ -19,6 +18,7 @@ from core.app_icons import IconLoader
 from core.settings import load_settings, update_setting
 from core.system_processes import is_protected
 from ui import bg, theme
+from ui.widgets import modal
 from ui.widgets import aa
 from ui.widgets import robot as robot_view
 from ui.widgets.canvas_list import PROCESS_BADGES, CanvasList, card_image, pill_image
@@ -1388,8 +1388,4 @@ class MonitorTab(ctk.CTkFrame):
         if not self.winfo_exists() or not errors:
             return
         shown = "\n".join(errors[:6]) + (t("game_mode.and_more", count=len(errors) - 6) if len(errors) > 6 else "")
-        messagebox.showerror(
-            t("common.error"),
-            t("monitor.kill_failed", title=title, killed=killed, shown=shown),
-            parent=self,
-        )
+        modal.notify(self, t("common.error"), t("monitor.kill_failed", title=title, killed=killed, shown=shown), "error")

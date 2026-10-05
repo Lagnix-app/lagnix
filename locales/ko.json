@@ -1053,5 +1053,8 @@
  "monitor.tip.gpu.1": "영상·3D를 쓰는 백그라운드 앱을 닫으세요.",
  "monitor.tip.gpu.2": "게임 그래픽을 낮추거나 FPS를 제한하세요.",
  "monitor.tip.temp.1": "팬과 통풍구에 먼지가 없는지 확인하세요.",
- "monitor.tip.temp.2": "본체 공기 흐름을 막지 말고 그래픽을 낮추세요."
+ "monitor.tip.temp.2": "본체 공기 흐름을 막지 말고 그래픽을 낮추세요.",
+ "common.yes": "예",
+ "common.no": "아니요",
+ "common.ok": "확인"
 }

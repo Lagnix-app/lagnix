@@ -6,7 +6,6 @@ import threading
 import time
 import tkinter as tk
 import webbrowser
-from tkinter import messagebox
 
 import customtkinter as ctk
 
@@ -15,6 +14,7 @@ from core import system_info as system_info_core
 from core.logging_setup import get_logger
 from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
+from ui.widgets import modal
 from ui.widgets.cleaner_bot import CleanerBotAnimation
 from core.i18n import t
 
@@ -439,13 +439,13 @@ class SystemTab(ctk.CTkFrame):
         elif action == "switch_to_balanced":
             self._switch_power_plan()
         elif action == "xmp_help":
-            messagebox.showinfo("XMP / DOCP / EXPO", t(system_info_core.XMP_HELP_TEXT), parent=self)
+            modal.notify(self, "XMP / DOCP / EXPO", t(system_info_core.XMP_HELP_TEXT))
 
     def _open_uri(self, uri: str):
         try:
             os.startfile(uri)
         except OSError:
-            messagebox.showerror(t("common.error"), t("system.err.settings"), parent=self)
+            modal.notify(self, t("common.error"), t("system.err.settings"), "error")
 
     def _go_to_tab(self, key: str):
         toplevel = self.winfo_toplevel()
@@ -466,10 +466,10 @@ class SystemTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         if success:
-            messagebox.showinfo(t("common.done"), t("system.balanced_on"), parent=self)
+            modal.notify(self, t("common.done"), t("system.balanced_on"))
             self._load_snapshot()
         else:
-            messagebox.showerror(t("common.error"), error or t("game_mode.err.switch_plan"), parent=self)
+            modal.notify(self, t("common.error"), error or t("game_mode.err.switch_plan"), "error")
 
     # ----------------------------------------------------------------- звіт
 
@@ -573,7 +573,7 @@ class SystemTab(ctk.CTkFrame):
 
     def _copy_system_info(self):
         if self._snapshot is None:
-            messagebox.showinfo(t("common.info"), t("system.still_loading"), parent=self)
+            modal.notify(self, t("common.info"), t("system.still_loading"))
             return
         self._snapshot["cpu"]["current_ghz"] = system_info_core.current_cpu_freq_ghz(self._monitor_snapshot())
         text = system_info_core.build_system_info_text(self._snapshot)

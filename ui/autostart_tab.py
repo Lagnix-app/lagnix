@@ -1,12 +1,12 @@
 """Вкладка «Автозапуск» — програми з реєстру Run і папок Startup, увімк./вимк."""
 
-from tkinter import messagebox
 
 import customtkinter as ctk
 
 from core import autostart as autostart_core
 from core.i18n import t
 from ui import theme
+from ui.widgets import modal
 from ui.widgets.canvas_list import CanvasList, card_image, pill_image, switch_image
 
 _SOURCE_ORDER = (
@@ -340,22 +340,14 @@ class AutostartTab(ctk.CTkFrame):
             entry["enabled"] = want_enabled
             self._update_status()
         else:
-            messagebox.showerror(t("common.error"), error or t("autostart.err.toggle"), parent=self)
+            modal.notify(self, t("common.error"), error or t("autostart.err.toggle"), "error")
 
     def _confirm_disable(self, entry: dict) -> bool:
         name = entry["display_name"]
         if entry["is_anticheat"]:
-            return messagebox.askyesno(
-                t("common.confirmation"),
-                t("autostart.confirm_anticheat", name=name, warning=t(autostart_core.ANTICHEAT_WARNING)),
-                parent=self,
-            )
+            return modal.confirm(self, t("common.confirmation"), t("autostart.confirm_anticheat", name=name, warning=t(autostart_core.ANTICHEAT_WARNING)))
         if entry["is_system"]:
-            return messagebox.askyesno(
-                t("common.confirmation"),
-                t("autostart.confirm_system", name=name),
-                parent=self,
-            )
+            return modal.confirm(self, t("common.confirmation"), t("autostart.confirm_system", name=name))
         return True
 
     # --------------------------------------------------------- open location
@@ -363,4 +355,4 @@ class AutostartTab(ctk.CTkFrame):
     def _on_open_location(self, entry: dict):
         success, error = autostart_core.open_location(entry)
         if not success:
-            messagebox.showerror(t("common.error"), error or t("autostart.err.open_location"), parent=self)
+            modal.notify(self, t("common.error"), error or t("autostart.err.open_location"), "error")

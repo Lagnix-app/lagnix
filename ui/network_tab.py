@@ -3,7 +3,6 @@
 
 import time
 import tkinter as tk
-from tkinter import messagebox
 from collections import deque
 from datetime import datetime
 
@@ -12,6 +11,7 @@ import customtkinter as ctk
 from core import network as network_core
 from core import settings as app_settings
 from ui import bg, theme
+from ui.widgets import modal
 from ui.widgets.cleaner_bot import CleanerBotAnimation
 from core.i18n import TDict, t
 
@@ -464,7 +464,7 @@ class NetworkTab(ctk.CTkFrame):
     def _clear_history(self):
         if not network_core.load_test_history():
             return
-        if not messagebox.askyesno(t(TXT_CLEAR_CONFIRM_TITLE), t(TXT_CLEAR_CONFIRM), parent=self):
+        if not modal.confirm(self, t(TXT_CLEAR_CONFIRM_TITLE), t(TXT_CLEAR_CONFIRM)):
             return
         self._hide_undo()
         self._show_history(network_core.clear_test_history())

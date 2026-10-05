@@ -2,7 +2,6 @@
 
 import os
 
-from tkinter import messagebox
 
 import customtkinter as ctk
 
@@ -12,10 +11,11 @@ from core.logging_setup import get_logger
 from core.settings import load_settings
 from core.i18n import t
 from ui import bg, theme
+from ui.widgets import modal
 from ui.app_shell import AppShell
 from ui.widgets.dropdown import Dropdown
 from ui.widgets.logo_widget import LogoWidget
-from ui.widgets.support_dialog import SupportDialog
+from ui.widgets.support_dialog import show_support
 from core import links
 import math
 import time
@@ -151,7 +151,7 @@ class MainWindow(ctk.CTk):
             restart_core.spawn_new_instance()
         except Exception as exc:
             get_logger(__name__).exception("Restart failed")
-            messagebox.showerror("Lagnix", t("restart.failed", exc=exc), parent=self)
+            modal.notify(self, "Lagnix", t("restart.failed", exc=exc), "error")
             return False
         self.exit_app()
         return True
@@ -215,7 +215,6 @@ class MainWindow(ctk.CTk):
             self.nav_buttons[key] = button
 
         self._support_button = None
-        self._support_dialog = None
         self._pulse_job = None
         if links.KOFI_URL:
             self._support_button = ctk.CTkButton(
@@ -226,12 +225,7 @@ class MainWindow(ctk.CTk):
             self._pulse()
 
     def _open_support(self) -> None:
-        dialog = self._support_dialog
-        if dialog is not None and dialog.winfo_exists():
-            dialog.lift()
-            dialog.focus_force()
-            return
-        self._support_dialog = SupportDialog(self)
+        show_support(self)
 
     def _pulse(self) -> None:
         """Лёгка пульсація рамки кнопки «Підтримати» (~12 к/с); на паузі, поки вікно згорнуте."""

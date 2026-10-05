@@ -1066,5 +1066,8 @@
  "monitor.tip.gpu.1": "Fermez les applis d'arrière-plan vidéo ou 3D.",
  "monitor.tip.gpu.2": "Baissez les graphismes ou limitez les FPS en jeu.",
  "monitor.tip.temp.1": "Vérifiez la poussière sur les ventilateurs et les grilles.",
- "monitor.tip.temp.2": "Ne bloquez pas l'air vers le boîtier et baissez les graphismes."
+ "monitor.tip.temp.2": "Ne bloquez pas l'air vers le boîtier et baissez les graphismes.",
+ "common.yes": "Oui",
+ "common.no": "Non",
+ "common.ok": "OK"
 }

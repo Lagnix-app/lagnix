@@ -1,7 +1,6 @@
 """Вкладка «Очищення» — кеші й тимчасові файли за категоріями, пошук великих файлів."""
 
 import threading
-from tkinter import messagebox
 
 import customtkinter as ctk
 
@@ -11,6 +10,7 @@ from core import large_files as large_files_core
 from core import process_control
 from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
+from ui.widgets import modal
 from ui.cleanup_app_cache import AppCacheSection
 from ui.widgets.cleaner_bot_dialog import CleanerBotDialog
 from core.i18n import t
@@ -507,12 +507,11 @@ class CleanupTab(ctk.CTkFrame):
         if not self.winfo_exists():
             return
         if dialog is not None and dialog.winfo_exists():
-            dialog.destroy()  # інакше модальне вікно робота перехоплює фокус у messagebox
+            dialog.destroy()  # одночасно відкрите лише одне модальне вікно
         message = t("cleanup.relaunch_question", name=name, freed=freed_text)
-        if messagebox.askyesno(t("cleanup.relaunch_title"), message, parent=self):
+        if modal.confirm(self, t("cleanup.relaunch_title"), message):
             if not app_cache_core.relaunch(target):
-                messagebox.showwarning(t("cleanup.launch"), t("cleanup.launch_failed", name=name),
-                                       parent=self)
+                modal.notify(self, t("cleanup.launch"), t("cleanup.launch_failed", name=name), "warning")
 
     # ------------------------------------------------------- large files
 

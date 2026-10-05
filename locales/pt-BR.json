@@ -1066,5 +1066,8 @@
  "monitor.tip.gpu.1": "Feche apps em segundo plano com vídeo ou 3D.",
  "monitor.tip.gpu.2": "Reduza os gráficos ou limite o FPS no jogo.",
  "monitor.tip.temp.1": "Verifique se há poeira nos ventiladores e aberturas.",
- "monitor.tip.temp.2": "Não bloqueie o ar para o gabinete e reduza os gráficos."
+ "monitor.tip.temp.2": "Não bloqueie o ar para o gabinete e reduza os gráficos.",
+ "common.yes": "Sim",
+ "common.no": "Não",
+ "common.ok": "OK"
 }

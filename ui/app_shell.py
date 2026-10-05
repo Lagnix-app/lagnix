@@ -300,17 +300,13 @@ class AppShell:
         targets = [tw for tw in cleanup.get_targets() if tw.get("category") == cleanup.CAT_TEMP]
         if not targets:
             return
-        host = self._dialog_host()
-        try:
-            action = process_control.ask_user_action(
-                host, t("shell.quick_cleanup.title"),
-                t("shell.quick_cleanup.question") + "\n".join("• " + tw["label"] for tw in targets)
-                + t("shell.quick_cleanup.skipped_note"),
-                reason="Tray → \"Quick cleanup of temporary files\"",
-            )
-        finally:
-            if host is not self.window:
-                host.destroy()
+        # підтвердження — всередині головного вікна, тож із трею спершу показуємо його
+        action = process_control.ask_user_action(
+            self._dialog_parent(), t("shell.quick_cleanup.title"),
+            t("shell.quick_cleanup.question") + "\n".join("• " + tw["label"] for tw in targets)
+            + t("shell.quick_cleanup.skipped_note"),
+            reason="Tray → \"Quick cleanup of temporary files\"",
+        )
         if action is None:
             return
         keys = [tw["key"] for tw in targets]
@@ -332,18 +328,11 @@ class AppShell:
     def _on_cleanup_failed(self, exc: BaseException) -> None:
         self.tray.notify(t("shell.cleanup_failed"), bg.error_text(exc))
 
-    def _dialog_host(self):
-        """Батько для діалогу: саме вікно, якщо воно видиме; інакше — невидиме вікно
-        поверх усіх по центру екрана (діалог від схованого вікна міг би опинитись позаду)."""
-        if self.window_shown():
+    def _dialog_parent(self):
+        """Головне вікно для діалогу: якщо воно сховане (трей) чи згорнуте — спершу показуємо."""
+        if not self.window_shown():
+            self.show_window()
+            self.window.update()
+        else:
             self.window.lift()
-            return self.window
-        host = tk.Toplevel(self.window)
-        host.overrideredirect(True)
-        host.attributes("-alpha", 0.0)
-        host.attributes("-topmost", True)
-        host.geometry(f"1x1+{host.winfo_screenwidth() // 2}+{host.winfo_screenheight() // 3}")
-        host.update_idletasks()
-        host.lift()
-        host.focus_force()
-        return host
+        return self.window

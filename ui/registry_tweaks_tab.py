@@ -8,7 +8,6 @@
 
 import os
 import tkinter as tk
-from tkinter import messagebox
 
 import customtkinter as ctk
 
@@ -16,7 +15,7 @@ from core import process_control
 from core import tweaks as tweaks_core
 from ui.widgets.scroll import ScrollFrame
 from ui import bg, theme
-from ui.widgets import confirm_dialog
+from ui.widgets import modal
 from core.i18n import TDict, t
 
 _RISK_LABELS = TDict({
@@ -180,110 +179,51 @@ class SettingsLinkRow(ctk.CTkFrame):
         try:
             os.startfile(uri)
         except OSError as exc:
-            messagebox.showerror(t("common.error"), t("tweaks.err.open_settings", exc=exc), parent=self)
-
-
-class ChecklistDialog(ctk.CTkToplevel):
-    """Список змін із галочками перед застосуванням пресета чи відкату.
-
-    items: (id, title, risk, effect, note, selectable). note — що саме станеться
-    (або чому пункт недоступний, якщо selectable=False)."""
-
-    def __init__(self, master, title: str, intro: str, items: list, confirm_text: str,
-                 warning: str = "", danger: bool = False):
-        super().__init__(master)
-        self.result: list[str] | None = None
-        self._confirm_text = confirm_text
-        self.title(title)
-        self.resizable(False, False)
-        self.configure(fg_color=theme.BG_PANEL)
-        self.transient(master.winfo_toplevel())
-        self.protocol("WM_DELETE_WINDOW", self._cancel)
-
-        width = 560
-        ctk.CTkLabel(self, text=title, font=theme.font_header(), anchor="w").pack(
-            fill="x", padx=20, pady=(18, 6))
-        ctk.CTkLabel(self, text=intro, font=theme.font_body(), text_color=theme.TEXT_DIM, anchor="w",
-                     justify="left", wraplength=width - 40).pack(fill="x", padx=20)
-        if warning:
-            ctk.CTkLabel(self, text=warning, font=theme.font_small(), text_color=theme.WARNING, anchor="w",
-                         justify="left", wraplength=width - 40).pack(fill="x", padx=20, pady=(8, 0))
-
-        listbox = ScrollFrame(self, width=width - 60, height=min(360, 58 * len(items) + 10),
-                              bg=theme.BG_MAIN)
-        listbox.pack(fill="both", expand=True, padx=20, pady=(12, 0))
-
-        self._boxes: list[tuple[str, ctk.CTkCheckBox]] = []
-        for tweak_id, item_title, risk, effect, note, selectable in items:
-            row = theme.plain_frame(listbox)
-            row.pack(fill="x", pady=4)
-            box = ctk.CTkCheckBox(row, text=item_title, font=theme.font_body(), command=self._update_count,
-                                  checkbox_width=20, checkbox_height=20)
-            box.pack(anchor="w")
-            if selectable:
-                box.select()
-                self._boxes.append((tweak_id, box))
-            else:
-                box.configure(state="disabled")
-            meta = theme.plain_frame(row)
-            meta.pack(anchor="w", padx=(28, 0), pady=(2, 0))
-            _chip(meta, f" ● {_RISK_LABELS[risk]} ", _RISK_COLORS[risk]).pack(side="left", padx=(0, 6))
-            _chip(meta, t("tweaks.chip.effect", effect=tweaks_core.EFFECT_LABELS[effect]), _EFFECT_COLORS[effect]).pack(
-                side="left", padx=(0, 6))
-            if note:
-                ctk.CTkLabel(row, text=note, font=theme.font_small(),
-                             text_color=theme.TEXT_DIM if selectable else theme.WARNING, anchor="w",
-                             wraplength=width - 120, justify="left").pack(anchor="w", padx=(28, 0))
-
-        buttons = theme.plain_frame(self)
-        buttons.pack(fill="x", padx=20, pady=(14, 18))
-        style = ({"fg_color": "#a8283f", "hover_color": theme.ERROR, "text_color": "#ffffff"} if danger
-                 else {"fg_color": theme.ACCENT_BLUE_DIM})
-        self.confirm_button = ctk.CTkButton(buttons, text=confirm_text, width=10, height=32, corner_radius=8,
-                                            command=self._confirm, **style)
-        self.confirm_button.pack(side="right")
-        ctk.CTkButton(buttons, text=t("common.cancel"), width=100, height=32, corner_radius=8, fg_color="transparent",
-                      border_width=1, border_color=theme.BORDER, hover_color=theme.BG_PANEL_LIGHT,
-                      text_color=theme.TEXT_MAIN, command=self._cancel).pack(side="right", padx=(0, 8))
-        self.bind("<Escape>", lambda _e: self._cancel())
-        self._update_count()
-
-        self.update_idletasks()
-        root = master.winfo_toplevel()
-        x = root.winfo_rootx() + (root.winfo_width() - self.winfo_reqwidth()) // 2
-        y = root.winfo_rooty() + (root.winfo_height() - self.winfo_reqheight()) // 4
-        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
-        self.after(30, self._grab)
-
-    def _selected(self) -> list[str]:
-        return [tweak_id for tweak_id, box in self._boxes if box.get()]
-
-    def _update_count(self) -> None:
-        count = len(self._selected())
-        self.confirm_button.configure(text=f"{self._confirm_text} ({count})",
-                                      state="normal" if count else "disabled")
-
-    def _grab(self) -> None:
-        try:
-            self.grab_set()
-            self.focus_force()
-        except tk.TclError:
-            pass
-
-    def _confirm(self) -> None:
-        self.result = self._selected()
-        self.destroy()
-
-    def _cancel(self) -> None:
-        self.result = None
-        self.destroy()
+            modal.notify(self, t("common.error"), t("tweaks.err.open_settings", exc=exc), "error")
 
 
 def ask_checklist(master, title: str, intro: str, items: list, confirm_text: str,
                   warning: str = "", danger: bool = False) -> list[str] | None:
-    dialog = ChecklistDialog(master, title, intro, items, confirm_text, warning, danger)
-    master.wait_window(dialog)
-    return dialog.result
+    """Список змін із галочками перед застосуванням пресета чи відкату (модальне вікно
+    всередині головного). -> id вибраних пунктів або None, якщо скасовано.
+
+    items: (id, title, risk, effect, note, selectable). note — що саме станеться
+    (або чому пункт недоступний, якщо selectable=False)."""
+    modal_window = modal.Modal(master, title, intro, warning=warning, kind="danger" if danger else None)
+    boxes: list[tuple[str, ctk.CTkCheckBox]] = []
+
+    def selected() -> list[str]:
+        return [tweak_id for tweak_id, box in boxes if box.get()]
+
+    def update_count() -> None:
+        count = len(selected())
+        confirm_button.configure(text=f"{confirm_text} ({count})", state="normal" if count else "disabled")
+
+    for tweak_id, item_title, risk, effect, note, selectable in items:
+        row = theme.plain_frame(modal_window.body)
+        row.pack(fill="x", pady=4)
+        box = ctk.CTkCheckBox(row, text=item_title, font=theme.font_body(), command=update_count,
+                              checkbox_width=20, checkbox_height=20)
+        box.pack(anchor="w")
+        if selectable:
+            box.select()
+            boxes.append((tweak_id, box))
+        else:
+            box.configure(state="disabled")
+        meta = theme.plain_frame(row)
+        meta.pack(anchor="w", padx=(28, 0), pady=(2, 0))
+        _chip(meta, f" ● {_RISK_LABELS[risk]} ", _RISK_COLORS[risk]).pack(side="left", padx=(0, 6))
+        _chip(meta, t("tweaks.chip.effect", effect=tweaks_core.EFFECT_LABELS[effect]), _EFFECT_COLORS[effect]).pack(
+            side="left", padx=(0, 6))
+        if note:
+            ctk.CTkLabel(row, text=note, font=theme.font_small(),
+                         text_color=theme.TEXT_DIM if selectable else theme.WARNING, anchor="w",
+                         wraplength=modal_window.wrap_dp - 28, justify="left").pack(anchor="w", padx=(28, 0))
+
+    modal_window.add_button(t("common.cancel"), None, "secondary")
+    confirm_button = modal_window.add_button(confirm_text, True, "danger" if danger else "primary")
+    update_count()
+    return selected() if modal_window.run() else None
 
 
 class RegistryTweaksTab(ctk.CTkFrame):
@@ -466,7 +406,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
             reason = tweaks_core.blocked_reason(tweak)
             if reason:
                 row.refresh()
-                messagebox.showinfo(t("common.unavailable"), reason, parent=self)
+                modal.notify(self, t("common.unavailable"), reason)
                 return
             if not self._confirm_enable(tweak):
                 row.refresh()
@@ -482,14 +422,14 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
     def _confirm_enable(self, tweak: tweaks_core.Tweak) -> bool:
         if tweak.risk == tweaks_core.RISK_DANGER:
-            return confirm_dialog.ask(
+            return modal.confirm(
                 self, t("tweaks.risky_title", title=tweak.title),
                 t("tweaks.risky_text", description=tweak.description, risk_note=tweak.risk_note),
                 t("tweaks.risky_ok"), danger=True,
             )
         if tweak.risk == tweaks_core.RISK_CAUTION:
             note = t("tweaks.side_effect", risk_note=tweak.risk_note) if tweak.risk_note else ""
-            return confirm_dialog.ask(
+            return modal.confirm(
                 self, t("tweaks.caution_title"),
                 t("tweaks.caution_text", title=tweak.title, description=tweak.description, note=note),
                 t("common.turn_on"),
@@ -505,7 +445,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
             if tweak.needs_explorer:
                 self._offer_explorer_restart()
         else:
-            messagebox.showerror(t("common.error"), error or t("tweaks.err.change"), parent=self)
+            modal.notify(self, t("common.error"), error or t("tweaks.err.change"), "error")
 
     # ---------------------------------------------------------------- пресети
 
@@ -516,7 +456,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
         title = t(next(title for key, title, _t, _c in _PRESETS if key == preset))
         pending = tweaks_core.preset_pending(preset)
         if not any(not reason for _t, reason in pending):
-            messagebox.showinfo(title, t("tweaks.preset.all_applied"), parent=self)
+            modal.notify(self, title, t("tweaks.preset.all_applied"))
             return
 
         items = []
@@ -541,7 +481,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
     def _on_restore_clicked(self):
         pending = tweaks_core.restore_pending()
         if not pending:
-            messagebox.showinfo(t("tweaks.restore_all"), t("tweaks.all_initial"), parent=self)
+            modal.notify(self, t("tweaks.restore_all"), t("tweaks.all_initial"))
             return
 
         items = [
@@ -562,7 +502,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
 
     def _on_max_performance_clicked(self):
         names = "\n".join(f"• {tw.title}" for tw in tweaks_core.get_appearance_tweaks())
-        confirmed = confirm_dialog.ask(
+        confirmed = modal.confirm(
             self, t("tweaks.max_performance"),
             t("tweaks.max_performance.text", names=names),
             t("common.turn_on"),
@@ -571,7 +511,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
             self._run_batch(t("tweaks.max_performance"), tweaks_core.apply_max_performance)
 
     def _on_restore_appearance_clicked(self):
-        confirmed = confirm_dialog.ask(
+        confirmed = modal.confirm(
             self, t("tweaks.restore_pretty"),
             t("tweaks.restore_pretty.text"),
             t("common.restore"),
@@ -618,9 +558,7 @@ class RegistryTweaksTab(ctk.CTkFrame):
         if error:
             failed.append(error)
         if failed:
-            messagebox.showerror(
-                t("common.error"), t("tweaks.err.some_failed") + "\n".join(failed), parent=self
-            )
+            modal.notify(self, t("common.error"), t("tweaks.err.some_failed") + "\n".join(failed), "error")
         if any(tweak.needs_explorer for tweak in succeeded):
             self._offer_explorer_restart()
 

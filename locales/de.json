@@ -1066,5 +1066,8 @@
  "monitor.tip.gpu.1": "Schließe Hintergrund-Apps mit Video oder 3D.",
  "monitor.tip.gpu.2": "Senke die Grafik oder begrenze die FPS im Spiel.",
  "monitor.tip.temp.1": "Prüfe Lüfter und Lüftungsschlitze auf Staub.",
- "monitor.tip.temp.2": "Blockiere die Luftzufuhr zum Gehäuse nicht, senke die Grafik."
+ "monitor.tip.temp.2": "Blockiere die Luftzufuhr zum Gehäuse nicht, senke die Grafik.",
+ "common.yes": "Ja",
+ "common.no": "Nein",
+ "common.ok": "OK"
 }
