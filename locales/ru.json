@@ -1095,5 +1095,21 @@
  "monitor.tip.temp.2": "Не перекрывайте доступ воздуха к корпусу, снизьте графику.",
  "common.yes": "Да",
  "common.no": "Нет",
- "common.ok": "OK"
+ "common.ok": "OK",
+ "game_mode.force.title": "Эти программы не закрылись",
+ "game_mode.force.text": "Они показали своё окно подтверждения или не ответили на закрытие. Закрыть их принудительно?",
+ "game_mode.force.warning": "Несохранённые данные в этих программах могут быть потеряны.",
+ "game_mode.force.close": "Закрыть принудительно",
+ "game_mode.force.keep": "Оставить",
+ "game_mode.force.close_all": "Закрыть все принудительно",
+ "game_mode.force.keep_all": "Оставить все",
+ "game_mode.force.always": "Всегда закрывать принудительно",
+ "game_mode.force.will_close": "✓ Будет закрыта принудительно",
+ "game_mode.force.kept": "Оставлена открытой",
+ "game_mode.force.call_only": "Видеосвязь закрывается принудительно только вручную, здесь",
+ "game_mode.force.browser_restore": "Вкладки восстановятся при следующем запуске",
+ "game_mode.force.browser_no_restore": "В браузере не включено восстановление сессии — вкладки не вернутся",
+ "game_mode.force.browser_unknown": "Не удалось проверить восстановление сессии — вкладки могут не вернуться",
+ "game_mode.browser_force": "Браузеры закрывать принудительно (вкладки восстановятся при следующем запуске)",
+ "game_mode.browser_force.hint": "Только если в браузере включено восстановление сессии; иначе Lagnix спросит в окне. Видеосвязь (Zoom, Teams, Discord, Skype) автоматически не закрывается никогда."
 }

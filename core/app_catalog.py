@@ -148,6 +148,14 @@ NICE_TITLES = TDict({
 RECORDING_SENSITIVE = {"nvidia overlay.exe", "nvidia share.exe"}
 RECORDING_CPU_THRESHOLD = 2.0
 
+# Відеозв'язок: НІКОЛИ не закривається примусово автоматично (ні «завжди», ні через налаштування
+# браузерів) — лише вручну у вікні з пропозицією примусового закриття. Discord — завжди сюди:
+# визначити, що триває дзвінок, ненадійно.
+VIDEO_CALL_APPS = frozenset({
+    "zoom.exe", "teams.exe", "ms-teams.exe", "msteams.exe", "skype.exe", "skypeapp.exe",
+    "discord.exe", "discordptb.exe", "discordcanary.exe",
+})
+
 # Лише м'яке закриття — можуть бути незбережені документи
 DOCUMENT_CATEGORIES = {"office"}
 

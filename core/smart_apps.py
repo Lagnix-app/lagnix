@@ -182,24 +182,49 @@ def compute_suggestions(excluded: set[str], game_platforms: set[str] = frozenset
     return [a for a in plan["apps"] if a["close"]]
 
 
-def close_apps(apps: list[dict], action) -> tuple[list[dict], list[str]]:
+def close_apps(apps: list[dict], action) -> tuple[list[dict], list[str], list[dict]]:
     """Закриває програми, які користувач щойно підтвердив (action — process_control.UserAction):
-    спершу м'яко (штатне закриття вікон), примусово — лише програми без вікон через 5 с.
-    -> (закриті {title, name, exe_path, memory_mb}, повідомлення про незакриті)."""
+    спершу м'яко (штатне закриття вікон); примусово — лише програми без вікон через 5 с і ті,
+    що дозволено заздалегідь (app["force"], крім відеозв'язку). Програми, що лишилися
+    відкритими (показали своє вікно підтвердження тощо), повертаються в `kept` — Lagnix
+    запропонує користувачу закрити їх примусово.
+    -> (закриті {title, name, exe_path, memory_mb}, повідомлення про помилки, незакриті kept)."""
     if not apps:
-        return [], []
+        return [], [], []
     try:
         results = process_control.close_apps_gracefully(apps, action)
     except Exception as exc:
         _logger.exception("Failed to close programs")
-        return [], [str(exc)]
-    closed, errors = [], []
+        return [], [str(exc)], []
+    closed, errors, kept = [], [], []
     for app, result in zip(apps, results):
         if result["status"] in ("closed", "forced"):
             closed.append({"title": app["title"], "name": app["name"], "exe_path": app.get("exe_path"),
                            "memory_mb": app["memory_mb"]})
+        elif result["status"] == "kept":
+            kept.append({
+                "key": app.get("key") or app["name"].lower(), "title": app["title"], "name": app["name"],
+                "exe_path": app.get("exe_path"), "memory_mb": app["memory_mb"], "targets": result["targets"],
+                "reason": result["reason"], "category": app.get("category"),
+                "never_force": bool(app.get("never_force")), "session_restore": app.get("session_restore"),
+            })
         else:
             errors.append(t("smart.err.close", title=app['title'], reason=result['reason']))
+    return closed, errors, kept
+
+
+def force_close(kept: list[dict], action) -> tuple[list[dict], list[str]]:
+    """Примусово закриває програми з `kept`, які користувач щойно вибрав у вікні
+    (action — process_control.UserAction з ask_force_close).
+    -> (закриті {title, name, exe_path, memory_mb}, повідомлення про помилки)."""
+    closed, errors = [], []
+    for app in kept:
+        killed, errs = process_control.terminate_processes(app["targets"], action, timeout=3)
+        if errs and not killed:
+            errors.append(t("smart.err.close", title=app["title"], reason="; ".join(errs[:2])))
+        else:
+            closed.append({"title": app["title"], "name": app["name"], "exe_path": app.get("exe_path"),
+                           "memory_mb": app["memory_mb"]})
     return closed, errors
 
 

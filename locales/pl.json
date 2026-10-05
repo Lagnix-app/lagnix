@@ -1095,5 +1095,21 @@
  "monitor.tip.temp.2": "Nie blokuj dopływu powietrza do obudowy, obniż grafikę.",
  "common.yes": "Tak",
  "common.no": "Nie",
- "common.ok": "OK"
+ "common.ok": "OK",
+ "game_mode.force.title": "Te programy się nie zamknęły",
+ "game_mode.force.text": "Pokazały własne okno potwierdzenia lub nie odpowiedziały na zamknięcie. Zamknąć je siłą?",
+ "game_mode.force.warning": "Niezapisane dane w tych programach mogą zostać utracone.",
+ "game_mode.force.close": "Zamknij siłą",
+ "game_mode.force.keep": "Zostaw otwarte",
+ "game_mode.force.close_all": "Zamknij wszystkie siłą",
+ "game_mode.force.keep_all": "Zostaw wszystkie",
+ "game_mode.force.always": "Zawsze zamykaj siłą",
+ "game_mode.force.will_close": "✓ Zostanie zamknięte siłą",
+ "game_mode.force.kept": "Zostawiono otwarte",
+ "game_mode.force.call_only": "Komunikatory wideo zamykane są siłą tylko ręcznie, tutaj",
+ "game_mode.force.browser_restore": "Karty zostaną przywrócone przy następnym uruchomieniu",
+ "game_mode.force.browser_no_restore": "W przeglądarce nie włączono przywracania sesji — karty nie wrócą",
+ "game_mode.force.browser_unknown": "Nie udało się sprawdzić przywracania sesji — karty mogą nie wrócić",
+ "game_mode.browser_force": "Zamykaj przeglądarki siłą (karty zostaną przywrócone przy następnym uruchomieniu)",
+ "game_mode.browser_force.hint": "Tylko gdy w przeglądarce włączone jest przywracanie sesji; w przeciwnym razie Lagnix zapyta w oknie. Rozmowy wideo (Zoom, Teams, Discord, Skype) nigdy nie są zamykane automatycznie."
 }

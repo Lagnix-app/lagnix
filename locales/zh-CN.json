@@ -1056,5 +1056,21 @@
  "monitor.tip.temp.2": "不要堵住机箱进风，并降低画质。",
  "common.yes": "是",
  "common.no": "否",
- "common.ok": "确定"
+ "common.ok": "确定",
+ "game_mode.force.title": "这些程序没有关闭",
+ "game_mode.force.text": "它们显示了自己的确认窗口，或没有响应关闭请求。要强制关闭吗？",
+ "game_mode.force.warning": "这些程序中未保存的数据可能会丢失。",
+ "game_mode.force.close": "强制关闭",
+ "game_mode.force.keep": "保持打开",
+ "game_mode.force.close_all": "全部强制关闭",
+ "game_mode.force.keep_all": "全部保留",
+ "game_mode.force.always": "始终强制关闭",
+ "game_mode.force.will_close": "✓ 将被强制关闭",
+ "game_mode.force.kept": "已保持打开",
+ "game_mode.force.call_only": "视频通话程序只能在此处手动强制关闭",
+ "game_mode.force.browser_restore": "标签页将在下次启动时恢复",
+ "game_mode.force.browser_no_restore": "浏览器未启用会话恢复——标签页不会恢复",
+ "game_mode.force.browser_unknown": "无法检查会话恢复——标签页可能无法恢复",
+ "game_mode.browser_force": "强制关闭浏览器（标签页将在下次启动时恢复）",
+ "game_mode.browser_force.hint": "仅当浏览器已启用会话恢复时；否则 Lagnix 会在窗口中询问。视频通话程序（Zoom、Teams、Discord、Skype）绝不会被自动关闭。"
 }

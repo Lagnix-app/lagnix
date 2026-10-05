@@ -20,7 +20,7 @@ import os
 
 import psutil
 
-from core import app_catalog, power_plans, process_control, process_snapshot, smart_apps
+from core import app_catalog, browsers, power_plans, process_control, process_snapshot, smart_apps
 from core.app_data import load_data, update_data
 from core.i18n import has_key, t
 from core.logging_setup import get_logger
@@ -65,6 +65,8 @@ DEFAULT_GAME_MODE = {
     "levels": {},           # профіль -> рівень: soft / balanced / max (core/app_catalog.py)
     "app_choices": {},      # профіль -> рівень -> {exe: True «закривати» / False «не закривати»}
     "user_apps": {},        # exe -> {title, exe_path}: програми, додані вручну через «+ Додати програму»
+    "browser_force": {},    # рівень -> bool: браузери закривати примусово (типово: так для balanced і max)
+    "force_always": {},     # exe (нижній регістр) -> True: «Завжди закривати примусово» (крім відеозв'язку)
     "never_close": None,    # None = типовий список app_catalog.DEFAULT_NEVER_CLOSE, інакше — список користувача
     "collapsed_groups": [], # згорнуті групи в блоці «Фонові програми»
     "closed_apps": [],      # [{title, name, exe_path, memory_mb}] — закриті під час режиму
@@ -150,6 +152,31 @@ def level_of(state: dict, profile_name: str) -> str:
 
 def choices_of(state: dict, profile_name: str, level: str) -> dict[str, bool]:
     return state.get("app_choices", {}).get(profile_name, {}).get(level, {})
+
+
+def browser_force_enabled(state: dict, level: str) -> bool:
+    """Чи закривати браузери примусово на рівні (за замовчуванням — на «Збалансованому» й «Максимальному»)."""
+    value = state.get("browser_force", {}).get(level)
+    return bool(value) if value is not None else level != app_catalog.SOFT
+
+
+def _prepare_force(state: dict, app: dict, level: str) -> dict:
+    """Копія програми з прапорцями примусового закриття після м'якої спроби:
+      * відеозв'язок (VIDEO_CALL_APPS) — НІКОЛИ автоматично;
+      * «Завжди закривати примусово» для цієї програми;
+      * браузер — якщо ввімкнено налаштування рівня І в браузері ввімкнене відновлення сесії
+        (інакше вкладки пропали б — користувач вирішує у вікні, з попередженням)."""
+    app = dict(app)
+    name = (app.get("name") or "").lower()
+    never = name in app_catalog.VIDEO_CALL_APPS
+    restore = browsers.session_restore(name) if app.get("category") == "browser" else None
+    auto = bool(state.get("force_always", {}).get(name))
+    if app.get("category") == "browser" and browser_force_enabled(state, level) and restore is True:
+        auto = True
+    app["never_force"] = never
+    app["session_restore"] = restore
+    app["force"] = auto and not never
+    return app
 
 
 def never_close_of(state: dict) -> list[str]:
@@ -295,15 +322,16 @@ def activate(state: dict, profile_name: str, auto: bool = False, plan_override: 
     -> звіт: closed [{title, name, exe_path, memory_mb}], freed_mb, errors, plan_name, plan_error."""
     profile = state["profiles"].get(profile_name, {"processes": [], "power_plan": ULTRA})
 
-    closed, errors = [], []
+    closed, errors, kept = [], [], []
     if action is not None:
-        to_close = list(apps or [])
+        level = level_of(state, profile_name)
+        to_close = [_prepare_force(state, a, level) for a in (apps or [])]
         for name in extras or []:  # процеси, позначені в профілі вручну, — теж м'яко
             targets = process_control.find_by_names([name])
             if targets:
                 to_close.append({"title": name, "name": name, "exe_path": None, "memory_mb": 0,
                                  "targets": targets, "document": False})
-        closed, errors = smart_apps.close_apps(to_close, action)
+        closed, errors, kept = smart_apps.close_apps(to_close, action)
 
     if not state.get("is_active"):  # повторне вмикання не має затирати справжній «попередній» план
         current = power_plans.get_active_scheme()
@@ -323,7 +351,7 @@ def activate(state: dict, profile_name: str, auto: bool = False, plan_override: 
     state["freed_mb"] = sum(c.get("memory_mb", 0) for c in closed)
     state["plan_name"] = plan_name
     state["plan_value"] = (ULTRA if plan == ULTRA else guid) if plan_name else None
-    return {"closed": closed, "freed_mb": state["freed_mb"], "errors": errors,
+    return {"closed": closed, "freed_mb": state["freed_mb"], "errors": errors, "kept": kept,
             "plan_name": plan_name, "plan_error": plan_error}
 
 

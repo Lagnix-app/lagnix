@@ -1069,5 +1069,21 @@
  "monitor.tip.temp.2": "Ne bloquez pas l'air vers le boîtier et baissez les graphismes.",
  "common.yes": "Oui",
  "common.no": "Non",
- "common.ok": "OK"
+ "common.ok": "OK",
+ "game_mode.force.title": "Ces programmes ne se sont pas fermés",
+ "game_mode.force.text": "Ils ont affiché leur propre fenêtre de confirmation ou n'ont pas répondu. Les fermer de force ?",
+ "game_mode.force.warning": "Les données non enregistrées dans ces programmes peuvent être perdues.",
+ "game_mode.force.close": "Fermer de force",
+ "game_mode.force.keep": "Laisser ouvert",
+ "game_mode.force.close_all": "Tout fermer de force",
+ "game_mode.force.keep_all": "Tout laisser",
+ "game_mode.force.always": "Toujours fermer de force",
+ "game_mode.force.will_close": "✓ Sera fermé de force",
+ "game_mode.force.kept": "Laissé ouvert",
+ "game_mode.force.call_only": "Les appels vidéo ne sont fermés de force que manuellement, ici",
+ "game_mode.force.browser_restore": "Les onglets seront restaurés au prochain lancement",
+ "game_mode.force.browser_no_restore": "La restauration de session n'est pas activée dans ce navigateur — les onglets ne reviendront pas",
+ "game_mode.force.browser_unknown": "Impossible de vérifier la restauration de session — les onglets peuvent ne pas revenir",
+ "game_mode.browser_force": "Fermer les navigateurs de force (les onglets seront restaurés au prochain lancement)",
+ "game_mode.browser_force.hint": "Seulement si la restauration de session est activée dans le navigateur ; sinon Lagnix demandera dans une fenêtre. Les appels vidéo (Zoom, Teams, Discord, Skype) ne sont jamais fermés automatiquement."
 }

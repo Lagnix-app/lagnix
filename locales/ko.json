@@ -1056,5 +1056,21 @@
  "monitor.tip.temp.2": "본체 공기 흐름을 막지 말고 그래픽을 낮추세요.",
  "common.yes": "예",
  "common.no": "아니요",
- "common.ok": "확인"
+ "common.ok": "확인",
+ "game_mode.force.title": "이 프로그램들이 닫히지 않았습니다",
+ "game_mode.force.text": "자체 확인 창을 표시했거나 종료에 응답하지 않았습니다. 강제로 닫을까요?",
+ "game_mode.force.warning": "이 프로그램들의 저장되지 않은 데이터가 손실될 수 있습니다.",
+ "game_mode.force.close": "강제 종료",
+ "game_mode.force.keep": "열어 두기",
+ "game_mode.force.close_all": "모두 강제 종료",
+ "game_mode.force.keep_all": "모두 유지",
+ "game_mode.force.always": "항상 강제 종료",
+ "game_mode.force.will_close": "✓ 강제 종료됩니다",
+ "game_mode.force.kept": "열어 둠",
+ "game_mode.force.call_only": "화상 통화는 여기서 수동으로만 강제 종료됩니다",
+ "game_mode.force.browser_restore": "다음 실행 시 탭이 복원됩니다",
+ "game_mode.force.browser_no_restore": "브라우저에서 세션 복원이 켜져 있지 않아 탭이 돌아오지 않습니다",
+ "game_mode.force.browser_unknown": "세션 복원을 확인하지 못했습니다 — 탭이 돌아오지 않을 수 있습니다",
+ "game_mode.browser_force": "브라우저 강제 종료 (다음 실행 시 탭 복원)",
+ "game_mode.browser_force.hint": "브라우저에서 세션 복원이 켜져 있을 때만 적용되며, 아니면 Lagnix가 창에서 묻습니다. 화상 통화(Zoom, Teams, Discord, Skype)는 자동으로 닫지 않습니다."
 }

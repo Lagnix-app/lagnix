@@ -1069,5 +1069,21 @@
  "monitor.tip.temp.2": "Kasaya giden havayı engellemeyin, grafikleri düşürün.",
  "common.yes": "Evet",
  "common.no": "Hayır",
- "common.ok": "Tamam"
+ "common.ok": "Tamam",
+ "game_mode.force.title": "Bu programlar kapanmadı",
+ "game_mode.force.text": "Kendi onay pencerelerini gösterdiler veya kapatmaya yanıt vermediler. Zorla kapatılsın mı?",
+ "game_mode.force.warning": "Bu programlardaki kaydedilmemiş veriler kaybolabilir.",
+ "game_mode.force.close": "Zorla kapat",
+ "game_mode.force.keep": "Açık bırak",
+ "game_mode.force.close_all": "Hepsini zorla kapat",
+ "game_mode.force.keep_all": "Hepsini açık bırak",
+ "game_mode.force.always": "Her zaman zorla kapat",
+ "game_mode.force.will_close": "✓ Zorla kapatılacak",
+ "game_mode.force.kept": "Açık bırakıldı",
+ "game_mode.force.call_only": "Görüntülü görüşmeler yalnızca burada elle zorla kapatılır",
+ "game_mode.force.browser_restore": "Sekmeler bir sonraki açılışta geri yüklenecek",
+ "game_mode.force.browser_no_restore": "Tarayıcıda oturum geri yükleme açık değil — sekmeler geri gelmez",
+ "game_mode.force.browser_unknown": "Oturum geri yükleme denetlenemedi — sekmeler geri gelmeyebilir",
+ "game_mode.browser_force": "Tarayıcıları zorla kapat (sekmeler bir sonraki açılışta geri yüklenir)",
+ "game_mode.browser_force.hint": "Yalnızca tarayıcıda oturum geri yükleme açıksa; aksi halde Lagnix bir pencerede sorar. Görüntülü görüşmeler (Zoom, Teams, Discord, Skype) asla otomatik kapatılmaz."
 }

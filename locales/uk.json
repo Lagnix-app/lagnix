@@ -1095,5 +1095,21 @@
  "monitor.tip.temp.2": "Не блокуйте доступ повітря до корпусу, знизьте графіку.",
  "common.yes": "Так",
  "common.no": "Ні",
- "common.ok": "OK"
+ "common.ok": "OK",
+ "game_mode.force.title": "Ці програми не закрилися",
+ "game_mode.force.text": "Вони показали власне вікно підтвердження або не відповіли на закриття. Закрити їх примусово?",
+ "game_mode.force.warning": "Незбережені дані в цих програмах можуть бути втрачені.",
+ "game_mode.force.close": "Закрити примусово",
+ "game_mode.force.keep": "Залишити",
+ "game_mode.force.close_all": "Закрити всі примусово",
+ "game_mode.force.keep_all": "Залишити всі",
+ "game_mode.force.always": "Завжди закривати примусово",
+ "game_mode.force.will_close": "✓ Буде закрито примусово",
+ "game_mode.force.kept": "Залишено відкритою",
+ "game_mode.force.call_only": "Відеозв'язок: примусово закривається лише вручну, тут",
+ "game_mode.force.browser_restore": "Вкладки відновляться при наступному запуску",
+ "game_mode.force.browser_no_restore": "У браузері не ввімкнене відновлення сесії — вкладки не повернуться",
+ "game_mode.force.browser_unknown": "Не вдалося перевірити відновлення сесії — вкладки можуть не повернутися",
+ "game_mode.browser_force": "Браузери закривати примусово (вкладки відновляться при наступному запуску)",
+ "game_mode.browser_force.hint": "Лише коли в браузері ввімкнене відновлення сесії; інакше Lagnix спитає у вікні. Відеозв'язок (Zoom, Teams, Discord, Skype) автоматично не закривається ніколи."
 }

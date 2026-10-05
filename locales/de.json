@@ -1069,5 +1069,21 @@
  "monitor.tip.temp.2": "Blockiere die Luftzufuhr zum Gehäuse nicht, senke die Grafik.",
  "common.yes": "Ja",
  "common.no": "Nein",
- "common.ok": "OK"
+ "common.ok": "OK",
+ "game_mode.force.title": "Diese Programme wurden nicht geschlossen",
+ "game_mode.force.text": "Sie haben ein eigenes Bestätigungsfenster gezeigt oder nicht auf das Schließen reagiert. Erzwingen?",
+ "game_mode.force.warning": "Nicht gespeicherte Daten in diesen Programmen können verloren gehen.",
+ "game_mode.force.close": "Erzwungen schließen",
+ "game_mode.force.keep": "Offen lassen",
+ "game_mode.force.close_all": "Alle erzwungen schließen",
+ "game_mode.force.keep_all": "Alle offen lassen",
+ "game_mode.force.always": "Immer erzwungen schließen",
+ "game_mode.force.will_close": "✓ Wird erzwungen geschlossen",
+ "game_mode.force.kept": "Offen gelassen",
+ "game_mode.force.call_only": "Videoanrufe werden nur hier manuell erzwungen geschlossen",
+ "game_mode.force.browser_restore": "Tabs werden beim nächsten Start wiederhergestellt",
+ "game_mode.force.browser_no_restore": "Sitzungswiederherstellung ist im Browser nicht aktiviert — Tabs gehen verloren",
+ "game_mode.force.browser_unknown": "Sitzungswiederherstellung konnte nicht geprüft werden — Tabs gehen eventuell verloren",
+ "game_mode.browser_force": "Browser erzwungen schließen (Tabs werden beim nächsten Start wiederhergestellt)",
+ "game_mode.browser_force.hint": "Nur wenn die Sitzungswiederherstellung im Browser aktiv ist; sonst fragt Lagnix im Fenster. Videoanrufe (Zoom, Teams, Discord, Skype) werden nie automatisch geschlossen."
 }

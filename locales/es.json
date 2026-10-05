@@ -1069,5 +1069,21 @@
  "monitor.tip.temp.2": "No bloquees el aire hacia la caja y baja los gráficos.",
  "common.yes": "Sí",
  "common.no": "No",
- "common.ok": "Aceptar"
+ "common.ok": "Aceptar",
+ "game_mode.force.title": "Estos programas no se cerraron",
+ "game_mode.force.text": "Mostraron su propia ventana de confirmación o no respondieron al cierre. ¿Cerrarlos a la fuerza?",
+ "game_mode.force.warning": "Los datos sin guardar en estos programas pueden perderse.",
+ "game_mode.force.close": "Cerrar a la fuerza",
+ "game_mode.force.keep": "Mantener abierto",
+ "game_mode.force.close_all": "Cerrar todo a la fuerza",
+ "game_mode.force.keep_all": "Mantener todo",
+ "game_mode.force.always": "Cerrar siempre a la fuerza",
+ "game_mode.force.will_close": "✓ Se cerrará a la fuerza",
+ "game_mode.force.kept": "Se dejó abierto",
+ "game_mode.force.call_only": "Las videollamadas solo se cierran a la fuerza manualmente, aquí",
+ "game_mode.force.browser_restore": "Las pestañas se restaurarán en el próximo inicio",
+ "game_mode.force.browser_no_restore": "La restauración de sesión no está activada en el navegador: las pestañas no volverán",
+ "game_mode.force.browser_unknown": "No se pudo comprobar la restauración de sesión: las pestañas podrían no volver",
+ "game_mode.browser_force": "Cerrar navegadores a la fuerza (las pestañas se restaurarán en el próximo inicio)",
+ "game_mode.browser_force.hint": "Solo si el navegador tiene activada la restauración de sesión; si no, Lagnix preguntará en una ventana. Las videollamadas (Zoom, Teams, Discord, Skype) nunca se cierran automáticamente."
 }

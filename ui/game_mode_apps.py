@@ -140,11 +140,11 @@ class _GroupBox(ctk.CTkFrame):
 
 class AppsPanel(ctk.CTkFrame):
     def __init__(self, master, on_level, on_toggle, on_add, on_remove_user, on_group_toggle,
-                 on_never_add, on_never_remove, on_never_reset):
+                 on_never_add, on_never_remove, on_never_reset, on_browser_force):
         super().__init__(master, fg_color="transparent")
         self._cb = {"level": on_level, "toggle": on_toggle, "add": on_add, "remove_user": on_remove_user,
                     "group": on_group_toggle, "never_add": on_never_add, "never_remove": on_never_remove,
-                    "never_reset": on_never_reset}
+                    "never_reset": on_never_reset, "browser_force": on_browser_force}
         self._icons = _IconStore(self, self._icon_ready)
         self._chips: dict[str, AppChip] = {}
         self._groups: dict[str, _GroupBox] = {}
@@ -161,9 +161,17 @@ class AppsPanel(ctk.CTkFrame):
         self.level_stats = ctk.CTkLabel(self, text="", font=theme.font_small(), text_color=theme.TEXT_DIM,
                                         anchor="w", justify="left")
         self.level_stats.grid(row=1, column=0, pady=(6, 0), sticky="w")
-        self.level_hint = ctk.CTkLabel(self, text="", font=theme.font_small(), text_color=theme.TEXT_DIM,
+        hint_box = ctk.CTkFrame(self, fg_color="transparent")
+        hint_box.grid(row=2, column=0, pady=(2, 8), sticky="w")
+        self.level_hint = ctk.CTkLabel(hint_box, text="", font=theme.font_small(), text_color=theme.TEXT_DIM,
                                        anchor="w", justify="left", wraplength=760)
-        self.level_hint.grid(row=2, column=0, pady=(2, 8), sticky="w")
+        self.level_hint.pack(anchor="w")
+        # браузери, що не закрилися м'яко, закриваються примусово (вкладки відновлюються при запуску)
+        self.browser_switch = ctk.CTkSwitch(hint_box, text=t("game_mode.browser_force"), font=theme.font_small(),
+                                            progress_color=theme.ACCENT_GREEN, command=self._on_browser_switch)
+        self.browser_switch.pack(anchor="w", pady=(8, 0))
+        ctk.CTkLabel(hint_box, text=t("game_mode.browser_force.hint"), font=ctk.CTkFont(size=11),
+                     text_color=theme.TEXT_DIM, anchor="w", justify="left", wraplength=760).pack(anchor="w", padx=(46, 0))
 
         self.groups_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.groups_frame.grid(row=3, column=0, sticky="ew")
@@ -203,8 +211,11 @@ class AppsPanel(ctk.CTkFrame):
 
     # ------------------------------------------------------------ render
 
+    def _on_browser_switch(self) -> None:
+        self._cb["browser_force"](bool(self.browser_switch.get()))
+
     def render(self, level: str, plans: dict, apps: list[dict], user_keys: set, collapsed,
-               never_patterns: list[str], never_is_default: bool) -> None:
+               never_patterns: list[str], never_is_default: bool, browser_force: bool = False) -> None:
         """apps — готовий список чіпів поточного рівня (план + додані вручну + процеси профілю)."""
         label = catalog.LEVEL_LABELS[level]
         if self.level_button.get() != label:
@@ -216,6 +227,8 @@ class AppsPanel(ctk.CTkFrame):
             parts.append(f"▸ {text}" if lv == level else text)
         self.level_stats.configure(text=t("game_mode_apps.will_free") + "    ".join(parts))
         self.level_hint.configure(text=catalog.LEVEL_HINTS[level])
+        if bool(self.browser_switch.get()) != browser_force:
+            (self.browser_switch.select if browser_force else self.browser_switch.deselect)()
 
         self._render_groups(apps, set(collapsed), set(user_keys))
 

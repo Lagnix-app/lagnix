@@ -299,7 +299,7 @@ class GameModeTab(ctk.CTkFrame):
             card, on_level=self._on_level, on_toggle=self._on_app_toggle, on_add=self._on_app_add,
             on_remove_user=self._on_app_remove, on_group_toggle=self._on_group_toggle,
             on_never_add=self._on_never_add, on_never_remove=self._on_never_remove,
-            on_never_reset=self._on_never_reset,
+            on_never_reset=self._on_never_reset, on_browser_force=self._on_browser_force,
         )
         self.apps_panel.grid(row=2, column=0, padx=16, pady=(0, 14), sticky="ew")
 
@@ -551,6 +551,7 @@ class GameModeTab(ctk.CTkFrame):
                 self._level(), plans, self._panel_apps(plans), set(self.state.get("user_apps", {})),
                 self.state.get("collapsed_groups", []), game_mode_core.never_close_of(self.state),
                 self.state.get("never_close") is None,
+                game_mode_core.browser_force_enabled(self.state, self._level()),
             )
             theme.set_text(self.apps_title, t("game_mode.apps.title"))
             n = len(apps) + len(extras)
@@ -608,6 +609,12 @@ class GameModeTab(ctk.CTkFrame):
         processes = self._profile().get("processes", [])
         if name in processes:
             processes.remove(name)
+
+    def _on_browser_force(self, enabled: bool) -> None:
+        with self._lock:
+            self.state.setdefault("browser_force", {})[self._level()] = enabled
+            self._save()
+        self._render()
 
     def _on_level(self, level: str) -> None:
         with self._lock:
@@ -771,10 +778,43 @@ class GameModeTab(ctk.CTkFrame):
             problems.append(report["plan_error"])
         self._note = (t("game_mode.partial_fail") + "; ".join(problems[:3])) if problems else report.get("note", "")
         self._render()
+        if report.get("kept"):
+            self._offer_force_close(report["kept"])
         if self._auto_enabled and self.is_active():
             hook = getattr(self.winfo_toplevel(), "notify_game_mode_auto", None)
             if hook is not None:
                 hook(self._auto_game_name)
+
+    def _offer_force_close(self, kept: list[dict]) -> None:
+        """Програми, що лишились відкритими після м'якого закриття: вікно «Закрити примусово / Залишити»."""
+        action, chosen, remember = process_control.ask_force_close(
+            self, kept, reason="Game Mode → \"Close forcibly\" (programs did not close softly)")
+        if remember:
+            with self._lock:
+                always = self.state.setdefault("force_always", {})
+                for key in remember:
+                    always[key] = True
+                self._save()
+        if action is None:
+            return
+        apps = [a for a in kept if a["key"] in chosen]
+        self._busy = True
+        self._render()
+        threading.Thread(target=self._force_close_worker, args=(apps, action), daemon=True).start()
+
+    def _force_close_worker(self, apps: list[dict], action) -> None:
+        closed, errors = smart_apps.force_close(apps, action)
+        with self._lock:
+            self.state["closed_apps"] = list(self.state.get("closed_apps", [])) + [c for c in closed if c.get("exe_path")]
+            self.state["freed_mb"] = self.state.get("freed_mb", 0) + sum(c.get("memory_mb", 0) for c in closed)
+            self._save()
+        self._post(self._on_force_closed, errors)
+
+    def _on_force_closed(self, errors: list[str]) -> None:
+        self._busy = False
+        if errors:
+            self._note = t("game_mode.partial_fail") + "; ".join(errors[:3])
+        self._render()
 
     def _start_deactivate(self, offer_reopen: bool = True) -> None:
         self._busy = True

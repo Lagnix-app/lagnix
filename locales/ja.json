@@ -1056,5 +1056,21 @@
  "monitor.tip.temp.2": "ケースへの空気の流れをふさがず、グラフィックを下げましょう。",
  "common.yes": "はい",
  "common.no": "いいえ",
- "common.ok": "OK"
+ "common.ok": "OK",
+ "game_mode.force.title": "これらのプログラムは閉じられませんでした",
+ "game_mode.force.text": "独自の確認ウィンドウを表示したか、終了に応答しませんでした。強制終了しますか？",
+ "game_mode.force.warning": "これらのプログラムの未保存のデータは失われる可能性があります。",
+ "game_mode.force.close": "強制終了",
+ "game_mode.force.keep": "開いたままにする",
+ "game_mode.force.close_all": "すべて強制終了",
+ "game_mode.force.keep_all": "すべて残す",
+ "game_mode.force.always": "常に強制終了する",
+ "game_mode.force.will_close": "✓ 強制終了します",
+ "game_mode.force.kept": "開いたままにしました",
+ "game_mode.force.call_only": "ビデオ通話は、ここで手動でのみ強制終了されます",
+ "game_mode.force.browser_restore": "タブは次回起動時に復元されます",
+ "game_mode.force.browser_no_restore": "ブラウザーでセッションの復元が有効になっていません — タブは戻りません",
+ "game_mode.force.browser_unknown": "セッションの復元を確認できませんでした — タブが戻らない可能性があります",
+ "game_mode.browser_force": "ブラウザーを強制終了する（タブは次回起動時に復元されます）",
+ "game_mode.browser_force.hint": "ブラウザーでセッションの復元が有効な場合のみ。それ以外は Lagnix がウィンドウで確認します。ビデオ通話（Zoom、Teams、Discord、Skype）は自動では閉じません。"
 }

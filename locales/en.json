@@ -1069,5 +1069,21 @@
  "monitor.tip.temp.2": "Do not block airflow to the case; lower the graphics.",
  "common.yes": "Yes",
  "common.no": "No",
- "common.ok": "OK"
+ "common.ok": "OK",
+ "game_mode.force.title": "These programs did not close",
+ "game_mode.force.text": "They showed their own confirmation window or did not respond to closing. Force close them?",
+ "game_mode.force.warning": "Unsaved data in these programs may be lost.",
+ "game_mode.force.close": "Force close",
+ "game_mode.force.keep": "Keep open",
+ "game_mode.force.close_all": "Force close all",
+ "game_mode.force.keep_all": "Keep all",
+ "game_mode.force.always": "Always force close",
+ "game_mode.force.will_close": "✓ Will be force closed",
+ "game_mode.force.kept": "Left open",
+ "game_mode.force.call_only": "Video calls are force closed only manually, here",
+ "game_mode.force.browser_restore": "Tabs will be restored on the next launch",
+ "game_mode.force.browser_no_restore": "Session restore is not enabled in this browser — tabs will not come back",
+ "game_mode.force.browser_unknown": "Could not check session restore — tabs may not come back",
+ "game_mode.browser_force": "Force close browsers (tabs will be restored on the next launch)",
+ "game_mode.browser_force.hint": "Only when session restore is enabled in the browser; otherwise Lagnix will ask in a window. Video calls (Zoom, Teams, Discord, Skype) are never closed automatically."
 }

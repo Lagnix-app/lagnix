@@ -90,8 +90,8 @@ def main() -> int:
             name = _call_name(node)
             if name == "UserAction" and rel != PROCESS_CONTROL:
                 problems.append(f"{rel}:{node.lineno}: UserAction is created outside process_control")
-            if name == "ask_user_action" and not rel.startswith("ui" + os.sep):
-                problems.append(f"{rel}:{node.lineno}: ask_user_action outside the UI (not from a button press)")
+            if name in ("ask_user_action", "ask_force_close") and not rel.startswith("ui" + os.sep):
+                problems.append(f"{rel}:{node.lineno}: {name} outside the UI (not from a button press)")
             if name in DELETE_CALLS and not (name == "remove" and isinstance(node.func, ast.Attribute)
                                              and not (isinstance(node.func.value, ast.Name)
                                                       and node.func.value.id == "os")):

@@ -57,6 +57,29 @@ def ask_user_action(parent, title: str, message: str, reason: str, icon: str = "
     return action
 
 
+def ask_force_close(parent, kept: list[dict], reason: str) -> tuple[UserAction | None, list[str], list[str]]:
+    """Вікно «Ці програми не закрилися»: користувач для кожної обирає «Закрити примусово» /
+    «Залишити». -> (UserAction, ключі програм для примусового закриття, ключі «Завжди закривати
+    примусово»); без жодного вибору для закриття — (None, [], []).
+    Викликати тільки з UI (головний потік Tk) після завершення м'якого закриття."""
+    if threading.current_thread() is not threading.main_thread():
+        get_audit_logger().error("Denied: force-close prompt requested from a background thread (%s)", reason)
+        return None, [], []
+    from ui.widgets import force_close_dialog  # діалог усередині головного вікна (як у ask_user_action)
+    chosen, remember = force_close_dialog.ask(parent, kept)
+    if not chosen:
+        get_audit_logger().info("Left open by the user: %s", ", ".join(a["title"] for a in kept))
+        return None, [], []
+    UserAction._issuing = True
+    try:
+        action = UserAction(reason)
+    finally:
+        UserAction._issuing = False
+    get_audit_logger().info("Force close confirmed by the user (%s): %s", reason,
+                            ", ".join(a["title"] for a in kept if a["key"] in chosen))
+    return action, chosen, remember
+
+
 def require(action, what: str) -> None:
     """Кидає PermissionError (і пише в журнал), якщо дію не підтвердив користувач."""
     if not isinstance(action, UserAction):
@@ -224,14 +247,25 @@ def close_apps_gracefully(apps: list[dict], action: UserAction, grace_s: float =
             audit.info("Closed gracefully \"%s\" — reason: %s", title, action.reason)
             results.append({"title": title, "status": "closed", "reason": ""})
             continue
+        targets = [(pid, ct) for pid, ct in app["targets"] if pid in alive]
         visible = _main_windows(_windows_of(alive))
+        if visible and app.get("force") and not app.get("never_force"):
+            # заздалегідь дозволено користувачем (налаштування браузерів із відновленням сесії
+            # або «Завжди закривати примусово») — програма не закрилась сама
+            killed, errors = terminate_processes(targets, action, timeout=3)
+            if errors and not killed:
+                results.append({"title": title, "status": "failed", "reason": "; ".join(errors[:2]), "key": app.get("key")})
+            else:
+                audit.info("Force-closed \"%s\" (did not close within %.0f s; allowed in advance)", title, grace_s)
+                results.append({"title": title, "status": "forced", "reason": "", "key": app.get("key")})
+            continue
         if visible:
             asks_to_save = any(w["cls"] == _DIALOG_CLASS for w in visible) or app.get("document")
             reason = t("proc_control.kept.document") if asks_to_save else t("proc_control.kept.window")
             audit.info("NOT closed \"%s\": %s — not forcing termination because the program has a window", title, reason)
-            results.append({"title": title, "status": "kept", "reason": reason})
+            results.append({"title": title, "status": "kept", "reason": reason, "targets": targets,
+                            "key": app.get("key")})
             continue
-        targets = [(pid, ct) for pid, ct in app["targets"] if pid in alive]
         killed, errors = terminate_processes(targets, action, timeout=3)
         if errors and not killed:
             results.append({"title": title, "status": "failed", "reason": "; ".join(errors[:2])})
