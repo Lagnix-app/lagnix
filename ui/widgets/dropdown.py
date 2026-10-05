@@ -25,6 +25,7 @@ from ui import theme
 _ROW_H = 30
 _MAX_LIST_H = 320
 _DEBOUNCE_S = 0.2
+_WHEEL_ITEMS = 3        # пунктів за один «клац» коліщатка
 
 _open: list["Dropdown"] = []
 
@@ -46,6 +47,8 @@ class Dropdown(ctk.CTkFrame):
         self._popup: tk.Toplevel | None = None
         self._scrolls = False
         self._body = None
+        self._wheel_target: float | None = None
+        self._wheel_job = None
         self._last_toggle = 0.0
         self._root_binding: tuple[tk.Misc, str, str] | None = None
         self.grid_propagate(False)
@@ -196,6 +199,13 @@ class Dropdown(ctk.CTkFrame):
 
     def close(self) -> None:
         popup, self._popup = self._popup, None
+        self._wheel_target = None
+        if self._wheel_job is not None:
+            try:
+                self.after_cancel(self._wheel_job)
+            except tk.TclError:
+                pass
+            self._wheel_job = None
         if self in _open:
             _open.remove(self)
         binding, self._root_binding = self._root_binding, None
@@ -231,13 +241,40 @@ class Dropdown(ctk.CTkFrame):
             self.close()
 
     def _on_popup_wheel(self, event) -> str:
-        """Список модальний: коліщатко прокручує лише його (довгий) і ніколи — сторінку."""
+        """Список модальний: коліщатко прокручує лише його (довгий) і ніколи — сторінку.
+        Один «клац» = _WHEEL_ITEMS пунктів, рух плавний (наближення до цілі по кадрах)."""
         if self._scrolls and self._body is not None and self._inside_popup(event):
+            canvas = self._body._parent_canvas
             try:
-                self._body._parent_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
-            except (tk.TclError, AttributeError):
+                region = canvas.cget("scrollregion").split()
+                total = float(region[3]) - float(region[1])
+                visible = canvas.winfo_height()
+                if total > visible:
+                    step = _WHEEL_ITEMS * (self._row_h + 2)
+                    current = self._wheel_target if self._wheel_target is not None else canvas.yview()[0] * total
+                    notches = event.delta / 120
+                    self._wheel_target = max(0.0, min(current - notches * step, total - visible))
+                    if self._wheel_job is None:
+                        self._wheel_tick(canvas, total)
+            except (tk.TclError, AttributeError, ValueError, IndexError):
                 pass
         return "break"
+
+    def _wheel_tick(self, canvas, total: float) -> None:
+        self._wheel_job = None
+        if self._popup is None or self._wheel_target is None:
+            return
+        try:
+            now = canvas.yview()[0] * total
+            diff = self._wheel_target - now
+            if abs(diff) < 1:
+                canvas.yview_moveto(self._wheel_target / total)
+                self._wheel_target = None
+                return
+            canvas.yview_moveto((now + diff * 0.35) / total)
+            self._wheel_job = self.after(16, self._wheel_tick, canvas, total)
+        except tk.TclError:
+            self._wheel_target = None
 
     def _on_root_configure(self, event) -> None:
         if event.widget is self.winfo_toplevel():
