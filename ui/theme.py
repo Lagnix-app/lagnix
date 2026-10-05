@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sys
 import time
+import weakref
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -195,6 +196,51 @@ def _pointer_crossing_is_fast() -> bool:
 
 def _instant() -> bool:
     return not _animations_enabled or is_scrolling()
+
+
+# ---- видимість із урахуванням «запаркованих» вкладок -----------------------------------
+# Вкладки після першого показу лишаються розміщеними (прихована просто під поточною): мапінг
+# ~1000 віджетів коштує ~200 мс, а lift() — 0. Тому winfo_ismapped() для них лишається True,
+# і «чи видно» треба питати в вкладки (MainWindow ставить їй _tab_visible).
+
+_show_callbacks: list = []  # (weakref на віджет, callback)
+
+
+def is_shown(widget: tk.Misc) -> bool:
+    """Віджет реально видно: розміщений І його вкладка зараз активна (а вікно не згорнуте)."""
+    try:
+        if not widget.winfo_ismapped():
+            return False
+    except tk.TclError:
+        return False
+    w = widget
+    while w is not None:
+        flag = w.__dict__.get("_tab_visible")
+        if flag is not None:
+            return bool(flag)
+        w = getattr(w, "master", None)
+    return True
+
+
+def bind_show(widget: tk.Misc, callback) -> None:
+    """callback() — коли віджет став видимим: справжній <Map> або показ запаркованої вкладки."""
+    widget.bind("<Map>", lambda _e: callback(), add="+")
+    _show_callbacks.append((weakref.ref(widget), callback))
+
+
+def fire_show(tab_frame: tk.Misc) -> None:
+    """Вкладку знову показано (без <Map>): повідомити її віджети, що мають перемалюватись."""
+    prefix = str(tab_frame) + "."
+    for entry in list(_show_callbacks):
+        widget = entry[0]()
+        if widget is None:
+            _show_callbacks.remove(entry)
+            continue
+        try:
+            if str(widget).startswith(prefix):
+                entry[1]()
+        except tk.TclError:
+            pass
 
 
 def pointer_inside(widget: tk.Misc) -> bool:

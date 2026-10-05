@@ -111,7 +111,7 @@ class PingGraph(ctk.CTkFrame):
         self._dirty = False
         self.canvas.bind("<Configure>", lambda _e: self._redraw())
         # прихована вкладка лише накопичує історію; перемальовуємо при показі
-        self.canvas.bind("<Map>", lambda _e: self._dirty and self._redraw())
+        theme.bind_show(self.canvas, lambda: self._dirty and self._redraw())
 
     def push(self, value: float | None) -> None:
         self.history.append(value)
@@ -122,7 +122,7 @@ class PingGraph(ctk.CTkFrame):
         self._redraw()
 
     def _redraw(self) -> None:
-        if not self.canvas.winfo_ismapped():
+        if not theme.is_shown(self.canvas):
             self._dirty = True
             return
         self._dirty = False

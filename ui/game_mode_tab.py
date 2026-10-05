@@ -190,6 +190,7 @@ class GameModeTab(ctk.CTkFrame):
         self.state = game_mode_core.load_game_mode()
         self._lock = threading.RLock()  # стан читають і міняють UI та фонові потоки
         self._stop_event = threading.Event()
+        self._preview_ready = False
         self._wake = threading.Event()
         self._visible = False
         self._busy = False
@@ -450,7 +451,8 @@ class GameModeTab(ctk.CTkFrame):
         """Кожні кілька секунд, поки вкладку видно: знімок процесів → кандидати на закриття.
         Лише читає — стан CPU % Монітора не чіпає (track_cpu=False)."""
         while not self._stop_event.is_set():
-            if self._visible and not self.state.get("is_active"):
+            # перший зріз збираємо й на прихованій вкладці (прогрів): чіпи будуються до першого показу
+            if (self._visible or not self._preview_ready) and not self.state.get("is_active"):
                 try:
                     groups = monitor_core.get_process_groups()
                     extra = list(self.state.get("user_apps", {}))
@@ -460,6 +462,7 @@ class GameModeTab(ctk.CTkFrame):
                         for m in group["members"]:
                             mem[m["name"].lower()] = mem.get(m["name"].lower(), 0.0) + m["memory_mb"]
                     self._post(self._apply_preview, running, mem, power_plans.on_battery())
+                    self._preview_ready = True
                 except Exception:
                     _logger.exception("Failed to collect the list of programs to close")
             self._wake.wait(PREVIEW_INTERVAL_SEC)

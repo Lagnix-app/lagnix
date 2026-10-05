@@ -75,11 +75,16 @@ class PdhQuery:
             )
             if status != _ERROR_SUCCESS:
                 return {}
-            items = ctypes.cast(buf, ctypes.POINTER(_CounterValueItem))
-            return {
-                items[i].szName: items[i].FmtValue.doubleValue
-                for i in range(count.value) if items[i].FmtValue.CStatus in (0, 0x00000001)
-            }
+            # from_address, а не ctypes.cast: cast лишає цикл посилань на буфер (~90 КБ щосекунди
+            # накопичувались до повного GC — «пилка» пам'яті й паузи збирача)
+            base = ctypes.addressof(buf)
+            step = ctypes.sizeof(_CounterValueItem)
+            result = {}
+            for i in range(count.value):
+                item = _CounterValueItem.from_address(base + i * step)
+                if item.FmtValue.CStatus in (0, 0x00000001):
+                    result[item.szName] = item.FmtValue.doubleValue
+            return result
 
 
 _query: PdhQuery | None = None

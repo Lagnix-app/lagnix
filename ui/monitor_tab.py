@@ -130,7 +130,7 @@ class RingGauge(ctk.CTkFrame):
         )
         self.subtitle_label.pack(pady=(6, 16))
 
-        self.canvas.bind("<Map>", lambda _e: self._render(self._percent_anim.current or 0.0, force=True))
+        theme.bind_show(self.canvas, lambda: self._render(self._percent_anim.current or 0.0, force=True))
 
     def _build_base(self) -> None:
         """Незмінна доріжка кільця (кешується); ту саму PhotoImage далі лише оновлюємо."""
@@ -177,7 +177,7 @@ class RingGauge(ctk.CTkFrame):
         self._render(value)
 
     def _render(self, value: float, force: bool = False) -> None:
-        if not self.canvas.winfo_ismapped():
+        if not theme.is_shown(self.canvas):
             self._last_key = None  # перемалюємо, коли вкладку знову покажуть (<Map>)
             return
         color = theme.BORDER if self._unavailable else _level_color(value)
@@ -349,7 +349,7 @@ class LoadGraph(ctk.CTkFrame):
         self._dirty = True
         self._redraw_job = None
         self.canvas.bind("<Configure>", lambda _e: self._schedule_redraw())
-        self.canvas.bind("<Map>", lambda _e: self._dirty and self._schedule_redraw())
+        theme.bind_show(self.canvas, lambda: self._dirty and self._schedule_redraw())
 
         # історія росте з нуля: поки даних менше GRAPH_POINTS, малюємо лише наявні точки
         self.history = {key: deque(maxlen=GRAPH_POINTS) for key, _, _ in self.SERIES}
@@ -434,7 +434,7 @@ class LoadGraph(ctk.CTkFrame):
     def _redraw(self) -> None:
         self._redraw_job = None
         c = self.canvas
-        if not c.winfo_ismapped():
+        if not theme.is_shown(c):
             return  # невидима вкладка не витрачає CPU; перемалюємо на <Map>
         w, h = c.winfo_width(), c.winfo_height()
         if w <= 8 or h <= 8:

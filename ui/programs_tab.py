@@ -64,7 +64,7 @@ class UsageBar(ctk.CTkFrame):
         self.canvas.pack(fill="x", padx=16, pady=(8, 8))
         self._image_item = self.canvas.create_image(0, 0, anchor="nw")
         self.canvas.bind("<Configure>", lambda _e: self._schedule())
-        self.canvas.bind("<Map>", lambda _e: self._schedule())
+        theme.bind_show(self.canvas, self._schedule)
 
         legend = ctk.CTkFrame(self, fg_color="transparent")
         legend.pack(fill="x", padx=16, pady=(0, 12))
@@ -96,7 +96,7 @@ class UsageBar(ctk.CTkFrame):
 
     def _render(self) -> None:
         self._job = None
-        if not self.canvas.winfo_ismapped():
+        if not theme.is_shown(self.canvas):
             return
         w, h = self.canvas.winfo_width(), self.canvas.winfo_height()
         if w <= 8 or h <= 4:

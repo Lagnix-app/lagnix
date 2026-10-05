@@ -12,6 +12,7 @@ from core.i18n import t
 from ui import bg, theme
 from ui.app_shell import AppShell
 from ui.widgets.dropdown import Dropdown
+from ui.widgets.language_splash import LanguageSplash
 from ui.widgets.logo_widget import LogoWidget
 from ui.widgets.support_dialog import SupportDialog
 from core import links
@@ -47,7 +48,10 @@ _ICON_PATH = os.path.join(
 _INDICATOR_WIDTH = 3
 _PULSE_LOW = theme.BORDER  # рамка кнопки «Підтримати»: від спокійної до рожевої
 _PULSE_HIGH = "#ff5e5b"
-_TAB_SLIDE_OFFSET = 16
+_PULSE_LEVELS = 8   # кроків між спокійною й рожевою рамкою
+_PULSE_MS = 120
+_WARMUP_FIRST_MS = 2500   # прогрів вкладок: перша пауза після показу вікна
+_WARMUP_STEP_MS = 700     # і між вкладками
 
 
 class MainWindow(ctk.CTk):
@@ -71,10 +75,15 @@ class MainWindow(ctk.CTk):
 
         self.nav_buttons = {}
         self.tab_frames = {}
-        self._tab_anim = {}
         self._current_tab = None
+        self._placed: set[str] = set()  # вкладки, розміщені в content_area (поточна + запарковані під нею)
+        self._last_size = None
+        self._pulse_level = -1
+        self._warm_job = None
         self._stale_tabs: set[str] = set()  # побудовані попередньою мовою — перебудувати при показі
         self._language_job = None
+        self._language_splash = None
+        self._language_queue: list[str] = []
         theme.apply_language_fonts(self)
 
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
@@ -90,8 +99,12 @@ class MainWindow(ctk.CTk):
         i18n.on_change(self._on_language_changed)
 
         # згорнуте/сховане в трей вікно — фонові оновлення й анімації на паузі
-        self.bind("<Map>", self._on_root_map_change, add="+")
-        self.bind("<Unmap>", self._on_root_map_change, add="+")
+        # Окремий bindtag лише на кореневому вікні: self.bind("<Map>") спрацьовував би для КОЖНОГО
+        # дочірнього віджета (~1000 викликів Python на перемикання вкладки, ~70 мс).
+        self.bindtags(("LagnixRootMap",) + self.bindtags())
+        self.bind_class("LagnixRootMap", "<Map>", self._on_root_map_change, add="+")
+        self.bind_class("LagnixRootMap", "<Unmap>", self._on_root_map_change, add="+")
+        self.bind_class("LagnixRootMap", "<Configure>", self._on_root_configure, add="+")
 
         if self.settings.get("startup_tab_mode", "last") == "monitor":
             start_tab = TABS[0][0]
@@ -204,8 +217,11 @@ class MainWindow(ctk.CTk):
             shown = self.state() not in ("iconic", "withdrawn")
             if shown and theme.animations_enabled():
                 k = (math.sin(time.perf_counter() * 2 * math.pi / 2.4) + 1) / 2
-                button.configure(border_color=theme.lerp_color(self, _PULSE_LOW, _PULSE_HIGH, k))
-            self._pulse_job = self.after(90, self._pulse)
+                level = round(k * _PULSE_LEVELS)  # кожне configure повністю перемальовує кнопку — міняємо лише на новому рівні
+                if level != self._pulse_level:
+                    self._pulse_level = level
+                    button.configure(border_color=theme.lerp_color(self, _PULSE_LOW, _PULSE_HIGH, level / _PULSE_LEVELS))
+            self._pulse_job = self.after(_PULSE_MS, self._pulse)
         except Exception:
             pass
 
@@ -223,11 +239,7 @@ class MainWindow(ctk.CTk):
         # вважає її видимою (winfo_ismapped), Windows обрізає/перемальовує всі
         # 9 накладених шарів, а перевірки "чи видно" в Моніторі не спрацьовують.
         for key, _label, frame_cls in TABS:
-            frame = frame_cls(self.content_area)
-            self.tab_frames[key] = frame
-            self._tab_anim[key] = theme.ValueAnimator(
-                frame, lambda v, f=frame: f.place_configure(y=round(v))
-            )
+            self.tab_frames[key] = frame_cls(self.content_area)
 
     def _on_root_map_change(self, event) -> None:
         if event.widget is self:
@@ -249,6 +261,10 @@ class MainWindow(ctk.CTk):
             hook = getattr(frame, "on_visibility_changed", None)
             if hook is not None:
                 hook(visible)
+            if visible:
+                theme.fire_show(frame)  # запарковану вкладку показано без <Map> — перемалювати графіки
+        if shown:
+            self._schedule_warmup()
 
     # ---------------------------------------------------------- зміна мови
 
@@ -259,10 +275,18 @@ class MainWindow(ctk.CTk):
             self._language_job = self.after(10, self._apply_language)
 
     def _apply_language(self) -> None:
-        """Нова мова — без перезапуску: меню, трей, оверлей одразу; поточна вкладка
-        перебудовується зараз (з тією ж прокруткою), решта — при першому показі.
+        """Нова мова — без перезапуску: заставка на все вікно, під нею оновлюються меню, трей,
+        оверлей і по черзі (по одній вкладці за такт — заставка не замирає) перебудовуються
+        вкладки; потім заставка плавно зникає. Прокрутка й поточна вкладка зберігаються.
         «Ігровий режим» перебудовує лише вигляд, зберігаючи стан і фонові потоки."""
         self._language_job = None
+        if self._language_splash is None:
+            try:
+                self._language_splash = LanguageSplash(self)
+            except Exception:
+                get_logger(__name__).exception("Could not show the language splash")
+        elif self._language_splash.label.winfo_exists():
+            self._language_splash.label.configure(text=t("language.changing"))
         theme.apply_language_fonts(self)
         for key, label, _frame_cls in TABS:
             self.nav_buttons[key].configure(text=t(label), font=ctk.CTkFont())
@@ -272,9 +296,33 @@ class MainWindow(ctk.CTk):
         game_tab = self.tab_frames.get("game_mode")
         if game_tab is not None:
             game_tab.rebuild_view()
-        if self._current_tab is not None:
-            self._refresh_stale_tab(self._current_tab)
+        # під заставкою — лише поточна вкладка; решта перебудовуються у фоні (прогрів) або при показі
+        self._language_queue = [self._current_tab] if self._current_tab in self._stale_tabs else []
         self.shell.on_language_changed()
+        self.after(30, self._language_step)
+
+    def _language_step(self) -> None:
+        """Одна вкладка за такт; зайняті (очищення, тест мережі…) лишаються застарілими й
+        перебудуються при першому показі."""
+        while self._language_queue:
+            key = self._language_queue.pop(0)
+            if key in self._stale_tabs:
+                try:
+                    self._refresh_stale_tab(key)
+                except Exception:
+                    get_logger(__name__).exception("Failed to rebuild tab %s for the new language", key)
+                    self._stale_tabs.discard(key)
+                break
+        if self._language_queue:
+            self.after(20, self._language_step)
+            return
+        self._update_visibility()
+        splash, self._language_splash = self._language_splash, None
+        if splash is not None:
+            try:
+                splash.fade_out()
+            except Exception:
+                pass
 
     def _refresh_stale_tab(self, key: str) -> bool:
         """Перебудувати вкладку новою мовою, якщо вона застаріла й не зайнята.
@@ -293,20 +341,79 @@ class MainWindow(ctk.CTk):
         old = self.tab_frames[key]
         frame_cls = next(cls for k, _label, cls in TABS if k == key)
         fraction = _scroll_fraction(old)
-        shown = key == self._current_tab and bool(old.winfo_manager())
-        self._tab_anim[key].cancel()
+        placed = key in self._placed
         old.place_forget()
         old.destroy()  # <Destroy> вкладки зупиняє її фонові потоки
+        self._placed.discard(key)
         frame = frame_cls(self.content_area)
         self.tab_frames[key] = frame
-        self._tab_anim[key] = theme.ValueAnimator(frame, lambda v, f=frame: f.place_configure(y=round(v)))
         self.shell.on_tab_rebuilt(key, frame)
-        if shown:
-            frame.place(relx=0, rely=0, y=0, relwidth=1, relheight=1)
-            frame.lift()
+        if placed or key == self._current_tab:
+            self._place_tab(key)
+            if key == self._current_tab:
+                frame.lift()
+            else:
+                frame.lower()
             self._update_visibility()
-            if fraction:
+            if fraction and key == self._current_tab:
                 self.after(150, lambda: _restore_scroll(frame, fraction))
+
+    # --------------------------------------------- «паркування» вкладок і прогрів
+
+    def _place_tab(self, key: str) -> None:
+        """Розмістити вкладку (мапінг ~200 мс); повторно — нічого. Лишається розміщеною під
+        поточною, тож наступний показ — лише lift() (0 мс)."""
+        if key not in self._placed:
+            self.tab_frames[key].place(relx=0, rely=0, y=0, relwidth=1, relheight=1)
+            self._placed.add(key)
+
+    def _on_root_configure(self, event) -> None:
+        """Розмір вікна змінився: запарковані вкладки знімаємо з розкладки (інакше кожна з 9
+        перелаштовується при перетягуванні краю); перепрогрів — коли зміни вщухнуть."""
+        if event.widget is not self:
+            return
+        size = (event.width, event.height)
+        if size == self._last_size:
+            return
+        self._last_size = size
+        for key in list(self._placed):
+            if key != self._current_tab:
+                self.tab_frames[key].place_forget()
+                self._placed.discard(key)
+        if self._warm_job is not None:
+            self.after_cancel(self._warm_job)
+            self._warm_job = None
+        self._schedule_warmup(delay=1500)
+
+    def _schedule_warmup(self, delay: int = _WARMUP_FIRST_MS) -> None:
+        if self._warm_job is None and (self._stale_tabs or any(k not in self._placed for k in self.tab_frames)):
+            self._warm_job = self.after(delay, self._warmup_step)
+
+    def _warmup_step(self) -> None:
+        """Фоновий прогрів: по одній вкладці за раз розмістити під поточною (lower), щоб
+        перший показ не коштував мапінгу. Пропускається, поки вікно сховане або йде зміна мови."""
+        self._warm_job = None
+        try:
+            hidden = self.state() in ("iconic", "withdrawn")
+        except Exception:
+            hidden = True
+        if hidden or self._language_queue:
+            return  # повернемось, коли вікно знову покажуть (_update_visibility)
+        for key, _label, _cls in TABS:
+            if key == self._current_tab or (key in self._placed and key not in self._stale_tabs):
+                continue
+            if key in self._stale_tabs:
+                busy = getattr(self.tab_frames[key], "is_busy", None)
+                if busy is not None and busy():
+                    continue
+                self._stale_tabs.discard(key)
+                self._placed.add(key)  # поки лишалась розміщеною (запаркована) — _rebuild_tab розмістить і опустить
+                self._rebuild_tab(key)
+                break
+            self._place_tab(key)
+            self.tab_frames[key].lower()
+            break
+        self._schedule_warmup(delay=_WARMUP_STEP_MS)
 
     def select_tab(self, key: str) -> None:
         """Публічна навігація для кнопок з інших вкладок (напр. підказки, звіт)."""
@@ -316,20 +423,23 @@ class MainWindow(ctk.CTk):
         Dropdown.close_all()
         if key == self._current_tab:
             return
-        previous, self._current_tab = self._current_tab, key
+        self._current_tab = key
+        splash = None
+        if key in self._stale_tabs and self._language_splash is None:
+            # вкладка ще з попередньою мовою: перебудова ~0.3–0.5 с — під заставкою, а не «ламанням»
+            try:
+                splash = LanguageSplash(self)
+            except Exception:
+                get_logger(__name__).exception("Could not show the language splash")
         if key in self._stale_tabs:
-            self._refresh_stale_tab(key)  # ще не розміщена — перебудова без зайвого показу
+            self._refresh_stale_tab(key)  # перебудова новою мовою (розмістить сама)
 
         frame = self.tab_frames[key]
-        frame.place(relx=0, rely=0, y=_TAB_SLIDE_OFFSET, relwidth=1, relheight=1)
+        self._place_tab(key)  # першого разу ~200 мс; запарковану — лише піднімаємо
         frame.lift()
-        if previous is not None:
-            self._tab_anim[previous].cancel()
-            self.tab_frames[previous].place_forget()
         self._update_visibility()
-        anim = self._tab_anim[key]
-        anim.set_immediate(_TAB_SLIDE_OFFSET)
-        anim.animate_to(0, duration=0.2)
+        if splash is not None:
+            splash.fade_out()
 
         for tab_key, button in self.nav_buttons.items():
             if tab_key == key:
