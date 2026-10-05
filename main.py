@@ -41,8 +41,9 @@ def _ensure_admin() -> None:
 
 import customtkinter as ctk  # noqa: E402
 
-from core import launch_on_windows, rename_migrate, sensors  # noqa: E402
+from core import launch_on_windows, rename_migrate, sensors, single_instance  # noqa: E402
 from core.sounds import ensure_sounds_exist  # noqa: E402
+from ui import bg  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
 
 _THEME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lagnix_theme.json")
@@ -51,6 +52,9 @@ _THEME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets",
 def main():
     i18n.set_language(load_settings().get("language"))  # до першого вікна (зокрема запиту прав)
     _ensure_admin()
+    if not single_instance.acquire():  # Lagnix уже запущено — показуємо його вікно й виходимо
+        single_instance.signal_existing()
+        return
 
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme(_THEME_PATH if os.path.exists(_THEME_PATH) else "blue")
@@ -63,9 +67,11 @@ def main():
     app = MainWindow()
     if "--minimized" in sys.argv[1:]:
         app.start_minimized()
+    single_instance.listen(lambda: bg.ui_call(app, app.shell.show_window))
     try:
         app.mainloop()
     finally:
+        single_instance.stop()
         app.shell.shutdown()  # трей і потік гарячих клавіш (повторний виклик — без ефекту)
         sensors.stop()
 

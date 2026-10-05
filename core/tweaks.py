@@ -37,7 +37,7 @@ from datetime import datetime
 from typing import Callable
 
 from core.admin import is_admin
-from core.logging_setup import get_logger
+from core.logging_setup import get_audit_logger, get_logger
 from core.app_data import load_data, update_data
 from core.i18n import TDict, t
 
@@ -982,7 +982,11 @@ def _ensure_backup_for(tweak: Tweak) -> None:
         update_data("registry_tweaks_initial_state", initial_state)
 
     if not data.get("registry_tweaks_backup_done", False):
-        _create_restore_point()
+        if _create_restore_point():
+            get_audit_logger().info("Windows restore point created before the first registry tweak")
+        else:
+            _logger.error("Windows restore point was NOT created (System Restore off or limited to one per 24 h?); "
+                          "the .reg backups of the keys are still made")
         keys: list[tuple[int, str]] = []
         for tw in TWEAKS:
             keys.extend(k for k in _tweak_keys(tw) if k not in keys)
@@ -1018,7 +1022,7 @@ def set_tweak(tweak: Tweak, enabled: bool) -> tuple[bool, str]:
         ok, error = tweak.apply_fn(enabled)
         if not ok:
             return False, error
-    _logger.info("Tweak \"%s\": %s", tweak.title, "enabled" if enabled else "disabled")
+    get_audit_logger().info("Tweak \"%s\" (%s): %s", tweak.title, tweak.id, "enabled" if enabled else "disabled")
     return True, ""
 
 

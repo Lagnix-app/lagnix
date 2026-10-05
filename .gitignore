@@ -17,3 +17,5 @@ data.json.tmp
 .mypy_cache/
 .ruff_cache/
 *.log
+logs.txt.*
+*.corrupt

@@ -798,7 +798,7 @@ class NetworkTab(ctk.CTkFrame):
     # -------------------------------------------------------------- misc
 
     def _on_destroy(self, event):
-        if event.widget is not self:
+        if event.widget not in (self, getattr(self, "_canvas", None)):  # CTkFrame.bind вішається на внутрішній canvas
             return
 
         if self._undo_after_id is not None:

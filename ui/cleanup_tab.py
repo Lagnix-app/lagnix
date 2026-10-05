@@ -607,7 +607,7 @@ class CleanupTab(ctk.CTkFrame):
             )
 
     def _on_destroy(self, event):
-        if event.widget is self:
+        if event.widget in (self, getattr(self, "_canvas", None)):  # CTkFrame.bind вішається на внутрішній canvas
             self._large_files_stop_event.set()
 
     def is_busy(self) -> bool:

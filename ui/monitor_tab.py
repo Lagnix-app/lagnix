@@ -558,7 +558,7 @@ class ProcessList(CanvasList):
         self._on_expand = on_expand
         self.rows: list[dict] = []
         self._photos: dict = {}
-        self.icons = IconLoader(self._icon_ready_threadsafe)
+        self.icons = IconLoader(self._icon_ready_threadsafe, self)
 
     def set_rows(self, rows: list[dict]) -> None:
         count_changed = len(rows) != len(self.rows)
@@ -1127,7 +1127,7 @@ class MonitorTab(ctk.CTkFrame):
             self._stop_event.wait(interval)
 
     def _on_destroy(self, event):
-        if event.widget is self:
+        if event.widget in (self, getattr(self, "_canvas", None)):  # CTkFrame.bind вішається на внутрішній canvas
             self._stop_event.set()
 
     # --------------------------------------------------------------- apply

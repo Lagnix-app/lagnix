@@ -12,6 +12,7 @@ import os
 import queue
 import re
 import threading
+import tkinter as tk
 from ctypes import wintypes
 
 from PIL import Image
@@ -164,12 +165,22 @@ class IconLoader:
 
     _MISSING = object()
 
-    def __init__(self, on_ready):
+    def __init__(self, on_ready, owner=None):
+        """owner — віджет-власник: при його знищенні потік зупиняється (вкладки перестворюються при зміні мови)."""
         self._on_ready = on_ready
         self._cache: dict[str, Image.Image | None] = {}
         self._queued: set[str] = set()
         self._queue: queue.LifoQueue = queue.LifoQueue()  # найновіші (видимі) запити — першими
         self._thread: threading.Thread | None = None
+        self._stopped = False
+        if owner is not None:
+            # tk.Misc.bind — на сам Tk-віджет (CTkFrame.bind перенаправляє на внутрішній canvas)
+            tk.Misc.bind(owner, "<Destroy>", lambda e: self.stop() if e.widget is owner else None, add="+")
+
+    def stop(self) -> None:
+        """Зупиняє потік (власник віджета знищено, напр. вкладку перебудовано при зміні мови)."""
+        self._stopped = True
+        self._queue.put(None)  # LIFO: маркер дістається першим
 
     def get(self, key: str):
         """(готово, зображення|None); готово=False — іконку ще вантажимо/не запитували."""
@@ -178,6 +189,8 @@ class IconLoader:
         return False, None
 
     def request(self, program: dict) -> None:
+        if self._stopped:
+            return
         key = program["key"]
         if key in self._cache or key in self._queued:
             return
@@ -190,6 +203,8 @@ class IconLoader:
     def _run(self) -> None:
         while True:
             program = self._queue.get()
+            if program is None or self._stopped:
+                return
             try:
                 img = load_program_icon(program)
             except Exception:

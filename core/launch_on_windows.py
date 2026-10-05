@@ -13,7 +13,7 @@ import tempfile
 import winreg
 from xml.sax.saxutils import escape
 
-from core.logging_setup import get_logger
+from core.logging_setup import get_audit_logger, get_logger
 
 _RUN_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _VALUE_NAME = "Lagnix"
@@ -107,18 +107,20 @@ def set_enabled(enabled: bool) -> tuple[bool, str]:
             finally:
                 os.remove(path)
             if proc.returncode != 0:
-                err = proc.stderr.decode("cp866", errors="replace").strip()
+                err = proc.stderr.decode("oem", errors="replace").strip()
                 _log.error("schtasks /Create: %s", err)
                 return False, err
             _delete_run_value()
+            get_audit_logger().info("Lagnix startup task created (runs at user logon, --minimized)")
         else:
             if is_enabled():
                 proc = _schtasks("/Delete", "/TN", TASK_NAME, "/F")
                 if proc.returncode != 0:
-                    err = proc.stderr.decode("cp866", errors="replace").strip()
+                    err = proc.stderr.decode("oem", errors="replace").strip()
                     _log.error("schtasks /Delete: %s", err)
                     return False, err
             _delete_run_value()
+            get_audit_logger().info("Lagnix startup task removed")
         return True, ""
     except (OSError, subprocess.SubprocessError) as exc:
         _log.exception("Startup task management error")

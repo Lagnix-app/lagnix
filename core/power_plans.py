@@ -16,7 +16,7 @@ import subprocess
 
 import psutil
 
-from core.logging_setup import get_logger
+from core.logging_setup import get_audit_logger, get_logger
 from core.i18n import t
 
 _logger = get_logger(__name__)
@@ -73,6 +73,7 @@ def set_active_scheme(guid: str) -> tuple[bool, str]:
     if not guid:
         return True, ""
     ok, out = _powercfg("/setactive", guid, timeout=5)
+    get_audit_logger().info("Power plan set active: %s — %s", guid, "ok" if ok else f"FAILED: {out.strip()}")
     return ok, "" if ok else out.strip()
 
 
@@ -125,6 +126,7 @@ def ensure_ultra(saved_guid: str | None) -> tuple[str | None, str]:
         return None, t("power_plan.err.create")
 
     _powercfg("/changename", guid, ULTRA_NAME, t(ULTRA_DESCRIPTION))
+    get_audit_logger().info("Power plan \"%s\" created: %s", ULTRA_NAME, guid)
     failed = _apply_ultra_settings(guid)
     if failed:
         _logger.info("Lagnix Ultra created; not supported: %s", ", ".join(failed))
@@ -152,6 +154,7 @@ def delete_scheme(guid: str) -> tuple[bool, str]:
     if get_active_scheme() == (guid or "").lower():
         set_active_scheme(BALANCED_GUID)
     ok, out = _powercfg("/delete", guid)
+    get_audit_logger().info("Power plan deleted: %s — %s", guid, "ok" if ok else f"FAILED: {out.strip()}")
     return ok, "" if ok else out.strip()
 
 

@@ -509,7 +509,7 @@
  "settings.sounds.hover": "Ton beim Darüberfahren (Anteil an der Gesamtlautstärke)",
  "settings.sounds.test": "Ton testen",
  "settings.sounds.off": "Ton aus",
- "settings.sounds.ratio": "{percent}% der Gesamtlautstärke",
+ "settings.sounds.ratio": "{percent}% vom Gesamtton",
  "settings.sounds.playing": "Wiedergabe…",
  "settings.game_mode.default_level": "Standardstufe",
  "settings.game_mode.default_level.hint": "Für Profile, deren Stufe im Tab „Spielmodus“ noch nicht gewählt wurde.",

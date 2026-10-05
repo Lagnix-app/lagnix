@@ -23,7 +23,7 @@ import winreg
 from ctypes import wintypes
 
 from core.admin import is_admin
-from core.logging_setup import get_logger
+from core.logging_setup import get_audit_logger, get_logger
 from core.app_data import load_data, update_data
 from core.i18n import TDict, t
 
@@ -487,6 +487,7 @@ def disable_entry(entry: dict) -> tuple[bool, str]:
     disabled = _disabled_state()
     disabled[entry["id"]] = {"source": source, "name": entry["name"], "command": entry["command"]}
     _save_disabled_state(disabled)
+    get_audit_logger().info("Autostart entry disabled: %s (%s) — backup kept in data.json", entry["name"], source)
     return True, ""
 
 
@@ -522,4 +523,5 @@ def enable_entry(entry_id: str) -> tuple[bool, str]:
 
     del disabled[entry_id]
     _save_disabled_state(disabled)
+    get_audit_logger().info("Autostart entry restored: %s (%s)", record["name"], source)
     return True, ""

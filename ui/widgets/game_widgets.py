@@ -70,7 +70,7 @@ class IconCache:
         self._size_dp = size_dp
         self._on_update = on_update
         self._photos: dict = {}
-        self._loader = IconLoader(self._ready_threadsafe)
+        self._loader = IconLoader(self._ready_threadsafe, owner)
 
     def get(self, path: str | None, scale: float):
         if not path:

@@ -102,8 +102,14 @@ def load_settings() -> dict:
             try:
                 with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
                     data = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                return copy.deepcopy(_cache_data if _cache_data is not None else DEFAULT_SETTINGS)
+                if not isinstance(data, dict):
+                    raise ValueError("settings.json root is not an object")
+            except (ValueError, OSError):  # JSONDecodeError — теж ValueError
+                if _cache_data is not None:
+                    return copy.deepcopy(_cache_data)
+                fallback = copy.deepcopy(DEFAULT_SETTINGS)
+                fallback["language"] = detect_system_language()
+                return fallback
             merged = dict(DEFAULT_SETTINGS)
             merged.update(data)
             if merged.get("language") not in LANGUAGE_CODES:

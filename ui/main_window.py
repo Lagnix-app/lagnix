@@ -5,6 +5,7 @@ import os
 import customtkinter as ctk
 
 from core.app_data import load_data, update_data
+from core.logging_setup import get_logger
 from core.settings import load_settings
 from core import i18n
 from core.i18n import t
@@ -132,7 +133,10 @@ class MainWindow(ctk.CTk):
             shell.notify_game_mode_auto(game_name)
 
     def exit_app(self) -> None:
-        self.shell.shutdown()
+        try:
+            self.shell.shutdown()
+        except Exception:
+            get_logger(__name__).exception("Shell shutdown failed")  # вікно все одно має закритись
         self.destroy()
 
     def _apply_icon(self) -> None:

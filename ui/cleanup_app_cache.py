@@ -409,5 +409,5 @@ class AppCacheSection(ctk.CTkFrame):
         row.set_status(text, _SUCCESS)
 
     def _on_destroy(self, event) -> None:
-        if event.widget is self:
+        if event.widget in (self, getattr(self, "_canvas", None)):  # CTkFrame.bind вішається на внутрішній canvas
             self._stop_event.set()

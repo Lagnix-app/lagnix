@@ -121,7 +121,7 @@ class VirtualList(CanvasList):
         self.max_size = 0
         self._items: list[dict] = []
         self._photo_cache: dict = {}
-        self.icons = IconLoader(self._icon_ready_threadsafe)
+        self.icons = IconLoader(self._icon_ready_threadsafe, self)
 
     # ------------------------------------------------------------- дані
 

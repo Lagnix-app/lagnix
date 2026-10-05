@@ -433,7 +433,7 @@ class GameModeTab(ctk.CTkFrame):
             bg.ui_call(self, callback, *args)
 
     def _on_destroy(self, event) -> None:
-        if event.widget is self:
+        if event.widget in (self, getattr(self, "_canvas", None)):  # CTkFrame.bind вішається на внутрішній canvas
             self._stop_event.set()
             self._wake.set()
 

@@ -88,8 +88,8 @@ def ping_once(host: str, timeout_ms: int = DEFAULT_TIMEOUT_MS) -> float | None:
     у цій системі — переходить на системну утиліту ping.
     """
     host = host.strip()
-    if not host:
-        return None
+    if not host or host.startswith("-") or any(ch.isspace() for ch in host):
+        return None  # порожнє або схоже на опцію/кілька аргументів для системного ping
 
     if _icmp_state["available"]:
         try:

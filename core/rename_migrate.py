@@ -28,8 +28,7 @@ def _migrate_disabled_dirs() -> None:
                     target = os.path.join(new, name)
                     if not os.path.exists(target):
                         shutil.move(os.path.join(old, name), target)
-                if not os.listdir(old):
-                    os.rmdir(old)
+                # порожню стару теку не видаляємо (правило безпеки: видалення лише в whitelist)
             _log.info("Disabled-startup folder migrated: %s", directory)
         except OSError:
             _log.exception("Failed to migrate the disabled-startup folder in %s", directory)
