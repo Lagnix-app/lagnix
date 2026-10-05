@@ -775,20 +775,29 @@ TWEAKS: tuple[Tweak, ...] = (
         ),
     ),
     Tweak(
-        id="widgets_copilot_off",
-        title_key="tweaks.widgets_copilot_off.title",
-        description_key="tweaks.widgets_copilot_off.desc",
+        id="widgets_off",
+        title_key="tweaks.widgets_off.title",
+        description_key="tweaks.widgets_off.desc",
         risk=RISK_SAFE,
         effect=EFFECT_SMALL,
         group=GROUP_SYSTEM,
         entries=(
             RegEntry(_HKLM, r"SOFTWARE\Policies\Microsoft\Dsh", "AllowNewsAndInterests", "dword", 0, None),
-            RegEntry(_HKCU, r"Software\Policies\Microsoft\Windows\WindowsCopilot",
-                     "TurnOffWindowsCopilot", "dword", 1, None),
+        ),
+        requires_logoff=True,
+        needs_explorer=True,
+    ),
+    Tweak(
+        id="copilot_off",
+        title_key="tweaks.copilot_off.title",
+        description_key="tweaks.copilot_off.desc",
+        risk=RISK_SAFE,
+        effect=EFFECT_SMALL,
+        group=GROUP_SYSTEM,
+        entries=(
             RegEntry(_HKCU, r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
                      "ShowCopilotButton", "dword", 0, None),
         ),
-        requires_logoff=True,
         needs_explorer=True,
     ),
     Tweak(
@@ -913,8 +922,57 @@ def get_state(tweak: Tweak) -> bool:
     return True
 
 
+_ACCESS_DENIED = 5
+_protected_cache: dict[str, bool] = {}
+
+
+def _entry_writable(entry: RegEntry) -> bool:
+    """Чи дозволяє Windows записати це значення. Деякі (напр. Widgets) захищені від зміни
+    навіть для адміністратора — за іменем значення. Перевірка записує те саме значення, що вже
+    є (або тимчасове, яке одразу видаляє), тож нічого не змінює. False — лише при "Відмовлено в доступі"."""
+    vtype = winreg.REG_DWORD if entry.vtype == "dword" else winreg.REG_SZ
+    existed = _key_exists(entry.hive, entry.subkey)
+    try:
+        with winreg.CreateKeyEx(entry.hive, entry.subkey, 0, winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE) as key:
+            try:
+                value, old_type = winreg.QueryValueEx(key, entry.name)
+            except FileNotFoundError:
+                winreg.SetValueEx(key, entry.name, 0, vtype, entry.on_value)
+                winreg.DeleteValue(key, entry.name)
+            else:
+                winreg.SetValueEx(key, entry.name, 0, old_type, value)
+        return True
+    except OSError as exc:
+        return getattr(exc, "winerror", None) != _ACCESS_DENIED
+    finally:
+        if not existed:
+            try:
+                winreg.DeleteKey(entry.hive, entry.subkey)  # лише порожній ключ, який ми щойно створили
+            except OSError:
+                pass
+
+
+def is_protected(tweak: Tweak) -> bool:
+    """Windows на цій збірці забороняє змінювати значення цього твіка (UCPD та подібні захисти)."""
+    if tweak.id in _protected_cache:
+        return _protected_cache[tweak.id]
+    protected = False
+    for entry in tweak.entries:  # динамічні (entries_fn) не перевіряємо
+        if entry_requires_admin(entry) and not is_admin():
+            continue  # без прав адміна відмову не відрізнити від захисту
+        if not _entry_writable(entry):
+            _logger.warning("Tweak \"%s\": Windows blocks writing %s: %s even for an administrator", tweak.id,
+                            entry.subkey, entry.name)
+            protected = True
+            break
+    _protected_cache[tweak.id] = protected
+    return protected
+
+
 def blocked_reason(tweak: Tweak) -> str:
     """Чому твік зараз не можна увімкнути ("" — можна). Вимкнути (повернути) можна завжди."""
+    if is_protected(tweak):
+        return t("tweaks.unavailable.protected")
     return tweak.check_fn() if tweak.check_fn is not None else ""
 
 
@@ -1003,6 +1061,28 @@ def has_initial_state() -> bool:
 
 # ------------------------------------------------------------------ apply
 
+def _query_value(entry: RegEntry) -> tuple | None:
+    """(значення, тип) або None, якщо значення немає."""
+    try:
+        with winreg.OpenKey(entry.hive, entry.subkey, 0, winreg.KEY_READ) as key:
+            return winreg.QueryValueEx(key, entry.name)
+    except OSError:
+        return None
+
+
+def _rollback(previous: list[tuple[RegEntry, tuple | None]]) -> None:
+    """Повертає значення реєстру до стану до спроби (у зворотному порядку)."""
+    for entry, old in reversed(previous):
+        try:
+            if old is None:
+                _delete_value(entry)
+            else:
+                with winreg.CreateKeyEx(entry.hive, entry.subkey, 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.SetValueEx(key, entry.name, 0, old[1], old[0])
+        except OSError as exc:
+            _logger.error("Rollback of %s: %s failed: %s", entry.subkey, entry.name, exc)
+
+
 def set_tweak(tweak: Tweak, enabled: bool) -> tuple[bool, str]:
     if tweak_requires_admin(tweak) and not is_admin():
         _logger.error("No administrator rights to change \"%s\"", tweak.title)
@@ -1014,14 +1094,19 @@ def set_tweak(tweak: Tweak, enabled: bool) -> tuple[bool, str]:
 
     _ensure_backup_for(tweak)
 
+    # Усе або нічого: запам'ятовуємо попередні значення й при будь-якій невдачі повертаємо вже записане.
+    previous: list[tuple[RegEntry, tuple | None]] = []
     for entry in tweak_entries(tweak):
         value = entry.on_value if enabled else entry.off_value
+        previous.append((entry, _query_value(entry)))
         ok = _delete_value(entry) if value is None else _write_value(entry, value)
         if not ok:
+            _rollback(previous)
             return False, t("tweaks.err.write_value", name=entry.name)
     if tweak.apply_fn is not None:
         ok, error = tweak.apply_fn(enabled)
         if not ok:
+            _rollback(previous)
             return False, error
     get_audit_logger().info("Tweak \"%s\" (%s): %s", tweak.title, tweak.id, "enabled" if enabled else "disabled")
     return True, ""
@@ -1032,6 +1117,8 @@ def apply_tweaks(tweaks: list[Tweak], enabled: bool) -> list[tuple[Tweak, bool, 
     for tweak in tweaks:
         if get_state(tweak) == enabled:
             continue
+        if enabled and is_protected(tweak):
+            continue  # недоступний на цій збірці Windows — не помилка, просто пропускаємо
         success, error = set_tweak(tweak, enabled)
         results.append((tweak, success, error))
     return results
@@ -1042,6 +1129,8 @@ def apply_tweaks(tweaks: list[Tweak], enabled: bool) -> list[tuple[Tweak, bool, 
 def preset_tweaks(preset: str) -> list[Tweak]:
     """Склад пресета. Червоні («ризиковано») не входять у жоден пресет."""
     def included(tw: Tweak) -> bool:
+        if is_protected(tw):
+            return False
         if tw.risk == RISK_SAFE:
             return True
         if tw.risk == RISK_CAUTION:

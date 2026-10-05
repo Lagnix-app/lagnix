@@ -1,5 +1,11 @@
 # Changelog / Журнал змін
 
+## 0.9.2 (beta) — 2026-10-05
+
+- Fix: the "widgets and Copilot" tweak failed with "Could not change the value AllowNewsAndInterests". Windows 11 blocks writing this value even for an administrator. It is now two tweaks: "widgets" (shown as unavailable with an explanation on builds where Windows protects it, and left out of presets) and "Copilot" (works).
+- Tweaks are all-or-nothing: if any value of a tweak fails to write, the values already written are rolled back.
+- Tweaks whose values Windows refuses to change are detected up front: greyed out instead of an error.
+
 ## 0.9.1 (beta) — 2026-10-05
 
 - Settings → About: "GitHub" and "Report a bug" buttons (shown only when the link is set).

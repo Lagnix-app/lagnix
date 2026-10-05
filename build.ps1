@@ -2,7 +2,7 @@
 param([switch]$SkipInstaller)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
-$version = "0.9.1"
+$version = "0.9.2"
 
 # Підпис коду (необов'язковий): задайте LAGNIX_SIGN_CERT (шлях до .pfx) і LAGNIX_SIGN_PASSWORD
 # або LAGNIX_SIGN_THUMBPRINT (сертифікат у сховищі). LAGNIX_SIGN_TIMESTAMP — сервер часових міток.
