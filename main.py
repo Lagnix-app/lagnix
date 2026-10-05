@@ -69,9 +69,40 @@ from ui.main_window import MainWindow  # noqa: E402
 _THEME_PATH = _paths.resource("assets", "lagnix_theme.json")
 
 
+def _screenshots_main(lang: str) -> None:
+    """Прихований режим знімків (ui/screenshot_mode.py): `all` — послідовно en і uk окремими
+    процесами; без single-instance, міграцій і автозапуску, дані користувача не чіпає."""
+    import subprocess
+    from ui import screenshot_mode as shots
+    if lang == "all":
+        for code in ("en", "uk"):
+            subprocess.call([sys.executable, *([] if _paths.FROZEN else [os.path.abspath(__file__)]),
+                             f"--screenshots={code}"])
+        return
+    shots.seed_settings(lang)
+    i18n.set_language(lang)
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme(_THEME_PATH if os.path.exists(_THEME_PATH) else "blue")
+    sensors.set_enabled(True)
+    app = MainWindow()
+    runner = shots.Runner(app, shots.outdir_for(lang))
+    app.after(1500, runner.start)
+    try:
+        app.mainloop()
+    finally:
+        app.shell.shutdown()
+        sensors.stop()
+    print(f"{lang}: {len(runner.saved)} знімків у {shots.outdir_for(lang)}")
+
+
 def main():
     i18n.set_language(load_settings().get("language"))  # до першого вікна (зокрема запиту прав)
     _ensure_admin()
+    from ui import screenshot_mode
+    shots_lang = screenshot_mode.language_arg()
+    if shots_lang:
+        _screenshots_main(shots_lang)
+        return
     restart.wait_for_previous()  # перезапуск (зміна мови): старий екземпляр має встигнути вийти
     if not single_instance.acquire():  # Lagnix уже запущено — показуємо його вікно й виходимо
         single_instance.signal_existing()

@@ -23,10 +23,13 @@ Support the author: [Ko-fi](https://ko-fi.com/lagnix) · [itch.io](https://lagni
 
 ## Screenshots
 
-<!-- TODO: add screenshots -->
 | Monitor | Game Mode | Cleanup |
 |---|---|---|
-| _screenshot_ | _screenshot_ | _screenshot_ |
+| ![Monitor](docs/screenshots/monitor.png) | ![Game Mode](docs/screenshots/game-mode.png) | ![Cleanup](docs/screenshots/cleanup.png) |
+
+| Network | Programs | Registry tweaks |
+|---|---|---|
+| ![Network](docs/screenshots/network.png) | ![Programs](docs/screenshots/programs.png) | ![Registry tweaks](docs/screenshots/tweaks.png) |
 
 ## Requirements
 
@@ -86,10 +89,13 @@ Lagnix — безкоштовна утиліта для геймерів на Wi
 
 ### Скріншоти
 
-<!-- TODO: додати скріншоти -->
 | Монітор | Ігровий режим | Очищення |
 |---|---|---|
-| _скріншот_ | _скріншот_ | _скріншот_ |
+| ![Монітор](docs/screenshots/uk/monitor.png) | ![Ігровий режим](docs/screenshots/uk/game-mode.png) | ![Очищення](docs/screenshots/uk/cleanup.png) |
+
+| Мережа | Програми | Твіки реєстру |
+|---|---|---|
+| ![Мережа](docs/screenshots/uk/network.png) | ![Програми](docs/screenshots/uk/programs.png) | ![Твіки реєстру](docs/screenshots/uk/tweaks.png) |
 
 ### Вимоги
 

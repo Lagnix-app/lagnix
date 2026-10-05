@@ -13,7 +13,22 @@ _SOURCE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESOURCE_DIR = getattr(sys, "_MEIPASS", _SOURCE_ROOT) if FROZEN else _SOURCE_ROOT
 
 
+def _screenshots_dir() -> str | None:
+    """Режим `--screenshots[=мова]`: окрема тека даних (settings/data/logs), щоб не чіпати дані користувача."""
+    for arg in sys.argv[1:]:
+        if arg == "--screenshots" or arg.startswith("--screenshots="):
+            import tempfile
+            lang = arg.partition("=")[2] or "all"
+            path = os.path.join(tempfile.gettempdir(), f"Lagnix-screenshots-{lang}")
+            os.makedirs(path, exist_ok=True)
+            return path
+    return None
+
+
 def _user_dir() -> str:
+    override = _screenshots_dir()
+    if override:
+        return override
     if not FROZEN:
         return _SOURCE_ROOT
     base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Roaming")
