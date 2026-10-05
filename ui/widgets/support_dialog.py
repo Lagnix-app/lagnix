@@ -11,7 +11,7 @@ from ui import theme
 from ui.widgets import robot as robot_view
 
 _WIDTH = 400
-_HEIGHT = 440
+_HEIGHT = 410
 KOFI_COLOR = "#ff5e5b"
 KOFI_COLOR_HOVER = "#ff7a77"
 
@@ -37,11 +37,6 @@ class SupportDialog(ctk.CTkToplevel):
                           fg_color=KOFI_COLOR, hover_color=KOFI_COLOR_HOVER, text_color="#ffffff",
                           font=ctk.CTkFont(size=15, weight="bold"),
                           command=lambda: links.open_link(links.KOFI_URL)).pack(fill="x", pady=(0, 8))
-        if links.ITCH_URL:
-            ctk.CTkButton(buttons, text=t("support.itch"), height=34, corner_radius=10, fg_color="transparent",
-                          border_width=1, border_color=theme.BORDER, hover_color=theme.BG_PANEL_LIGHT,
-                          text_color=theme.TEXT_MAIN,
-                          command=lambda: links.open_link(links.ITCH_URL)).pack(fill="x")
         ctk.CTkButton(self, text=t("common.close"), width=120, height=30, fg_color="transparent",
                       hover_color=theme.BG_PANEL_LIGHT, text_color=theme.TEXT_DIM,
                       command=self.destroy).pack(pady=(10, 14))

@@ -174,7 +174,7 @@ class MainWindow(ctk.CTk):
         self._support_button = None
         self._support_dialog = None
         self._pulse_job = None
-        if links.KOFI_URL or links.ITCH_URL:
+        if links.KOFI_URL:
             self._support_button = ctk.CTkButton(
                 sidebar, text="❤ " + t("support.button"), height=34, corner_radius=8, fg_color="transparent",
                 border_width=1, border_color=_PULSE_LOW, hover_color=theme.BG_PANEL_LIGHT,
