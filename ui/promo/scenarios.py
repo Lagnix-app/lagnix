@@ -41,9 +41,9 @@ def build_sad_robot(lang: str):
     def scenario(p):
         yield 0.1
         p.place_cursor((WIDTH + 90, HEIGHT - 70))   # за межами кадру: справа внизу
-        p.caption("uninstall_title", 2.1)
+        p.caption("uninstall_title", 3.4)
         p.cue("window_in")
-        yield 2.2
+        yield 3.5
         # курсор з'являється й повільно їде до «Yes, remove»
         p.show_cursor(True)
         yield p.move(p.center(win.yes_button, dx=-10, dy=2), 3.9, bend=-50)
