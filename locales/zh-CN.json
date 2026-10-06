@@ -1077,5 +1077,9 @@
  "game_mode.force.browser_no_restore": "浏览器未启用会话恢复——标签页不会恢复",
  "game_mode.force.browser_unknown": "无法检查会话恢复——标签页可能无法恢复",
  "game_mode.browser_force": "强制关闭浏览器（标签页将在下次启动时恢复）",
- "game_mode.browser_force.hint": "仅当浏览器已启用会话恢复时；否则 Lagnix 会在窗口中询问。视频通话程序（Zoom、Teams、Discord、Skype）绝不会被自动关闭。"
+ "game_mode.browser_force.hint": "仅当浏览器已启用会话恢复时；否则 Lagnix 会在窗口中询问。视频通话程序（Zoom、Teams、Discord、Skype）绝不会被自动关闭。",
+ "promo.uninstall.title": "卸载 Lagnix",
+ "promo.uninstall.question": "你真的要卸载我吗？",
+ "promo.uninstall.yes": "是的，卸载",
+ "promo.uninstall.no": "不，我留下"
 }

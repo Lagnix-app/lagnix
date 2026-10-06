@@ -26,3 +26,6 @@ installer/img/
 *.pfx
 *.p12
 .env
+
+# Промо-відео (ui/promo, tools/promo_render.py)
+/promo/

@@ -1090,5 +1090,9 @@
  "game_mode.force.browser_no_restore": "Session restore is not enabled in this browser — tabs will not come back",
  "game_mode.force.browser_unknown": "Could not check session restore — tabs may not come back",
  "game_mode.browser_force": "Force close browsers (tabs will be restored on the next launch)",
- "game_mode.browser_force.hint": "Only when session restore is enabled in the browser; otherwise Lagnix will ask in a window. Video calls (Zoom, Teams, Discord, Skype) are never closed automatically."
+ "game_mode.browser_force.hint": "Only when session restore is enabled in the browser; otherwise Lagnix will ask in a window. Video calls (Zoom, Teams, Discord, Skype) are never closed automatically.",
+ "promo.uninstall.title": "Lagnix Uninstall",
+ "promo.uninstall.question": "Do you really want to remove me?",
+ "promo.uninstall.yes": "Yes, remove",
+ "promo.uninstall.no": "No, I'll stay"
 }

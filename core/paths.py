@@ -25,8 +25,30 @@ def _screenshots_dir() -> str | None:
     return None
 
 
+def promo_spec() -> str | None:
+    """Режим `--promo <сценарій>[:мова]` або `--promo=<сценарій>[:мова]` (ui/promo): рядок сценарію."""
+    args = sys.argv[1:]
+    for i, arg in enumerate(args):
+        if arg.startswith("--promo="):
+            return arg.partition("=")[2] or None
+        if arg == "--promo":
+            return args[i + 1] if i + 1 < len(args) else None
+    return None
+
+
+def _promo_dir() -> str | None:
+    """Окрема тимчасова тека даних для режиму промо (settings/data/logs), як у знімків."""
+    spec = promo_spec()
+    if spec is None:
+        return None
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), "Lagnix-promo-" + spec.replace(":", "-").replace("/", "_"))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def _user_dir() -> str:
-    override = _screenshots_dir()
+    override = _screenshots_dir() or _promo_dir()
     if override:
         return override
     if not FROZEN:

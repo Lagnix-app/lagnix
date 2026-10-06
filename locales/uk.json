@@ -1116,5 +1116,9 @@
  "game_mode.force.browser_no_restore": "У браузері не ввімкнене відновлення сесії — вкладки не повернуться",
  "game_mode.force.browser_unknown": "Не вдалося перевірити відновлення сесії — вкладки можуть не повернутися",
  "game_mode.browser_force": "Браузери закривати примусово (вкладки відновляться при наступному запуску)",
- "game_mode.browser_force.hint": "Лише коли в браузері ввімкнене відновлення сесії; інакше Lagnix спитає у вікні. Відеозв'язок (Zoom, Teams, Discord, Skype) автоматично не закривається ніколи."
+ "game_mode.browser_force.hint": "Лише коли в браузері ввімкнене відновлення сесії; інакше Lagnix спитає у вікні. Відеозв'язок (Zoom, Teams, Discord, Skype) автоматично не закривається ніколи.",
+ "promo.uninstall.title": "Видалення Lagnix",
+ "promo.uninstall.question": "Ти справді хочеш мене видалити?",
+ "promo.uninstall.yes": "Так, видалити",
+ "promo.uninstall.no": "Ні, я залишуся"
 }

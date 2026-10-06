@@ -1090,5 +1090,9 @@
  "game_mode.force.browser_no_restore": "Sitzungswiederherstellung ist im Browser nicht aktiviert — Tabs gehen verloren",
  "game_mode.force.browser_unknown": "Sitzungswiederherstellung konnte nicht geprüft werden — Tabs gehen eventuell verloren",
  "game_mode.browser_force": "Browser erzwungen schließen (Tabs werden beim nächsten Start wiederhergestellt)",
- "game_mode.browser_force.hint": "Nur wenn die Sitzungswiederherstellung im Browser aktiv ist; sonst fragt Lagnix im Fenster. Videoanrufe (Zoom, Teams, Discord, Skype) werden nie automatisch geschlossen."
+ "game_mode.browser_force.hint": "Nur wenn die Sitzungswiederherstellung im Browser aktiv ist; sonst fragt Lagnix im Fenster. Videoanrufe (Zoom, Teams, Discord, Skype) werden nie automatisch geschlossen.",
+ "promo.uninstall.title": "Lagnix deinstallieren",
+ "promo.uninstall.question": "Willst du mich wirklich entfernen?",
+ "promo.uninstall.yes": "Ja, entfernen",
+ "promo.uninstall.no": "Nein, ich bleibe"
 }

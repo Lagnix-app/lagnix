@@ -1077,5 +1077,9 @@
  "game_mode.force.browser_no_restore": "ブラウザーでセッションの復元が有効になっていません — タブは戻りません",
  "game_mode.force.browser_unknown": "セッションの復元を確認できませんでした — タブが戻らない可能性があります",
  "game_mode.browser_force": "ブラウザーを強制終了する（タブは次回起動時に復元されます）",
- "game_mode.browser_force.hint": "ブラウザーでセッションの復元が有効な場合のみ。それ以外は Lagnix がウィンドウで確認します。ビデオ通話（Zoom、Teams、Discord、Skype）は自動では閉じません。"
+ "game_mode.browser_force.hint": "ブラウザーでセッションの復元が有効な場合のみ。それ以外は Lagnix がウィンドウで確認します。ビデオ通話（Zoom、Teams、Discord、Skype）は自動では閉じません。",
+ "promo.uninstall.title": "Lagnix のアンインストール",
+ "promo.uninstall.question": "本当に私を削除しますか？",
+ "promo.uninstall.yes": "はい、削除",
+ "promo.uninstall.no": "いいえ、残ります"
 }

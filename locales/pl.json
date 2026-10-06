@@ -1116,5 +1116,9 @@
  "game_mode.force.browser_no_restore": "W przeglądarce nie włączono przywracania sesji — karty nie wrócą",
  "game_mode.force.browser_unknown": "Nie udało się sprawdzić przywracania sesji — karty mogą nie wrócić",
  "game_mode.browser_force": "Zamykaj przeglądarki siłą (karty zostaną przywrócone przy następnym uruchomieniu)",
- "game_mode.browser_force.hint": "Tylko gdy w przeglądarce włączone jest przywracanie sesji; w przeciwnym razie Lagnix zapyta w oknie. Rozmowy wideo (Zoom, Teams, Discord, Skype) nigdy nie są zamykane automatycznie."
+ "game_mode.browser_force.hint": "Tylko gdy w przeglądarce włączone jest przywracanie sesji; w przeciwnym razie Lagnix zapyta w oknie. Rozmowy wideo (Zoom, Teams, Discord, Skype) nigdy nie są zamykane automatycznie.",
+ "promo.uninstall.title": "Odinstalowanie Lagnix",
+ "promo.uninstall.question": "Naprawdę chcesz mnie usunąć?",
+ "promo.uninstall.yes": "Tak, usuń",
+ "promo.uninstall.no": "Nie, zostaję"
 }

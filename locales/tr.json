@@ -1090,5 +1090,9 @@
  "game_mode.force.browser_no_restore": "Tarayıcıda oturum geri yükleme açık değil — sekmeler geri gelmez",
  "game_mode.force.browser_unknown": "Oturum geri yükleme denetlenemedi — sekmeler geri gelmeyebilir",
  "game_mode.browser_force": "Tarayıcıları zorla kapat (sekmeler bir sonraki açılışta geri yüklenir)",
- "game_mode.browser_force.hint": "Yalnızca tarayıcıda oturum geri yükleme açıksa; aksi halde Lagnix bir pencerede sorar. Görüntülü görüşmeler (Zoom, Teams, Discord, Skype) asla otomatik kapatılmaz."
+ "game_mode.browser_force.hint": "Yalnızca tarayıcıda oturum geri yükleme açıksa; aksi halde Lagnix bir pencerede sorar. Görüntülü görüşmeler (Zoom, Teams, Discord, Skype) asla otomatik kapatılmaz.",
+ "promo.uninstall.title": "Lagnix'i Kaldır",
+ "promo.uninstall.question": "Beni gerçekten kaldırmak istiyor musun?",
+ "promo.uninstall.yes": "Evet, kaldır",
+ "promo.uninstall.no": "Hayır, kalıyorum"
 }

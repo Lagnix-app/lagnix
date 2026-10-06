@@ -1090,5 +1090,9 @@
  "game_mode.force.browser_no_restore": "La restauración de sesión no está activada en el navegador: las pestañas no volverán",
  "game_mode.force.browser_unknown": "No se pudo comprobar la restauración de sesión: las pestañas podrían no volver",
  "game_mode.browser_force": "Cerrar navegadores a la fuerza (las pestañas se restaurarán en el próximo inicio)",
- "game_mode.browser_force.hint": "Solo si el navegador tiene activada la restauración de sesión; si no, Lagnix preguntará en una ventana. Las videollamadas (Zoom, Teams, Discord, Skype) nunca se cierran automáticamente."
+ "game_mode.browser_force.hint": "Solo si el navegador tiene activada la restauración de sesión; si no, Lagnix preguntará en una ventana. Las videollamadas (Zoom, Teams, Discord, Skype) nunca se cierran automáticamente.",
+ "promo.uninstall.title": "Desinstalar Lagnix",
+ "promo.uninstall.question": "¿De verdad quieres eliminarme?",
+ "promo.uninstall.yes": "Sí, eliminar",
+ "promo.uninstall.no": "No, me quedo"
 }

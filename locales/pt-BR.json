@@ -1090,5 +1090,9 @@
  "game_mode.force.browser_no_restore": "A restauração de sessão não está ativada no navegador — as abas não voltarão",
  "game_mode.force.browser_unknown": "Não foi possível verificar a restauração de sessão — as abas podem não voltar",
  "game_mode.browser_force": "Forçar o fechamento dos navegadores (as abas serão restauradas na próxima abertura)",
- "game_mode.browser_force.hint": "Somente quando a restauração de sessão está ativada no navegador; caso contrário, o Lagnix pergunta em uma janela. Chamadas de vídeo (Zoom, Teams, Discord, Skype) nunca são fechadas automaticamente."
+ "game_mode.browser_force.hint": "Somente quando a restauração de sessão está ativada no navegador; caso contrário, o Lagnix pergunta em uma janela. Chamadas de vídeo (Zoom, Teams, Discord, Skype) nunca são fechadas automaticamente.",
+ "promo.uninstall.title": "Desinstalar o Lagnix",
+ "promo.uninstall.question": "Você quer mesmo me remover?",
+ "promo.uninstall.yes": "Sim, remover",
+ "promo.uninstall.no": "Não, eu fico"
 }

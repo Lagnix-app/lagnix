@@ -53,6 +53,9 @@ DELETE_ALLOWED = {
     os.path.join("core", "pawnio.py"): (set(), {"download_and_verify"}),
     # прихований режим знімків: лише власний data.json в окремій теці знімків
     os.path.join("ui", "screenshot_mode.py"): (set(), {"seed_settings"}),
+    # промо-режим: лише власні кадри запису й тимчасові settings/data у теці промо
+    os.path.join("ui", "promo", "engine.py"): (set(), {"run"}),
+    os.path.join("ui", "promo", "__init__.py"): (set(), {"_seed_settings"}),
 }
 
 

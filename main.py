@@ -128,7 +128,18 @@ def _screenshots_main(lang: str) -> None:
     print(f"{lang}: {len(runner.saved)} знімків у {shots.outdir_for(lang)}")
 
 
+def _promo_main(spec: str) -> None:
+    """Прихований режим `--promo=<сценарій>[:мова]` (ui/promo): сам керує інтерфейсом і записує кадри
+    для промо-відео. Усе імітація: без прав адміністратора, single-instance, автозапуску й звуків."""
+    from ui import promo
+    promo.run(spec)
+
+
 def main():
+    promo_spec = _paths.promo_spec()
+    if promo_spec:
+        _promo_main(promo_spec)
+        return
     i18n.set_language(load_settings().get("language"))  # до першого вікна (зокрема запиту прав)
     _ensure_admin()
     from ui import screenshot_mode
