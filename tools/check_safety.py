@@ -26,7 +26,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PROCESS_CONTROL = os.path.join("core", "process_control.py")
 # функції, що видаляють лише власні тимчасові файли, створені тут же (не дані користувача)
-OWN_TEMP_FILE_FUNCS = {"set_enabled", "download_and_verify", "seed_settings"}
+OWN_TEMP_FILE_FUNCS = {"set_enabled", "download_and_verify", "seed_settings", "_seed_settings"}
 KILL_RE = re.compile(r"\.terminate\(|\.kill\(|TerminateProcess|taskkill|os\.kill\(|Stop-Process|"
                      r"WM_CLOSE|PostMessage|SendMessage|EndTask")
 # 4. заборонені в усьому коді (поза цим файлом) виклики/константи
