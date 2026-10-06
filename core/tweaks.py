@@ -1032,6 +1032,11 @@ def _backup_keys(keys: list[tuple[int, str]]) -> None:
     update_data("registry_tweaks_backed_up_keys", sorted(done))
 
 
+def backup_registry_keys(keys: list[tuple[int, str]]) -> None:
+    """Публічний вхід для інших модулів (автозапуск): .reg-бекап ключів перед зміною."""
+    _backup_keys(keys)
+
+
 def _ensure_backup_for(tweak: Tweak) -> None:
     data = load_data()
 

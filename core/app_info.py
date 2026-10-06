@@ -2,5 +2,5 @@
 «Налаштування» (розділ «Про програму»)."""
 
 APP_NAME = "Lagnix"
-APP_VERSION = "0.9.3"
+APP_VERSION = "0.9.4"
 APP_DESCRIPTION = "about.description"  # ключ перекладу: t(APP_DESCRIPTION)

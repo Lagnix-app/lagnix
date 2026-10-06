@@ -1,12 +1,15 @@
 """Список і керування програмами автозапуску: HKCU/HKLM\\...\\Run і папки Startup.
 
-Вимкнення нічого не стирає назавжди:
-- для реєстру значення виймається з ключа Run, а сам запис (джерело, назва,
-  команда) зберігається в config.json (`autostart_disabled`), звідки при
-  увімкненні записується назад;
-- для ярликів у папці Startup файл переноситься у приховану підпапку
-  `Lagnix_Disabled` тієї ж теки Startup і повертається назад при увімкненні;
-  сам запис так само дублюється в config.json для надійного відновлення.
+Вимкнення — стандартний механізм Windows (як у Диспетчері завдань), нічого не
+переноситься й не видаляється: у ключі
+`...\\Explorer\\StartupApproved\\{Run | Run32 | StartupFolder}` (HKCU або HKLM)
+ставиться бінарне значення на 12 байт: перший байт 02 — увімкнено, 03 —
+вимкнено, далі час зміни (FILETIME). Ярлики Startup і значення Run лишаються
+на місці. Перед першою зміною ключ зберігається в .reg (як для твіків).
+
+Старі версії (до 0.9.4) переносили ярлики у `Startup\\Lagnix_Disabled` (Windows
+відкривала цю теку в Провіднику при кожному вході) і виймали значення з Run
+у data.json; `migrate_legacy()` повертає їх на місце й позначає вимкненими.
 
 HKLM\\...\\Run, HKLM\\...\\WOW6432Node\\...\\Run і спільна папка Startup (усі
 користувачі) потребують прав адміністратора для зміни — HKCU і особиста
@@ -19,6 +22,7 @@ import re
 import shutil
 import struct
 import subprocess
+import time
 import winreg
 from ctypes import wintypes
 
@@ -51,7 +55,20 @@ _REGISTRY_SOURCES = (
     (SOURCE_HKLM32, winreg.HKEY_LOCAL_MACHINE, _RUN_SUBKEY_WOW64, True),
 )
 
+# StartupApproved: джерело -> (hive, підключ)
+_APPROVED_BASE = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved"
+_APPROVED_KEYS = {
+    SOURCE_HKCU: (winreg.HKEY_CURRENT_USER, _APPROVED_BASE + r"\Run"),
+    SOURCE_HKLM: (winreg.HKEY_LOCAL_MACHINE, _APPROVED_BASE + r"\Run"),
+    SOURCE_HKLM32: (winreg.HKEY_LOCAL_MACHINE, _APPROVED_BASE + r"\Run32"),
+    SOURCE_STARTUP_USER: (winreg.HKEY_CURRENT_USER, _APPROVED_BASE + r"\StartupFolder"),
+    SOURCE_STARTUP_COMMON: (winreg.HKEY_LOCAL_MACHINE, _APPROVED_BASE + r"\StartupFolder"),
+}
+_STATE_ENABLED, _STATE_DISABLED = 2, 3
+
+# теки зі старих версій (лише для міграції й щоб не показувати їх як записи)
 _DISABLED_DIR_NAME = "Lagnix_Disabled"
+_OLD_DISABLED_DIR_NAMES = (_DISABLED_DIR_NAME, "PulseFPS_Disabled")
 _IGNORED_STARTUP_NAMES = {"desktop.ini"}
 
 # Технічні ідентифікатори реєстру (напр. "MicrosoftEdgeAutoLaunch_a1b2c3d4e5")
@@ -128,20 +145,55 @@ def _write_run_value(hive, subkey_path, name, value) -> bool:
         return False
 
 
-def _delete_run_value(hive, subkey_path, name) -> bool:
-    try:
-        with winreg.OpenKey(hive, subkey_path, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.DeleteValue(key, name)
-        return True
-    except OSError:
-        return False
-
-
 def _registry_source_info(source: str):
     for src, hive, subkey_path, requires_admin in _REGISTRY_SOURCES:
         if src == source:
             return hive, subkey_path, requires_admin
     return None
+
+
+# ---------------------------------------------------------- StartupApproved
+
+def _approved_value(state: int) -> bytes:
+    """12 байт: стан (02/03) + 3 нульових байти + FILETIME (для вимкненого — зараз)."""
+    filetime = int((time.time() + 11644473600) * 10_000_000) if state == _STATE_DISABLED else 0
+    return struct.pack("<I", state) + struct.pack("<Q", filetime)
+
+
+def _read_approved(source: str) -> dict[str, bool]:
+    """name(lower) -> True, якщо Windows вважає запис вимкненим (непарний перший байт)."""
+    hive, subkey = _APPROVED_KEYS[source]
+    result: dict[str, bool] = {}
+    try:
+        with winreg.OpenKey(hive, subkey, 0, winreg.KEY_READ) as key:
+            index = 0
+            while True:
+                try:
+                    name, value, kind = winreg.EnumValue(key, index)
+                except OSError:
+                    break
+                index += 1
+                if kind == winreg.REG_BINARY and value:
+                    result[name.lower()] = bool(value[0] & 1)
+    except OSError:
+        pass
+    return result
+
+
+def _write_approved(source: str, name: str, state: int) -> bool:
+    hive, subkey = _APPROVED_KEYS[source]
+    try:
+        with winreg.CreateKeyEx(hive, subkey, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, name, 0, winreg.REG_BINARY, _approved_value(state))
+        return True
+    except OSError:
+        return False
+
+
+def _backup_approved_key(source: str) -> None:
+    """.reg-бекап ключа StartupApproved перед зміною (спільний механізм із твіками)."""
+    from core import tweaks
+    tweaks.backup_registry_keys([_APPROVED_KEYS[source]])
 
 
 # ----------------------------------------------------------------- startup
@@ -363,17 +415,10 @@ def _extract_exe_path(command: str) -> str | None:
 
 
 def _entry_current_path(entry: dict) -> str | None:
-    """Реальний шлях до файлу запису зараз (враховуючи, що вимкнені ярлики
-    Startup фізично лежать у прихованій підпапці, а не за оригінальним шляхом).
-    """
+    """Реальний шлях до файлу запису (ярлика Startup або exe з команди Run)."""
     source = entry["source"]
     if source in (SOURCE_STARTUP_USER, SOURCE_STARTUP_COMMON):
-        directory = _startup_dir_for(source)
-        path = (
-            os.path.join(directory, entry["name"])
-            if entry["enabled"]
-            else os.path.join(directory, _DISABLED_DIR_NAME, entry["name"])
-        )
+        path = os.path.join(_startup_dir_for(source), entry["name"])
         return path if os.path.exists(path) else None
 
     exe_path = _extract_exe_path(entry["command"])
@@ -402,40 +447,26 @@ def _enrich_entry(entry: dict) -> None:
 # -------------------------------------------------------------------- list
 
 def list_entries() -> list[dict]:
-    """Усі програми автозапуску: активні (реєстр/папки) + вимкнені (config.json)."""
-    disabled = _disabled_state()
+    """Усі програми автозапуску (реєстр і папки Startup) зі станом із StartupApproved."""
     entries = []
-    seen_ids = set()
+    approved = {source: _read_approved(source) for source in _APPROVED_KEYS}
 
     for source, hive, subkey_path, requires_admin in _REGISTRY_SOURCES:
         for name, command in _read_run_values(hive, subkey_path).items():
-            entry_id = _entry_id(source, name)
-            seen_ids.add(entry_id)
             entries.append({
-                "id": entry_id, "source": source, "name": name, "command": command,
-                "enabled": True, "requires_admin": requires_admin,
+                "id": _entry_id(source, name), "source": source, "name": name, "command": command,
+                "enabled": not approved[source].get(name.lower(), False), "requires_admin": requires_admin,
             })
 
     for source in (SOURCE_STARTUP_USER, SOURCE_STARTUP_COMMON):
         directory = _startup_dir_for(source)
         for name in _list_startup_files(directory):
-            entry_id = _entry_id(source, name)
-            seen_ids.add(entry_id)
             entries.append({
-                "id": entry_id, "source": source, "name": name,
+                "id": _entry_id(source, name), "source": source, "name": name,
                 "command": os.path.join(directory, name),
-                "enabled": True, "requires_admin": requires_admin_for(source),
+                "enabled": not approved[source].get(name.lower(), False),
+                "requires_admin": requires_admin_for(source),
             })
-
-    for entry_id, record in disabled.items():
-        if entry_id in seen_ids:
-            continue
-        source = record["source"]
-        entries.append({
-            "id": entry_id, "source": source, "name": record["name"],
-            "command": record["command"], "enabled": False,
-            "requires_admin": requires_admin_for(source),
-        })
 
     for entry in entries:
         _enrich_entry(entry)
@@ -458,70 +489,114 @@ def open_location(entry: dict) -> tuple[bool, str]:
 
 # ------------------------------------------------------------------ toggle
 
-def disable_entry(entry: dict) -> tuple[bool, str]:
-    """Вимикає активний запис автозапуску, зберігаючи його в config.json для відновлення."""
+def _set_state(entry: dict, enabled: bool) -> tuple[bool, str]:
     source = entry["source"]
-
-    if source in (SOURCE_HKCU, SOURCE_HKLM, SOURCE_HKLM32):
-        hive, subkey_path, requires_admin = _registry_source_info(source)
-        if requires_admin and not is_admin():
-            get_logger("core.autostart").error("No administrator rights for the change")
-            return False, t("common.err.need_admin")
-        if not _delete_run_value(hive, subkey_path, entry["name"]):
-            return False, t("autostart.err.delete_registry")
-
-    elif source in (SOURCE_STARTUP_USER, SOURCE_STARTUP_COMMON):
-        if requires_admin_for(source) and not is_admin():
-            get_logger("core.autostart").error("No administrator rights for the change")
-            return False, t("common.err.need_admin")
-        directory = _startup_dir_for(source)
-        disabled_dir = os.path.join(directory, _DISABLED_DIR_NAME)
-        try:
-            os.makedirs(disabled_dir, exist_ok=True)
-            shutil.move(entry["command"], os.path.join(disabled_dir, entry["name"]))
-        except OSError as exc:
-            return False, str(exc)
-    else:
+    if source not in _APPROVED_KEYS:
         return False, t("autostart.err.unknown_source")
-
-    disabled = _disabled_state()
-    disabled[entry["id"]] = {"source": source, "name": entry["name"], "command": entry["command"]}
-    _save_disabled_state(disabled)
-    get_audit_logger().info("Autostart entry disabled: %s (%s) — backup kept in data.json", entry["name"], source)
+    if requires_admin_for(source) and not is_admin():
+        get_logger("core.autostart").error("No administrator rights for the change")
+        return False, t("common.err.need_admin")
+    _backup_approved_key(source)
+    state = _STATE_ENABLED if enabled else _STATE_DISABLED
+    if not _write_approved(source, entry["name"], state):
+        return False, t("autostart.err.toggle")
+    get_audit_logger().info("Autostart entry %s: %s (%s) — StartupApproved",
+                            "enabled" if enabled else "disabled", entry["name"], source)
     return True, ""
 
 
-def enable_entry(entry_id: str) -> tuple[bool, str]:
-    """Повертає раніше вимкнений запис назад у реєстр/папку Startup за даними з config.json."""
-    disabled = _disabled_state()
-    record = disabled.get(entry_id)
-    if record is None:
-        return False, t("autostart.err.not_found_disabled")
+def disable_entry(entry: dict) -> tuple[bool, str]:
+    """Вимикає запис автозапуску через StartupApproved (сам запис/ярлик не чіпаємо)."""
+    return _set_state(entry, False)
 
-    source = record["source"]
 
-    if source in (SOURCE_HKCU, SOURCE_HKLM, SOURCE_HKLM32):
-        hive, subkey_path, requires_admin = _registry_source_info(source)
-        if requires_admin and not is_admin():
-            get_logger("core.autostart").error("No administrator rights for the change")
-            return False, t("common.err.need_admin")
-        if not _write_run_value(hive, subkey_path, record["name"], record["command"]):
-            return False, t("autostart.err.restore_registry")
+def enable_entry(entry: dict) -> tuple[bool, str]:
+    """Вмикає запис автозапуску назад (StartupApproved -> 02)."""
+    return _set_state(entry, True)
 
-    elif source in (SOURCE_STARTUP_USER, SOURCE_STARTUP_COMMON):
+
+# --------------------------------------------------------------- міграція
+
+def _remove_legacy_dir(path: str) -> None:
+    """Видаляє ЛИШЕ нашу стару теку Lagnix_Disabled/PulseFPS_Disabled і лише порожню."""
+    if os.path.basename(path) in _OLD_DISABLED_DIR_NAMES and os.path.isdir(path) and not os.listdir(path):
+        os.rmdir(path)
+
+
+def _migrate_startup_dir(source: str) -> set[str]:
+    """Повертає ярлики зі старої теки на місце, позначаючи їх вимкненими.
+    Результат — імена (lower), що лишилися в старій теці."""
+    log = get_logger("core.autostart")
+    directory = _startup_dir_for(source)
+    left: set[str] = set()
+    for dirname in _OLD_DISABLED_DIR_NAMES:
+        old = os.path.join(directory, dirname)
+        if not os.path.isdir(old):
+            continue
         if requires_admin_for(source) and not is_admin():
-            get_logger("core.autostart").error("No administrator rights for the change")
-            return False, t("common.err.need_admin")
-        directory = _startup_dir_for(source)
-        disabled_path = os.path.join(directory, _DISABLED_DIR_NAME, record["name"])
+            log.warning("Legacy folder %s not migrated: administrator rights needed", old)
+            left.update(n.lower() for n in os.listdir(old))
+            continue
+        _backup_approved_key(source)
+        for name in os.listdir(old):
+            src, dst = os.path.join(old, name), os.path.join(directory, name)
+            if not os.path.isfile(src):
+                left.add(name.lower())
+                continue
+            if os.path.exists(dst):
+                log.warning("Shortcut %s not restored: %s already exists, left in %s", name, dst, old)
+                left.add(name.lower())
+                continue
+            # спершу «вимкнено», щоб повернений ярлик не запустився при наступному вході
+            if not _write_approved(source, name, _STATE_DISABLED):
+                log.error("Could not mark %s as disabled in StartupApproved, left in %s", name, old)
+                left.add(name.lower())
+                continue
+            try:
+                shutil.move(src, dst)
+            except OSError:
+                log.exception("Could not move %s back to %s", src, directory)
+                left.add(name.lower())
+                continue
+            get_audit_logger().info("Legacy disabled shortcut restored: %s (%s), marked disabled", name, source)
         try:
-            shutil.move(disabled_path, record["command"])
-        except OSError as exc:
-            return False, str(exc)
-    else:
-        return False, t("autostart.err.unknown_source")
+            _remove_legacy_dir(old)
+        except OSError:
+            log.exception("Could not remove the empty folder %s", old)
+    return left
 
-    del disabled[entry_id]
-    _save_disabled_state(disabled)
-    get_audit_logger().info("Autostart entry restored: %s (%s)", record["name"], source)
-    return True, ""
+
+def migrate_legacy() -> None:
+    """0.9.4: повертає ярлики з Lagnix_Disabled і Run-записи з data.json на місце, позначаючи їх вимкненими."""
+    log = get_logger("core.autostart")
+    left = {s: _migrate_startup_dir(s) for s in (SOURCE_STARTUP_USER, SOURCE_STARTUP_COMMON)}
+
+    records = _disabled_state()
+    if not records:
+        return
+    remaining = dict(records)
+    for entry_id, record in records.items():
+        source, name = record.get("source"), record.get("name", "")
+        if source in left:
+            if name.lower() not in left[source]:
+                del remaining[entry_id]  # ярлик уже на місці (або його немає ніде)
+            continue
+        info = _registry_source_info(source)
+        if info is None:
+            del remaining[entry_id]
+            continue
+        hive, subkey_path, requires_admin = info
+        if requires_admin and not is_admin():
+            log.warning("Legacy Run entry %s not restored: administrator rights needed", name)
+            continue
+        if name not in _read_run_values(hive, subkey_path) and not _write_run_value(hive, subkey_path, name, record["command"]):
+            log.error("Could not restore the Run entry %s", name)
+            continue
+        _backup_approved_key(source)
+        if _write_approved(source, name, _STATE_DISABLED):
+            get_audit_logger().info("Legacy disabled Run entry restored: %s (%s), marked disabled", name, source)
+            del remaining[entry_id]
+        else:
+            log.error("Could not mark %s as disabled in StartupApproved", name)
+    if remaining != records:
+        _save_disabled_state(remaining)

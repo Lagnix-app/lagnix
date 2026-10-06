@@ -26,7 +26,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PROCESS_CONTROL = os.path.join("core", "process_control.py")
 # функції, що видаляють лише власні тимчасові файли, створені тут же (не дані користувача)
-OWN_TEMP_FILE_FUNCS = {"set_enabled", "download_and_verify", "seed_settings", "_seed_settings"}
+OWN_TEMP_FILE_FUNCS = {"_remove_legacy_dir", "set_enabled", "download_and_verify", "seed_settings", "_seed_settings"}
 KILL_RE = re.compile(r"\.terminate\(|\.kill\(|TerminateProcess|taskkill|os\.kill\(|Stop-Process|"
                      r"WM_CLOSE|PostMessage|SendMessage|EndTask")
 # 4. заборонені в усьому коді (поза цим файлом) виклики/константи
@@ -51,6 +51,8 @@ DELETE_ALLOWED = {
     os.path.join("core", "launch_on_windows.py"): (set(), {"set_enabled"}),
     # власний завантажений інсталятор PawnIO, якщо його підпис недійсний
     os.path.join("core", "pawnio.py"): (set(), {"download_and_verify"}),
+    # власна порожня тека Lagnix_Disabled зі старих версій (rmdir лише порожньої)
+    os.path.join("core", "autostart.py"): (set(), {"_remove_legacy_dir"}),
     # прихований режим знімків: лише власний data.json в окремій теці знімків
     os.path.join("ui", "screenshot_mode.py"): (set(), {"seed_settings"}),
     # промо-режим: лише власні кадри запису й тимчасові settings/data у теці промо

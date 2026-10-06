@@ -332,7 +332,7 @@ class AutostartTab(ctk.CTkFrame):
             return
 
         if want_enabled:
-            success, error = autostart_core.enable_entry(entry["id"])
+            success, error = autostart_core.enable_entry(entry)
         else:
             success, error = autostart_core.disable_entry(entry)
 

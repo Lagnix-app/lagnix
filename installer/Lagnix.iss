@@ -1,8 +1,8 @@
-; Інсталятор Lagnix. Збірка: build.ps1 (ISCC /DAppVersion=0.9.3 installer\Lagnix.iss)
+; Інсталятор Lagnix. Збірка: build.ps1 (ISCC /DAppVersion=0.9.4 installer\Lagnix.iss)
 ; Картинки майстра: python tools/gen_installer_images.py (installer\img\*.bmp).
 ; Тексти робота — installer\strings.inc (12 мов); Inno-мова лише для стандартних кнопок.
 #ifndef AppVersion
-  #define AppVersion "0.9.3"
+  #define AppVersion "0.9.4"
 #endif
 #define AppName "Lagnix"
 #define AppExe "Lagnix.exe"
@@ -573,6 +573,43 @@ begin
   if Result then Result := AskOptions;
 end;
 
+{ 0.9.4: старі версії переносили вимкнені ярлики автозапуску в Startup\Lagnix_Disabled (Windows
+  відкривала цю теку при кожному вході). Повертаємо їх на місце й позначаємо вимкненими в StartupApproved
+  (02 — увімкнено, 03 — вимкнено, як у Диспетчері завдань); наявний ярлик не перезаписуємо; видаляємо
+  лише нашу теку і лише порожню. }
+procedure RestoreDisabledShortcuts(const StartupDir: String; Root: Integer);
+var
+  Old, Name: String;
+  FR: TFindRec;
+  Names: TStringList;
+  I: Integer;
+begin
+  Old := AddBackslash(StartupDir) + 'Lagnix_Disabled';
+  if not DirExists(Old) then Exit;
+  Names := TStringList.Create;
+  try
+    if FindFirst(Old + '\*', FR) then
+    try
+      repeat
+        if FR.Attributes and FILE_ATTRIBUTE_DIRECTORY = 0 then Names.Add(FR.Name);
+      until not FindNext(FR);
+    finally
+      FindClose(FR);
+    end;
+    for I := 0 to Names.Count - 1 do
+    begin
+      Name := Names[I];
+      if FileExists(AddBackslash(StartupDir) + Name) then Continue;
+      if RegWriteBinaryValue(Root, 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder',
+           Name, #3#0#0#0#0#0#0#0#0#0#0#0) then
+        RenameFile(Old + '' + Name, AddBackslash(StartupDir) + Name);
+    end;
+  finally
+    Names.Free;
+  end;
+  RemoveDir(Old);
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Exe: String;
@@ -587,6 +624,8 @@ begin
       if not (Exec(Exe, '--restore-all', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0)) then
         MsgBox(S('un_revert_fail'), mbError, MB_OK);
     end;
+    RestoreDisabledShortcuts(ExpandConstant('{userstartup}'), HKCU);
+    RestoreDisabledShortcuts(ExpandConstant('{commonstartup}'), HKLM);
     { автозапуск у Планувальнику (і старе завдання/запис Run) видаляємо завжди }
     Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN "{#AppName}" /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
     Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN "PulseFPS" /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
